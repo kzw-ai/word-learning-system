@@ -96,8 +96,7 @@ const LearningDashboard = () => {
       word: recommendation.word,
       module: recommendation.recommended_module,
       vksLevel: undefined,
-      reviewMode: null,
-      reviewedWordIds: null
+      reviewMode: null
     });
 
     const moduleRoutes: Record<string, string> = {

@@ -4,22 +4,35 @@ import { Button } from "@/components/ui/button";
 import { BookOpen, GraduationCap, ArrowRight, Activity, BarChart2 } from 'lucide-react';
 import { fetchJson } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
+import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
 
 const Home = () => {
   const router = useRouter();
   const { userId } = useLearningContext();
+  const { session, hydrated, updateSession } = useLearningSession();
   // null = 加载中，加载失败按 0 处理（不阻塞主流程）
-  const [dueCount, setDueCount] = useState<number | null>(null);
+  const [dueIds, setDueIds] = useState<number[] | null>(null);
+  // 今天已复习过的词不算到期，与复习列表的过滤口径一致
+  const reviewed = reviewedToday(session);
+  const dueCount = dueIds === null ? null : dueIds.filter(id => !reviewed.includes(id)).length;
+
+  // 回到首页即结束复习：中途离开复习（浏览器返回、看板「返回主页」等）后，
+  // 之后再开始的普通学习不能还带着复习模式
+  useEffect(() => {
+    if (hydrated && session.reviewMode) {
+      updateSession({ reviewMode: null });
+    }
+  }, [hydrated, session.reviewMode, updateSession]);
 
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetchJson<{ success: boolean; data: unknown[] }>(`/api/review/user/${userId}/due?limit=99`)
+    fetchJson<{ success: boolean; data: { word_id: number }[] }>(`/api/review/user/${userId}/due?limit=200`)
       .then(result => {
-        if (!cancelled) setDueCount(result.success && Array.isArray(result.data) ? result.data.length : 0);
+        if (!cancelled) setDueIds(result.success && Array.isArray(result.data) ? result.data.map(r => r.word_id) : []);
       })
       .catch(() => {
-        if (!cancelled) setDueCount(0);
+        if (!cancelled) setDueIds([]);
       });
     return () => {
       cancelled = true;

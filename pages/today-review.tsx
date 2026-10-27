@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { useLearningContext } from '@/src/context/LearningContext';
-import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
 import { Clock, BookOpen, TrendingUp } from 'lucide-react';
 
 interface ReviewItem {
@@ -26,12 +26,15 @@ const TodayReview = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dueReviews, setReviews] = useState<ReviewItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // 列表是哪个用户的：切换用户后，旧用户的（空）列表不能触发对新用户的清理
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const currentUserRef = useRef(userId);
+  currentUserRef.current = userId;
   // 点了开始复习、正在跳走：此刻刚把这个词记入 reviewedWordIds，过滤后的列表
   // 可能瞬间变空，不能据此判定「复习做完了」而清掉复习模式
   const leavingRef = useRef(false);
-  // 复习模式下隐藏本轮已经复习过的词
-  const reviewed = session.reviewMode ? session.reviewedWordIds ?? [] : [];
+  // 隐藏今天已经复习过的词（记录只在当天有效）
+  const reviewed = reviewedToday(session);
   const reviews = dueReviews.filter((r) => !reviewed.includes(r.word_id));
 
   useEffect(() => {
@@ -39,14 +42,20 @@ const TodayReview = () => {
   }, [userId]);
 
   const fetchDueReviews = async () => {
+    const requestUser = userId;
     try {
       setLoading(true);
-      const response = await fetch(buildApiUrl(`/api/review/user/${userId}/due?limit=20`));
+      setLoadedFor(null);
+      setReviews([]);
+      // limit 取足：前端还要再滤掉今天复习过的词，后端只给前 N 个的话，
+      // 排在后面的到期词会被这批挡住、永远轮不到（词库目前约 70 个词）
+      const response = await fetch(buildApiUrl(`/api/review/user/${requestUser}/due?limit=200`));
       const result = await response.json();
+      if (currentUserRef.current !== requestUser) return;
 
       if (response.ok && result.success) {
         setReviews(result.data);
-        setLoaded(true);
+        setLoadedFor(requestUser);
       } else {
         setError(result.error || 'API服务未运行');
       }
@@ -57,12 +66,14 @@ const TodayReview = () => {
     }
   };
 
-  // 复习清空后退出复习模式，之后学完的词照常去学习看板
+  // 复习清空后退出复习模式，之后学完的词照常去学习看板。
+  // 只退出模式、保留今天的已复习记录：未登录时作答没被记下，后端仍会返回这些词，
+  // 清掉记录它们会立刻重新出现
   useEffect(() => {
-    if (hydrated && loaded && reviews.length === 0 && session.reviewMode && !leavingRef.current) {
-      updateSession({ reviewMode: null, reviewedWordIds: null });
+    if (hydrated && loadedFor === userId && reviews.length === 0 && session.reviewMode && !leavingRef.current) {
+      updateSession({ reviewMode: null });
     }
-  }, [hydrated, loaded, reviews.length, session.reviewMode, updateSession]);
+  }, [hydrated, loadedFor, userId, reviews.length, session.reviewMode, updateSession]);
 
   const startReview = (review: ReviewItem) => {
     leavingRef.current = true;
@@ -74,7 +85,8 @@ const TodayReview = () => {
       module: review.recommended_module,
       vksLevel: undefined,
       reviewMode: true,
-      reviewedWordIds: [...reviewed, review.word_id]
+      reviewedWordIds: [...reviewed, review.word_id],
+      reviewDate: todayReviewKey()
     });
 
     const moduleRoutes: Record<string, string> = {
@@ -254,7 +266,7 @@ const TodayReview = () => {
               variant="outline"
               onClick={() => {
                 // 主动离开即结束本轮复习，下次进来重新开始
-                updateSession({ reviewMode: null, reviewedWordIds: null });
+                updateSession({ reviewMode: null });
                 router.push('/');
               }}
               className="w-full bg-white/50 border-white/60 text-gray-700 hover:bg-white/80 hover:text-indigo-600 h-12 rounded-xl font-semibold backdrop-blur-md text-base"

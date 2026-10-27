@@ -433,15 +433,21 @@ const Exercise = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={!next}
+                disabled={!next && !learningSession.reviewMode}
                 className="h-8 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-xs shadow-none border border-transparent"
                 onClick={() => {
+                  // 复习模式下这个出口回复习列表，否则会绕过剩下的到期词
+                  if (learningSession.reviewMode) {
+                    trackEvent('nav_next', 'navigation', { targetModule: 'today-review' });
+                    router.push(afterWordRoute(learningSession));
+                    return;
+                  }
                   if (!next) return;
                   trackEvent('nav_next', 'navigation', { targetModule: next.key });
                   goTo(next.key);
                 }}
               >
-                {next ? next.label : '结束'} →
+                {learningSession.reviewMode ? '复习列表' : (next ? next.label : '结束')} →
               </Button>
             </div>
           </div>

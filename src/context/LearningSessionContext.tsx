@@ -13,10 +13,12 @@ export interface LearningSessionState {
    */
   reviewMode?: boolean | null;
   /**
-   * 本轮复习已经开始过的词。复习列表据此过滤，不依赖后端把它们移出到期列表——
+   * 今天已经复习过的词。复习列表据此过滤，不依赖后端把它们移出到期列表——
    * 作答没能记录时（例如未登录、追踪器停用），否则会一直重复同一个词。
+   * 只在 reviewDate 当天有效，过了这一天自动失效，不会挡住之后再次到期的词。
    */
   reviewedWordIds?: number[] | null;
+  reviewDate?: string | null;
   lastUpdated?: string | null;
 }
 
@@ -40,6 +42,7 @@ const DEFAULT_SESSION: LearningSessionState = {
   vksLevel: null,
   reviewMode: null,
   reviewedWordIds: null,
+  reviewDate: null,
   lastUpdated: null
 };
 
@@ -65,6 +68,7 @@ const loadSessionFromStorage = (userId: string): LearningSessionState => {
         vksLevel: parsed.vksLevel ?? null,
         reviewMode: parsed.reviewMode ?? null,
         reviewedWordIds: Array.isArray(parsed.reviewedWordIds) ? parsed.reviewedWordIds : null,
+        reviewDate: parsed.reviewDate ?? null,
         lastUpdated: parsed.lastUpdated ?? null
       };
     }
@@ -115,25 +119,36 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
           return; // Server has no data, keep local
         }
 
+        // 请求期间切换了用户：这是上一个用户的数据，丢弃
+        if (userIdRef.current !== userId) {
+          return;
+        }
         const serverTime = serverState.lastUpdated ? new Date(serverState.lastUpdated).getTime() : 0;
-        const localTime = localSession.lastUpdated ? new Date(localSession.lastUpdated).getTime() : 0;
 
-        if (serverTime > localTime) {
-          // Server data is newer, use it
+        // 与「当前」会话比较，而不是请求发出时的快照：请求较慢时用户可能已经
+        // 开始了新的学习或复习，旧响应不能把它覆盖回去
+        setSession(prev => {
+          const localTime = prev.lastUpdated ? new Date(prev.lastUpdated).getTime() : 0;
+          if (serverTime <= localTime) {
+            return prev;
+          }
+          const wordId = serverState.wordId ?? prev.wordId;
+          // 复习状态只存本地。服务器上是另一个词时，说明在别处开始了别的学习，
+          // 本地的复习模式不再适用
+          const sameWord = wordId === prev.wordId;
           const merged: LearningSessionState = {
-            wordId: serverState.wordId ?? localSession.wordId,
-            word: serverState.word ?? localSession.word,
-            module: serverState.module ?? localSession.module,
-            vksLevel: serverState.vksLevel ?? localSession.vksLevel,
-            // 服务器不存这个字段，沿用本地的
-            reviewMode: localSession.reviewMode,
-            reviewedWordIds: localSession.reviewedWordIds,
-            lastUpdated: serverState.lastUpdated ?? localSession.lastUpdated
+            ...prev,
+            wordId,
+            word: serverState.word ?? prev.word,
+            module: serverState.module ?? prev.module,
+            vksLevel: serverState.vksLevel ?? prev.vksLevel,
+            reviewMode: sameWord ? prev.reviewMode : null,
+            lastUpdated: serverState.lastUpdated ?? prev.lastUpdated
           };
-          setSession(merged);
           persistSessionToStorage(userId, merged);
           console.log('📥 学习进度已从服务器恢复');
-        }
+          return merged;
+        });
       })
       .catch(err => {
         console.warn('Failed to fetch learning state from server:', err);
@@ -225,6 +240,17 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     </LearningSessionContext.Provider>
   );
 };
+
+const localDateKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** 今天已复习过的词；记录不是今天的就视为空 */
+export const reviewedToday = (session: LearningSessionState): number[] =>
+  session.reviewDate === localDateKey() ? session.reviewedWordIds ?? [] : [];
+
+export const todayReviewKey = localDateKey;
 
 /** 学完一个词之后去哪：复习模式回到复习列表，否则去学习看板 */
 export const afterWordRoute = (session: LearningSessionState) =>
