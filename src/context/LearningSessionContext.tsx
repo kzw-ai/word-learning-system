@@ -152,6 +152,15 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
       const defined = Object.fromEntries(
         Object.entries(partial).filter(([, value]) => value !== undefined)
       ) as Partial<LearningSessionState>;
+      // VKS 是对「某个词」的自评。换到另一个词却没给新自评时（推荐/复习入口），
+      // 不能沿用上一个词的档位，否则新词的 initial_level 会记成旧词的。
+      if (
+        defined.wordId !== undefined &&
+        defined.wordId !== prev.wordId &&
+        defined.vksLevel === undefined
+      ) {
+        defined.vksLevel = null;
+      }
       const next: LearningSessionState = {
         ...prev,
         ...defined,

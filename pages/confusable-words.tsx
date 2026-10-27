@@ -5,18 +5,18 @@ import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
 import AudioPlayer from '@/components/AudioPlayer';
 import { buildApiUrl } from '@/src/lib/apiClient';
 
+interface ConfusableWord {
+  id: number;
+  // 后端从 character 表拼出；拼不出时为 null，此时只能显示拼音
+  hanzi: string | null;
+  pinyin: string;
+  definition: string;
+}
+
 interface ConfusablePair {
   id: number;
-  word1: {
-    id: number;
-    pinyin: string;
-    definition: string;
-  };
-  word2: {
-    id: number;
-    pinyin: string;
-    definition: string;
-  };
+  word1: ConfusableWord;
+  word2: ConfusableWord;
   reason: string;
   difference: string;
   examples: string;
@@ -125,11 +125,16 @@ export default function ConfusableWordsPage() {
           {/* 词1 */}
           <div className="glass-panel rounded-2xl p-4 border-l-4 border-l-indigo-400">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xl font-bold text-indigo-700">
-                {currentPair.word1.pinyin}
-              </h3>
+              <div>
+                <h3 className="text-xl font-bold text-indigo-700">
+                  {currentPair.word1.hanzi ?? currentPair.word1.pinyin}
+                </h3>
+                {currentPair.word1.hanzi && (
+                  <p className="text-sm text-gray-500">{currentPair.word1.pinyin}</p>
+                )}
+              </div>
               <AudioPlayer
-                text={currentPair.word1.pinyin}
+                text={currentPair.word1.hanzi ?? currentPair.word1.pinyin}
                 language="zh-CN"
                 buttonSize="sm"
               />
@@ -142,11 +147,16 @@ export default function ConfusableWordsPage() {
           {/* 词2 */}
           <div className="glass-panel rounded-2xl p-4 border-l-4 border-l-emerald-400">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xl font-bold text-emerald-700">
-                {currentPair.word2.pinyin}
-              </h3>
+              <div>
+                <h3 className="text-xl font-bold text-emerald-700">
+                  {currentPair.word2.hanzi ?? currentPair.word2.pinyin}
+                </h3>
+                {currentPair.word2.hanzi && (
+                  <p className="text-sm text-gray-500">{currentPair.word2.pinyin}</p>
+                )}
+              </div>
               <AudioPlayer
-                text={currentPair.word2.pinyin}
+                text={currentPair.word2.hanzi ?? currentPair.word2.pinyin}
                 language="zh-CN"
                 buttonSize="sm"
               />

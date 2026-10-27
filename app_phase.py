@@ -72,6 +72,29 @@ class Word(db.Model):
     pinyin = db.Column(db.String(80), nullable=False)
     definition = db.Column(db.String(200), nullable=False)
 
+class ExerciseItem(db.Model):
+    """论文 6 套答案课件里的人工命题。
+
+    由 scripts/parse_answer_decks.py 从 data/learning_materials/the answer*.json
+    解析入库。这些题的干扰项是作者按教学设计挑的（形近、义近、同音），
+    远优于从词库随机抽词拼凑出来的选项。
+    """
+    __tablename__ = 'exercise_item'
+    __table_args__ = (
+        db.UniqueConstraint('source_deck', 'source_slide', 'question_type', 'stem',
+                            name='uq_exercise_item_source'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    word_id = db.Column(db.Integer, db.ForeignKey('word.id'), nullable=False, index=True)
+    question_type = db.Column(db.String(20), nullable=False)
+    stem = db.Column(db.Text, nullable=False)
+    options_json = db.Column(db.Text)          # JSON 数组；填词题为空
+    correct_answer = db.Column(db.String(100), nullable=False)
+    source_deck = db.Column(db.String(100), nullable=False)
+    source_slide = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class Example(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sentence = db.Column(db.String(200), nullable=False)
@@ -677,6 +700,50 @@ def get_word_exercises(word_id):
             'error': 'No exercises available for this word'
         }), 404
 
+    # 优先使用论文课件里的人工命题：干扰项经过教学设计，
+    # 填词题挖的也是词中一个字。查不到才回落到下面的程序生成逻辑。
+    authored = (
+        ExerciseItem.query.filter_by(word_id=word.id)
+        .order_by(ExerciseItem.question_type.desc(), ExerciseItem.id.asc())
+        .all()
+    )
+    if authored:
+        type_order = {'definition': 0, 'collocation': 1, 'fill_word': 2}
+        sort_key = lambda it: (type_order.get(it.question_type, 9), it.id)
+        authored.sort(key=sort_key)
+        # 先保证每种题型至少一道，再按原顺序补满。直接截断会让题多的词
+        # （如「感觉」8 道、「当」7 道）永远排不到排在最后的填词题。
+        selected, seen_types = [], set()
+        for item in authored:
+            if item.question_type not in seen_types:
+                seen_types.add(item.question_type)
+                selected.append(item)
+        for item in authored:
+            if item not in selected:
+                selected.append(item)
+        selected = sorted(selected[:question_limit], key=sort_key)
+        questions = []
+        for index, item in enumerate(selected, start=1):
+            options = json.loads(item.options_json) if item.options_json else []
+            questions.append({
+                'id': f'authored-{item.id}',
+                'type': item.question_type,
+                'question': item.stem,
+                'options': options,
+                'correctAnswer': item.correct_answer,
+                'feedback': f"正确答案：{item.correct_answer}（选自{item.source_deck}）"
+            })
+        return jsonify({
+            'success': True,
+            'data': {
+                'wordId': word.id,
+                'word': base_hanzi,
+                'definition': word.definition,
+                'questions': questions,
+                'source': 'authored'
+            }
+        })
+
     def build_options():
         candidates = {base_hanzi}
         # 只从「有 character 行」的词里抽干扰项。无素材的词 get_word_hanzi 会回退到
@@ -703,49 +770,6 @@ def get_word_exercises(word_id):
     options = build_options()
     questions = []
 
-    if word.id == 1:
-        # Override to strict prototype content for "发生" (word id 1) to match images perfectly
-        questions = [
-            {
-                'id': f'definition-{word.id}',
-                'type': 'definition',
-                'question': 'happen; occur; take place',
-                'options': ['嘴', '哪儿', '第一', '发生'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'collocation-{word.id}-1',
-                'type': 'collocation',
-                'question': '容易 ( )',
-                'options': ['最后', '一直', '五', '发生'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'choose_word-{word.id}-1',
-                'type': 'choose_word',
-                'question': '不愿意 ( ) 的事情终于出现了。',
-                'options': ['发生', '发现'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'sentence-{word.id}-1',
-                'type': 'fill_word',
-                'question': '不愿意发 ( ) 的事情终于出现了。',
-                'options': [],
-                'correctAnswer': '生'
-            }
-        ]
-        return jsonify({
-            'success': True,
-            'data': {
-                'wordId': word.id,
-                'word': base_hanzi,
-                'definition': 'happen; occur; take place',
-                'questions': questions[:question_limit] if question_limit < len(questions) else questions
-            }
-        })
-
-    # Default logic for other words
     questions.append({
         'id': f'definition-{word.id}',
         'type': 'definition',
@@ -1943,6 +1967,21 @@ def initialize_database():
             if ConfusablePair.query.count() == 0:
                 print("📝 添加易混淆词数据...")
                 seed_confusable_pairs()
+
+            # 论文课件里的人工命题。每次启动都与课件同步，而不是「表空才导」：
+            # 先只有示范词、后导入教材的库，以及解析器修正过的题，都要靠这一步
+            # 补齐或更正，否则练习会静默回落到随机干扰项。同步是幂等的。
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import parse_answer_decks  # pyrefly: ignore  # 运行时动态路径
+                inserted, updated, pruned, unmatched = parse_answer_decks.import_into(_db_path)
+                if inserted or updated or pruned:
+                    print(f"📝 论文练习题同步：新增 {inserted} 条，更新 {updated} 条，删除过期 {pruned} 条")
+                if unmatched:
+                    print(f"⚠️  论文练习题有 {unmatched} 组在词库中找不到对应词")
+            except Exception as e:
+                print(f"⚠️  论文练习题同步失败: {str(e)}")
 
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:

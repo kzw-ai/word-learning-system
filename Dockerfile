@@ -22,6 +22,8 @@ COPY confusable_api.py .
 COPY words_extended.db .
 COPY data/ ./data/
 COPY learning_materials/ ./learning_materials/
+# app_phase 启动时从 scripts/ 加载课件题目同步与示范数据脚本
+COPY scripts/ ./scripts/
 
 # Expose Flask port
 EXPOSE 5004

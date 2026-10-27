@@ -4,12 +4,35 @@
 添加到 app_phase.py 中
 """
 
+import re
+
 from flask import jsonify, request
 from sqlalchemy import text
 
+# 无 character 行的词，pinyin 列里混写了汉字，形如 '突然 tūrán'
+HANZI_PREFIX = re.compile(r'^([\u4e00-\u9fff]+)\s+(.+)$')
+
 def register_confusable_apis(app, db, require_authentication, check_ownership):
     """注册易混淆词相关的API端点"""
-    
+
+    def word_display(word_id, raw_pinyin):
+        """返回 (汉字, 拼音)。word 表没有汉字列，按 character 表顺序拼出；
+        拼不出时尝试从 pinyin 列拆出混写的汉字，都没有则汉字为 None。"""
+        rows = db.session.execute(
+            text("SELECT character FROM character WHERE word_id = :id ORDER BY id"),
+            {'id': word_id}
+        ).fetchall()
+        if rows:
+            return ''.join(r[0] for r in rows), raw_pinyin
+        match = HANZI_PREFIX.match(raw_pinyin or '')
+        if match:
+            return match.group(1), match.group(2)
+        return None, raw_pinyin
+
+    def word_payload(word_id, raw_pinyin, definition):
+        hanzi, pinyin = word_display(word_id, raw_pinyin)
+        return {'id': word_id, 'hanzi': hanzi, 'pinyin': pinyin, 'definition': definition}
+
     @app.route('/api/confusable/pairs', methods=['GET'])
     def get_confusable_pairs():
         """获取易混淆词对列表"""
@@ -52,16 +75,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
             for row in result:
                 pairs.append({
                     'id': row[0],
-                    'word1': {
-                        'id': row[1],
-                        'pinyin': row[3],
-                        'definition': row[5]
-                    },
-                    'word2': {
-                        'id': row[2],
-                        'pinyin': row[4],
-                        'definition': row[6]
-                    },
+                    'word1': word_payload(row[1], row[3], row[5]),
+                    'word2': word_payload(row[2], row[4], row[6]),
                     'reason': row[7],
                     'difference': row[8],
                     'examples': row[9],
@@ -123,16 +138,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
             
             pair = {
                 'id': result[0],
-                'word1': {
-                    'id': result[1],
-                    'pinyin': result[3],
-                    'definition': result[5]
-                },
-                'word2': {
-                    'id': result[2],
-                    'pinyin': result[4],
-                    'definition': result[6]
-                },
+                'word1': word_payload(result[1], result[3], result[5]),
+                'word2': word_payload(result[2], result[4], result[6]),
                 'reason': result[7],
                 'difference': result[8],
                 'examples': result[9],
