@@ -35,6 +35,69 @@ POS_ABBREV = {
     'INTERJECTION': 'interj.', 'NUMERAL': 'num.', 'MEASURE': 'm.',
     'PARTICLE': 'part.', 'AUXILIARY': 'aux.', 'IDIOM': 'idiom',
 }
+# ---- 拼音工具（清洗脚本 clean_materials.py 也用） ----
+TONE_MARKS = 'āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ'
+_TONELESS = str.maketrans(TONE_MARKS, 'aaaaeeeeiiiioooouuuuüüüü')
+_INITIALS = ('zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g',
+             'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w', '')
+_FINALS = {
+    'a', 'o', 'e', 'ai', 'ei', 'ao', 'ou', 'an', 'en', 'ang', 'eng', 'ong', 'er',
+    'i', 'ia', 'ie', 'iao', 'iu', 'ian', 'in', 'iang', 'ing', 'iong',
+    'u', 'ua', 'uo', 'uai', 'ui', 'uan', 'un', 'uang', 'ueng', 'ue',
+    'ü', 'üe', 'üan', 'ün',
+}
+
+
+def strip_tones(text: str) -> str:
+    return text.translate(_TONELESS)
+
+
+def is_pinyin_syllable(text: str) -> bool:
+    """单个拼音音节（声调可有可无）：声母 + 韵母，宽松校验，足以区分音节边界"""
+    plain = strip_tones(text.lower())
+    return any(plain.startswith(ini) and plain[len(ini):] in _FINALS for ini in _INITIALS)
+
+
+def split_word_pinyin(pinyin: str, count: int) -> list[str] | None:
+    """把整词拼音切成 count 个音节，如 ('fāngmiàn', 2) -> ['fāng', 'miàn']。
+
+    只在切法唯一时返回；有歧义或切不出时返回 None，宁可留空也不猜。
+    声调符号与对应元音一一替换，长度不变，所以切分位置可直接用在原串上。
+    """
+    raw = re.sub(r"[\s'’]", '', pinyin or '')
+    if not raw or count < 1:
+        return None
+    plain = strip_tones(raw.lower())
+    solutions: list[list[str]] = []
+
+    def walk(start: int, parts: list[str]) -> None:
+        if len(solutions) > 1:
+            return
+        if len(parts) == count:
+            if start == len(plain):
+                solutions.append(parts)
+            return
+        for end in range(start + 1, min(len(plain), start + 6) + 1):
+            if is_pinyin_syllable(plain[start:end]):
+                walk(end, parts + [raw[start:end]])
+
+    walk(0, [])
+    return solutions[0] if len(solutions) == 1 else None
+
+
+def split_pinyin_prefix(line: str) -> tuple[str, str] | None:
+    """行首是带声调的拼音音节、后面还有内容时拆开：
+    'hòu NOUN climate' -> ('hòu', 'NOUN climate')；'diǎn place; point' -> ('diǎn', 'place; point')。
+    PPT 里单字的拼音和词性释义常挤在同一行。"""
+    m = re.match(r'^(\S+)\s+(\S.*)$', (line or '').strip())
+    if not m:
+        return None
+    token, rest = m.groups()
+    if not re.search(f'[{TONE_MARKS}]', token) or not is_pinyin_syllable(token):
+        return None
+    return token, rest.strip()
+
+
 NOISE_LINES = {"['", "’]", '[', ']', "'", '"', '’', '‘', '"]', '["', '【', '】'}
 
 
@@ -140,11 +203,17 @@ def parse_characters(head: list[str], hanzi: str) -> tuple[list[dict], list[tupl
             inline_rest = line[1:].strip()
             idx += 1
             char_pinyin = ''
+            block_lines: list[str] = [inline_rest] if inline_rest else []
             if not inline_rest and idx < len(head) and looks_like_pinyin(head[idx]):
                 char_pinyin = head[idx]
                 idx += 1
+            elif not inline_rest and idx < len(head) and split_pinyin_prefix(head[idx]):
+                # 拼音和词性释义挤在一行：'hòu NOUN climate'。此前整行被当成释义，
+                # 拼音留空，释义里漏出 'hòu NOUN'
+                char_pinyin, rest = split_pinyin_prefix(head[idx])  # type: ignore[misc]
+                block_lines.append(rest)
+                idx += 1
             # 收集该字的释义行，直到下一个字或段落结束
-            block_lines: list[str] = [inline_rest] if inline_rest else []
             while idx < len(head):
                 nxt = head[idx]
                 if pos_in_word + 1 < len(expected) and is_char_line(nxt, expected[pos_in_word + 1]):
@@ -177,11 +246,19 @@ def parse_characters(head: list[str], hanzi: str) -> tuple[list[dict], list[tupl
 
 
 def parse_collocations(colloc: list[str]) -> list[dict]:
-    """中文搭配行后跟英文翻译行"""
+    """中文搭配行后跟英文翻译行。
+
+    带空位的搭配在 PPT 里被拆成三行：'简直' / 'X' / '相信（三级）'（意为「简直 X 相信」）。
+    此前只取到其中一行，整条搭配就丢了目标词。
+    """
     result: list[dict] = []
     idx = 0
     while idx < len(colloc):
         line = colloc[idx]
+        if (has_chinese(line) and idx + 2 < len(colloc)
+                and colloc[idx + 1].strip().upper() == 'X' and has_chinese(colloc[idx + 2])):
+            line = f'{line} X {colloc[idx + 2]}'
+            idx += 2
         if has_chinese(line):
             translation = ''
             if (idx + 1 < len(colloc) and not has_chinese(colloc[idx + 1])
@@ -309,6 +386,13 @@ def parse_word(hanzi: str, pinyin: str, slides: list[dict]) -> dict:
 
     if len(hanzi) == 1 and not characters:
         characters = [{'character': hanzi, 'pinyin': best_pinyin, 'definition': definition}]
+
+    # 课件里有的单字只给了释义没给拼音（如 方面 的「方」「面」），从整词拼音切出
+    if characters and any(not c['pinyin'] for c in characters):
+        syllables = split_word_pinyin(best_pinyin, len(characters))
+        if syllables:
+            for char, syllable in zip(characters, syllables):
+                char['pinyin'] = char['pinyin'] or syllable
 
     return {
         'hanzi': hanzi,

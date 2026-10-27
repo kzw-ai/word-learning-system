@@ -2051,6 +2051,18 @@ def initialize_database():
                 print("📝 添加易混淆词数据...")
                 seed_confusable_pairs()
 
+            # 修复已入库素材的已知缺陷（拼音混在释义里、缺拼音、搭配丢了目标词等）。
+            # 导入脚本只插入不更新，修好它不会改正旧数据；这里幂等，改过一次后不再动
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import clean_materials  # pyrefly: ignore  # 运行时动态路径
+                fixed = clean_materials.clean_database(_db_path)
+                if fixed:
+                    print(f"🧹 学习素材修复 {fixed} 行")
+            except Exception as e:
+                print(f"⚠️  学习素材修复失败: {str(e)}")
+
             # 论文课件里的人工命题。每次启动都与课件同步，而不是「表空才导」：
             # 先只有示范词、后导入教材的库，以及解析器修正过的题，都要靠这一步
             # 补齐或更正，否则练习会静默回落到随机干扰项。同步是幂等的。
