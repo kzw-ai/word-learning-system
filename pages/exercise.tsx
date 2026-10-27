@@ -122,11 +122,8 @@ const Exercise = () => {
         error: message
       });
 
-      if (targetWordId !== DEFAULT_WORD_ID) {
-        await loadExercises(DEFAULT_WORD_ID, DEFAULT_WORD_NAME);
-        return;
-      }
-
+      // 不要回退到默认词：那样会把会话的词覆盖成「发生」，用户前几个模块
+      // 学的是 A，练习记录却记在 B 头上。如实报错，让用户重试或离开。
       setExerciseQuestions([]);
       setCurrentQuestion(null);
       setError(message || '加载练习题失败');
@@ -337,6 +334,11 @@ const Exercise = () => {
     loadExercises(wordId, wordLabel);
   };
 
+  const handleLeave = () => {
+    trackButtonClick('leave-button', '返回学习看板');
+    router.push('/learning-dashboard');
+  };
+
   const getQuestionTypeTitle = (type: ExerciseType) => {
     switch (type) {
       case 'definition':
@@ -364,7 +366,10 @@ const Exercise = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
         <p className="text-red-600">❌ {error}</p>
-        <Button onClick={handleRetry}>重新加载</Button>
+        <div className="flex gap-3">
+          <Button onClick={handleRetry}>重新加载</Button>
+          <Button variant="outline" onClick={handleLeave}>返回学习看板</Button>
+        </div>
       </div>
     );
   }
