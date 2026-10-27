@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -85,12 +85,17 @@ const Exercise = () => {
     startTime: questionStartTime
   } = exerciseTimer;
 
+  // 只采纳最近一次请求的结果：较早发出的请求晚返回时，不能用它覆盖当前的词
+  const loadRequestRef = useRef(0);
+
   const loadExercises = useCallback(async (targetWordId: number, overrideLabel?: string | null) => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     setError(null);
 
     try {
       const data = await fetchWordExercises(targetWordId, { limit: 5, options: 4 });
+      if (requestId !== loadRequestRef.current) return;
       const normalizedQuestions: ExerciseQuestion[] = data.questions;
 
       if (!normalizedQuestions.length) {
@@ -116,6 +121,7 @@ const Exercise = () => {
         questionCount: normalizedQuestions.length
       });
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
       const message = err instanceof Error ? err.message : '加载练习题失败';
       trackEvent('exercise_load_failed', 'exercise', {
         wordId: targetWordId,
@@ -128,7 +134,9 @@ const Exercise = () => {
       setCurrentQuestion(null);
       setError(message || '加载练习题失败');
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [trackEvent, updateConfig, updateLearningSession]);
 
@@ -136,11 +144,14 @@ const Exercise = () => {
   const desiredWordLabel = useMemo(() => learningSession.word ?? DEFAULT_WORD_NAME, [learningSession.word]);
 
   useEffect(() => {
+    // 等会话从 localStorage 恢复后再加载：恢复前 desiredWordId 是默认词 1，
+    // 提前请求会先拿到「发生」并写回会话
+    if (!sessionHydrated) return;
     setWordLabel(desiredWordLabel);
     if (desiredWordId !== wordId || exerciseQuestions.length === 0) {
       loadExercises(desiredWordId, desiredWordLabel);
     }
-  }, [desiredWordId, desiredWordLabel, wordId, exerciseQuestions.length, loadExercises]);
+  }, [sessionHydrated, desiredWordId, desiredWordLabel, wordId, exerciseQuestions.length, loadExercises]);
 
   useEffect(() => {
     updateConfig({ userId });
@@ -307,19 +318,26 @@ const Exercise = () => {
       sessionId: sessionInfo?.sessionId
     });
 
-    await endSession(true);
-
-    // 主线收尾环节：若本词存在易混淆词，先进入辨析再看学习分析
+    // 主线收尾环节：若本词存在易混淆词，先进入辨析再看学习分析。
+    // 必须在 endSession 之前查询并埋点：endSession 会发出最后一批事件并把追踪器
+    // 标记为已结束，之后再 trackEvent 的事件不会再被发送。
+    let confusablePairId: number | null = null;
     try {
       const resp = await fetch(buildApiUrl(`/api/confusable/for-word/${wordId}`));
       const result = await resp.json();
       if (result.success && result.pair_id) {
+        confusablePairId = result.pair_id;
         trackEvent('confusable_step', 'exercise-end', { wordId, pairId: result.pair_id });
-        router.push(`/confusable-words?pair=${result.pair_id}&from=exercise`);
-        return;
       }
     } catch {
       // 查询失败不阻塞主流程
+    }
+
+    await endSession(true);
+
+    if (confusablePairId) {
+      router.push(`/confusable-words?pair=${confusablePairId}&from=exercise`);
+      return;
     }
 
     if (next) {
@@ -331,7 +349,8 @@ const Exercise = () => {
 
   const handleRetry = () => {
     trackButtonClick('retry-button', '重新加载');
-    loadExercises(wordId, wordLabel);
+    // 用会话里的目标词：加载失败时本地 wordId 没有更新，可能还是初始值 1
+    loadExercises(desiredWordId, desiredWordLabel);
   };
 
   const handleLeave = () => {
