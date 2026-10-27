@@ -1,0 +1,7 @@
+# 开发与测试依赖。不要放进 requirements.txt——Dockerfile 会把它打进生产镜像。
+-r requirements.txt
+pytest
+# adaptive_engine.py 在模块顶部 import numpy；生产服务器装了 numpy，所以完整引擎
+# 是启用的。requirements.txt 不列它，没有 numpy 时后端按设计回落到简化引擎。
+# 测试会直接导入 adaptive_engine，因此这里需要。
+numpy

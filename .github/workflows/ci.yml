@@ -1,0 +1,44 @@
+name: CI
+
+# pull_request（而非 pull_request_target）：来自 fork 的 PR 拿不到仓库密钥、
+# GITHUB_TOKEN 也只读，所以在这里构建、测试 PR 的代码是安全的。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 与生产服务器一致；3.11 是本地开发版本
+        python-version: ['3.9', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      # 测试用临时数据库（WORDS_DB_PATH），不需要仓库里没有的 words_extended.db
+      - run: python -m pytest tests -q
+
+  frontend:
+    name: typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
