@@ -53,6 +53,7 @@ const LearningDashboard = () => {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
 
   useEffect(() => {
+    if (!userId) return;
     fetchDashboardData();
     fetchRecommendation();
   }, [userId]);

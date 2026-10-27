@@ -111,10 +111,17 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
   // Keep userIdRef in sync
   useEffect(() => {
     userIdRef.current = userId;
+    // 切换身份（登录、开发期换测试用户）时，丢弃上一个身份尚未发出的保存
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
   }, [userId]);
 
   // Load from localStorage on user switch, then async-fetch from backend
   useEffect(() => {
+    // 身份尚未确定（首帧）时不加载；hydrated 保持 false，追踪器等它就绪才创建
+    if (!userId) return;
     const localSession = loadSessionFromStorage(userId);
     setSession(localSession);
     setHydrated(true);
@@ -167,8 +174,11 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
+    // 入队时就定下身份：若等到触发时再读，1 秒内切换了身份，旧身份的学习位置
+    // 就会写到新身份名下
+    const uid = userIdRef.current;
+    if (!uid) return;
     saveTimerRef.current = setTimeout(() => {
-      const uid = userIdRef.current;
       saveLearningState(uid, {
         wordId: state.wordId,
         word: state.word,
@@ -205,8 +215,12 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
         ...defined,
         lastUpdated: timestamp
       };
-      persistSessionToStorage(userIdRef.current, next);
-      syncToBackend(next);
+      // 身份确定前（首帧）各页的 updateSession 只改内存，不落盘也不上报；
+      // 身份确定后加载的会话会覆盖它
+      if (userIdRef.current) {
+        persistSessionToStorage(userIdRef.current, next);
+        syncToBackend(next);
+      }
       return next;
     });
   }, [syncToBackend]);

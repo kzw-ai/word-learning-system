@@ -6,8 +6,12 @@
 import sqlite3
 from datetime import datetime
 
-def migrate_auth_system(db_path='words_extended.db'):
-    """添加认证系统所需的数据库结构"""
+def migrate_auth_system(db_path='words_extended.db', seed_test_passwords=True):
+    """添加认证系统所需的数据库结构（幂等，可重复执行）
+
+    seed_test_passwords: 给所有没有密码的用户设成 password123，只用于测试库。
+    后端启动时以 False 调用——否则每个新建的访客档案都会被设上这个公开密码。
+    """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -83,6 +87,10 @@ def migrate_auth_system(db_path='words_extended.db'):
         """)
         
         # 3. 为现有用户设置默认密码（用于测试）
+        if not seed_test_passwords:
+            conn.commit()
+            print("✅ 认证表结构已就绪")
+            return True
         print("   🔑 为现有测试用户设置默认密码...")
         from werkzeug.security import generate_password_hash
         default_password_hash = generate_password_hash('password123', method='pbkdf2:sha256')

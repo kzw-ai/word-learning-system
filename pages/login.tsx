@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { buildApiUrl } from "@/src/lib/apiClient";
+import { useLearningContext } from '@/src/context/LearningContext';
 
 const Login = () => {
   const router = useRouter();
+  const { setUserId } = useLearningContext();
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -38,6 +40,9 @@ const Login = () => {
         localStorage.setItem('session_token', result.data.session_token);
         localStorage.setItem('user_id', result.data.user_id);
         localStorage.setItem('username', result.data.username);
+        // 学习系统随即改用账号身份；此前只存了 user_id，学习页仍用旧身份，
+        // 请求里的用户与登录凭证对不上而被拒绝
+        setUserId(result.data.user_id);
 
         // 跳转到首页
         router.push('/');
