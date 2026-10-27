@@ -709,9 +709,21 @@ def get_word_exercises(word_id):
     )
     if authored:
         type_order = {'definition': 0, 'collocation': 1, 'fill_word': 2}
-        authored.sort(key=lambda it: (type_order.get(it.question_type, 9), it.id))
+        sort_key = lambda it: (type_order.get(it.question_type, 9), it.id)
+        authored.sort(key=sort_key)
+        # 先保证每种题型至少一道，再按原顺序补满。直接截断会让题多的词
+        # （如「感觉」8 道、「当」7 道）永远排不到排在最后的填词题。
+        selected, seen_types = [], set()
+        for item in authored:
+            if item.question_type not in seen_types:
+                seen_types.add(item.question_type)
+                selected.append(item)
+        for item in authored:
+            if item not in selected:
+                selected.append(item)
+        selected = sorted(selected[:question_limit], key=sort_key)
         questions = []
-        for index, item in enumerate(authored[:question_limit], start=1):
+        for index, item in enumerate(selected, start=1):
             options = json.loads(item.options_json) if item.options_json else []
             questions.append({
                 'id': f'authored-{item.id}',
@@ -1956,17 +1968,20 @@ def initialize_database():
                 print("📝 添加易混淆词数据...")
                 seed_confusable_pairs()
 
-            # 论文课件里的人工命题。此前只能手动跑导入脚本，新部署的库里
-            # exercise_item 为空，练习会静默回落到随机干扰项。
-            if ExerciseItem.query.count() == 0:
-                try:
-                    import sys
-                    sys.path.insert(0, os.path.join(basedir, 'scripts'))
-                    import parse_answer_decks  # pyrefly: ignore  # 运行时动态路径
-                    inserted, _, unmatched = parse_answer_decks.import_into(_db_path)
-                    print(f"📝 导入论文练习题 {inserted} 条（词库未匹配 {unmatched} 组）")
-                except Exception as e:
-                    print(f"⚠️  论文练习题导入失败: {str(e)}")
+            # 论文课件里的人工命题。每次启动都与课件同步，而不是「表空才导」：
+            # 先只有示范词、后导入教材的库，以及解析器修正过的题，都要靠这一步
+            # 补齐或更正，否则练习会静默回落到随机干扰项。同步是幂等的。
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import parse_answer_decks  # pyrefly: ignore  # 运行时动态路径
+                inserted, pruned, unmatched = parse_answer_decks.import_into(_db_path)
+                if inserted or pruned:
+                    print(f"📝 论文练习题同步：新增 {inserted} 条，删除过期 {pruned} 条")
+                if unmatched:
+                    print(f"⚠️  论文练习题有 {unmatched} 组在词库中找不到对应词")
+            except Exception as e:
+                print(f"⚠️  论文练习题同步失败: {str(e)}")
 
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:

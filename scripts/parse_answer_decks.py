@@ -44,6 +44,9 @@ RE_ANSWER_HANZI = re.compile(r'[（(]\s*([一-鿿]{1,6})\s*[)）]')
 # 填词题答案：句子里被括起来的汉字，如 降（低）成本
 RE_FILL_ANSWER = re.compile(r'[（(]\s*([一-鿿]+)\s*[)）]')
 
+# 句末标点之后断句，标点保留在前一句
+RE_SENTENCE_END = re.compile(r'(?<=[。？！?!])')
+
 BLANK = ' ( ) '
 
 
@@ -199,18 +202,40 @@ def parse_slide(text, deck, slide_index):
     part = section(RE_SECTION_FILL)
     if part:
         # 去掉偶尔混进来的拼音行（如 "shen1"）
-        part = re.sub(r'\b[a-zA-Z]+\d?\b', ' ', part)
-        m = RE_FILL_ANSWER.search(part)
-        if m:
+        part = normalize(re.sub(r'\b[a-zA-Z]+\d?\b', ' ', part))
+        if len(RE_FILL_ANSWER.findall(part)) > 1:
+            # 一页里有多句各挖一个空（如「更（好）」出现两次）：按句拆成独立的题，
+            # 否则只挖第一个空，其余括号会把答案直接露在题干里
+            sentences = [x.strip() for x in RE_SENTENCE_END.split(part) if x.strip()]
+        else:
+            sentences = [part] if part else []
+        found = False
+        for sentence in sentences:
+            answers = RE_FILL_ANSWER.findall(sentence)
+            if not answers:
+                continue
+            found = True
+            if len(answers) > 1:
+                problems.append(f'{deck} slide{slide_index}: 填词题一句里有多个空，跳过')
+                continue
+            m = RE_FILL_ANSWER.search(sentence)
             answer = m.group(1)
-            stem = normalize(part[:m.start()] + BLANK + part[m.end():])
+            # 填回答案后句子里必须出现目标词，否则考的不是这个词
+            # （课件里「变化」一页写成了「变（好）」）
+            filled = sentence[:m.start()] + answer + sentence[m.end():]
+            if target_word and target_word not in filled:
+                problems.append(
+                    f'{deck} slide{slide_index}: 填词题补全后是「{filled}」，'
+                    f'不含目标词「{target_word}」，跳过'
+                )
+                continue
             items.append({
                 'question_type': 'fill_word',
-                'stem': stem,
+                'stem': normalize(sentence[:m.start()] + BLANK + sentence[m.end():]),
                 'options': [],
                 'correct_answer': answer,
             })
-        elif normalize(part):
+        if part and not found:
             problems.append(f'{deck} slide{slide_index}: 填词题找不到括号答案')
 
     return items, problems, target_word
@@ -300,16 +325,35 @@ def insert_items(conn, resolved):
     return inserted, skipped
 
 
+def prune_stale_items(conn, slides):
+    """删掉课件解析结果里已不存在的题（解析器修正后旧题干/旧答案会残留）。
+    去重键不含答案，只插入不会修正已入库的错题，所以同步时必须做这一步。"""
+    current = {(s['deck'], s['slide'], it['question_type'], it['stem'])
+               for s in slides for it in s['items']}
+    stale = [row[0] for row in conn.execute(
+        "SELECT id, source_deck, source_slide, question_type, stem FROM exercise_item"
+    ) if tuple(row[1:]) not in current]
+    conn.executemany("DELETE FROM exercise_item WHERE id = ?", [(i,) for i in stale])
+    conn.commit()
+    return len(stale)
+
+
 def import_into(db_path):
-    """供后端启动时调用：解析课件并导入，返回 (新增, 跳过, 未匹配词数)。"""
+    """供后端每次启动时调用，把 exercise_item 与课件同步。
+
+    幂等：已有的题跳过，新匹配到词库的词补入，课件里已不存在的题删除。
+    返回 (新增, 删除, 未匹配词数)。
+    """
     slides, _ = parse_all()
     conn = sqlite3.connect(db_path)
     try:
+        create_table(conn)
+        pruned = prune_stale_items(conn, slides)
         resolved, unmatched = resolve_word_ids(conn, slides)
-        inserted, skipped = insert_items(conn, resolved)
+        inserted, _ = insert_items(conn, resolved)
     finally:
         conn.close()
-    return inserted, skipped, len(unmatched)
+    return inserted, pruned, len(unmatched)
 
 
 def main():
@@ -350,8 +394,11 @@ def main():
         conn.close()
         return 0 if not problems else 1
 
+    create_table(conn)
+    pruned = prune_stale_items(conn, slides)
     inserted, skipped = insert_items(conn, resolved)
-    print('💾 写入 %s: 新增 %d 条，已存在跳过 %d 条' % (args.db, inserted, skipped))
+    print('💾 写入 %s: 新增 %d 条，已存在跳过 %d 条，删除过期 %d 条'
+          % (args.db, inserted, skipped, pruned))
     conn.close()
     return 0
 
