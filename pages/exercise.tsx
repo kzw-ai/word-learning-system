@@ -8,7 +8,7 @@ import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { fetchWordExercises, buildApiUrl } from '@/src/lib/apiClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
 import { useLearningContext } from '@/src/context/LearningContext';
-import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
 import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
@@ -340,10 +340,13 @@ const Exercise = () => {
       return;
     }
 
-    if (next) {
+    // 复习模式先回复习列表：练习的 next 恒为 dashboard，不能交给它
+    if (learningSession.reviewMode) {
+      router.push(afterWordRoute(learningSession));
+    } else if (next) {
       goTo(next.key);
     } else {
-      router.push('/learning-dashboard');
+      router.push(afterWordRoute(learningSession));
     }
   };
 
@@ -355,7 +358,7 @@ const Exercise = () => {
 
   const handleLeave = () => {
     trackButtonClick('leave-button', '返回学习看板');
-    router.push('/learning-dashboard');
+    router.push(afterWordRoute(learningSession));
   };
 
   const getQuestionTypeTitle = (type: ExerciseType) => {
@@ -430,15 +433,21 @@ const Exercise = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={!next}
+                disabled={!next && !learningSession.reviewMode}
                 className="h-8 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-xs shadow-none border border-transparent"
                 onClick={() => {
+                  // 复习模式下这个出口回复习列表，否则会绕过剩下的到期词
+                  if (learningSession.reviewMode) {
+                    trackEvent('nav_next', 'navigation', { targetModule: 'today-review' });
+                    router.push(afterWordRoute(learningSession));
+                    return;
+                  }
                   if (!next) return;
                   trackEvent('nav_next', 'navigation', { targetModule: next.key });
                   goTo(next.key);
                 }}
               >
-                {next ? next.label : '结束'} →
+                {learningSession.reviewMode ? '复习列表' : (next ? next.label : '结束')} →
               </Button>
             </div>
           </div>

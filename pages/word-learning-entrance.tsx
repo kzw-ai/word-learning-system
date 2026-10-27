@@ -255,7 +255,8 @@ export default function Component() {
       wordId: resolvedWordId,
       word: resolvedWord,
       module: resolvedModule.moduleKey,
-      vksLevel: selectedOption
+      vksLevel: selectedOption,
+      reviewMode: null
     });
 
       await endSession(true);

@@ -1380,7 +1380,7 @@ def get_simple_due_reviews(user_id, limit):
     
     try:
         cursor.execute("""
-            SELECT up.word_id, w.pinyin, up.mastery_level, up.last_studied
+            SELECT up.word_id, w.pinyin, up.mastery_level, up.last_studied, up.review_count
             FROM user_progress up
             JOIN word w ON up.word_id = w.id
             WHERE up.user_id = ?
@@ -1393,14 +1393,18 @@ def get_simple_due_reviews(user_id, limit):
         reviews = []
         
         for result in results:
-            word_id, pinyin, mastery_level, last_studied = result
+            word_id, pinyin, mastery_level, last_studied, review_count = result
+            mastery_level = mastery_level or 0
             reviews.append({
                 'word_id': word_id,
-                'word': pinyin,
+                'word': get_word_hanzi(word_id) or pinyin,
+                'pinyin': pinyin,
                 'mastery_level': mastery_level,
                 'days_overdue': 3,
+                'review_count': review_count or 0,
                 'priority_score': 1 - mastery_level,
-                'recommended_module': 'review'
+                # 前端没有 'review' 这个模块；与 adaptive_engine 的默认复习模块一致
+                'recommended_module': 'word'
             })
         
         return reviews
