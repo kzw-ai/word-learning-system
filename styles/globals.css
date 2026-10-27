@@ -65,7 +65,9 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
-    font-family: Arial, sans-serif;
+    /* 中文优先用系统黑体；拼音的声调符号这些字体都能正确显示 */
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", "Noto Sans SC", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 }
 

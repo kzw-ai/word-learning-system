@@ -91,7 +91,7 @@ const Home = () => {
 
             {/* 学习路线说明：回答“到底怎么学” */}
             <div className="glass-card rounded-2xl px-4 py-3">
-              <p className="text-xs font-semibold text-gray-400 mb-1.5 tracking-wide">学习路线</p>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5 tracking-wide">学习路线</p>
               <p className="text-sm text-gray-600 leading-relaxed">
                 复习到期词汇 → VKS 自评新词 → 按水平进入
                 <span className="text-indigo-600 font-medium">字 / 词 / 搭配 / 例句</span>
@@ -102,7 +102,7 @@ const Home = () => {
             {/* 数据入口：易混词辨析已融入主学习流程（练习后自动带出），
                 今日复习由主入口按记忆曲线安排，均不再单独设入口 */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-400 tracking-wide px-1">查看数据</p>
+              <p className="text-xs font-semibold text-gray-500 tracking-wide px-1">查看数据</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => router.push('/learning-dashboard')}
@@ -113,7 +113,7 @@ const Home = () => {
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-gray-700">我的数据</p>
-                    <p className="text-xs text-gray-400">进度与推荐</p>
+                    <p className="text-xs text-gray-500">进度与推荐</p>
                   </div>
                 </button>
 
@@ -126,7 +126,7 @@ const Home = () => {
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-gray-700">分析报告</p>
-                    <p className="text-xs text-gray-400">系统统计</p>
+                    <p className="text-xs text-gray-500">系统统计</p>
                   </div>
                 </button>
               </div>
@@ -137,17 +137,20 @@ const Home = () => {
               <Button
                 variant="ghost"
                 onClick={() => router.push('/login')}
-                className="flex-1 text-sm font-medium text-gray-400 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
+                className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
               >
                 登录账户
               </Button>
-              <Button
-                variant="ghost"
-                onClick={() => router.push('/system-status')}
-                className="flex-1 text-sm font-medium text-gray-400 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
-              >
-                诊断工具
-              </Button>
+              {/* 端口探测页，面向开发者，不展示给学习者 */}
+              {process.env.NODE_ENV !== 'production' && (
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/system-status')}
+                  className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
+                >
+                  诊断工具
+                </Button>
+              )}
             </div>
           </div>
         </div>

@@ -116,24 +116,8 @@ body {
   padding-bottom: max(env(safe-area-inset-bottom), 1rem);
 }
 
-/* 响应式字体 */
-@media (max-width: 640px) {
-  html {
-    font-size: 14px;
-  }
-}
-
-@media (min-width: 641px) and (max-width: 1024px) {
-  html {
-    font-size: 15px;
-  }
-}
-
-@media (min-width: 1025px) {
-  html {
-    font-size: 16px;
-  }
-}
+/* 根字号保持浏览器默认 16px。此前手机上被设为 14px，Tailwind 的 rem 字号随之
+   整体缩水（text-sm 实际 12.25px、text-xs 10.5px），低于项目约定的 14px 下限。 */
 
 /* ==================== 性能优化 ==================== */
 
@@ -234,20 +218,8 @@ button:active {
 
 /* ==================== 暗色模式支持 ==================== */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #1a1a1a;
-    --bg-secondary: #2d2d2d;
-    --text-primary: #ffffff;
-    --text-secondary: #a0a0a0;
-    --border-color: #404040;
-  }
-  
-  body {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-  }
-}
+/* 页面全部按浅色设计、颜色均已写死，暂不支持暗色模式。原先这里在系统暗色时
+   把 body 改成黑底白字，只会让未指定颜色的元素出错，故移除。 */
 
 /* ==================== 无障碍优化 ==================== */
 

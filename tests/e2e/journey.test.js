@@ -80,32 +80,20 @@ const puppeteer = require('puppeteer-core');
       const optionBtn = [...document.querySelectorAll('button')]
         .find((b) => /^[A-D]\.\s/.test(b.innerText.trim()) && !b.disabled);
       if (optionBtn) { optionBtn.click(); return 'answered'; }
-      if (document.querySelector('canvas')) {
-        window.prompt = (msg, def) => def || '变化';
-        return 'handwriting';
-      }
+      if (document.querySelector('[data-fill-input]')) return 'fill';
       return 'answered';
     });
-    if (state === 'handwriting') {
-      // 在手写画布上画一笔，然后点 Finish（prompt 已覆写为返回正确答案）
-      const canvas = await page.$('canvas');
-      if (canvas) {
-        const box = await canvas.boundingBox();
-        await page.mouse.move(box.x + 30, box.y + 40);
-        await page.mouse.down();
-        await page.mouse.move(box.x + 120, box.y + 50, { steps: 5 });
-        await page.mouse.up();
-        await new Promise((r) => setTimeout(r, 300));
-        await page.evaluate(() => {
-          [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Finish')?.click();
-        });
-      }
+    if (state === 'fill') {
+      // 填词题是输入框：输入一个字后回车提交
+      await page.type('[data-fill-input]', '化');
+      await page.keyboard.press('Enter');
     }
     await new Promise((r) => setTimeout(r, 500));
     if (state === 'answered') {
+      // 作答前的提交按钮叫 CHECK
       await page.evaluate(() => {
         [...document.querySelectorAll('button')]
-          .find((b) => b.innerText.trim() === 'CONTINUE' && !b.disabled)?.click();
+          .find((b) => /^(CHECK|CONTINUE)$/.test(b.innerText.trim()) && !b.disabled)?.click();
       });
     }
     await new Promise((r) => setTimeout(r, 1500));

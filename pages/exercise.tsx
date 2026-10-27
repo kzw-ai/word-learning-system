@@ -3,7 +3,6 @@ import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Battery, Signal, Wifi, Volume2 } from 'lucide-react';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { fetchWordExercises, buildApiUrl } from '@/src/lib/apiClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
@@ -12,7 +11,7 @@ import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessio
 import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
-import HandwritingInput from '@/components/HandwritingInput';
+import AudioPlayer from '@/components/AudioPlayer';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -47,7 +46,6 @@ const Exercise = () => {
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
   const [wordId, setWordId] = useState(initialWordId);
   const [wordLabel, setWordLabel] = useState(initialWordLabel);
@@ -190,7 +188,6 @@ const Exercise = () => {
     setFillInAnswer(''); // 重置填空答案
     setShowFeedback(false);
     setIsCorrect(false);
-    setAudioPlaying(null);
     startTimer();
 
     trackEvent('question_display', 'exercise', {
@@ -201,16 +198,14 @@ const Exercise = () => {
     });
   }, [exerciseQuestions, questionIndex, startTimer, trackEvent]);
 
+  // 发音由 AudioPlayer 负责，这里只记录埋点
   const playAudio = (id: string) => {
-    setAudioPlaying(id);
     trackAudioPlay(id, 'exercise-audio');
     trackEvent('audio_play', id, {
       questionId: currentQuestion?.id,
       questionType: currentQuestion?.type,
       audioType: id
     });
-
-    setTimeout(() => setAudioPlaying(null), 1000);
   };
 
   const handleOptionChange = (value: string) => {
@@ -378,19 +373,23 @@ const Exercise = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <p className="text-gray-600">加载练习题中...</p>
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50">
+        <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex items-center justify-center">
+          <p className="text-base text-gray-600">加载练习题中...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50">
+        <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex flex-col items-center justify-center space-y-4 px-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-center">
         <p className="text-red-600">❌ {error}</p>
         <div className="flex gap-3">
           <Button onClick={handleRetry}>重新加载</Button>
-          <Button variant="outline" onClick={handleLeave}>返回学习看板</Button>
+          <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? '返回复习列表' : '返回学习看板'}</Button>
+        </div>
         </div>
       </div>
     );
@@ -398,10 +397,13 @@ const Exercise = () => {
 
   if (!currentQuestion) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center space-y-2">
-          <p className="text-gray-600">暂无可用练习题</p>
-          <Button onClick={handleRetry}>尝试重新获取</Button>
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50">
+        <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex flex-col items-center justify-center space-y-3 px-5 text-center">
+          <p className="text-base text-gray-600">暂无可用练习题</p>
+          <div className="flex gap-3">
+            <Button onClick={handleRetry}>尝试重新获取</Button>
+            <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? '返回复习列表' : '返回学习看板'}</Button>
+          </div>
         </div>
       </div>
     );
@@ -425,16 +427,16 @@ const Exercise = () => {
                   goTo(previous.key);
                 }}
               >
-                ← {previous ? previous.label : '上一模块'}
+                ← {previous ? previous.label : '上一步'}
               </Button>
               <h1 className="text-xl font-extrabold text-gray-800 tracking-tight pt-1 leading-none">
-                {isTestMode ? 'word test' : (isReviewMode ? 'word review' : 'word exercise')}
+                {isTestMode ? 'Test' : (isReviewMode ? 'Review' : 'Exercise')}
               </h1>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={!next && !learningSession.reviewMode}
-                className="h-8 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-xs shadow-none border border-transparent"
+                className="h-9 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-sm shadow-none border border-transparent"
                 onClick={() => {
                   // 复习模式下这个出口回复习列表，否则会绕过剩下的到期词
                   if (learningSession.reviewMode) {
@@ -454,32 +456,33 @@ const Exercise = () => {
           
           <div className="flex-1 px-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
                 <div className="space-y-3">
-                  <ReviewReminder userId={userId} showInline={true} />
+                  {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
+                  {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
                   
                 {/* Title and Audio play */}
                 <div>
-                  <h2 className="text-xl font-extrabold text-gray-900 leading-snug mb-3 tracking-wide">
-                    {questionIndex + 1}. {currentQuestion.type === 'definition' ? 
-                      'Find responding word.' : 
-                      currentQuestion.type === 'collocation' ? 'Find right collocation.' : 
-                      currentQuestion.type === 'choose_word' ? 'Choose right word.' :
-                      'Fill in right word.'
-                    }
-                  </h2>
+                  <div className="flex items-baseline justify-between gap-3 mb-3">
+                    <h2 className="text-xl font-extrabold text-gray-900 leading-snug tracking-wide">
+                      {currentQuestion.type === 'definition' ?
+                        'Choose the word that matches the meaning.' :
+                        currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
+                        currentQuestion.type === 'choose_word' ? 'Choose the right word.' :
+                        'Type the missing character.'
+                      }
+                    </h2>
+                    <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`第 ${questionIndex + 1} 题，共 ${exerciseQuestions.length} 题`}>
+                      {questionIndex + 1} / {exerciseQuestions.length}
+                    </span>
+                  </div>
                   <div className="mb-6 flex gap-2 items-center">
-                    <p className="text-base font-bold text-gray-800">
-                      {currentQuestion.type === 'definition' ? 
-                        `() ${currentQuestion.question}` : currentQuestion.question}
-                    </p>
+                    <p className="text-lg font-bold text-gray-800">{currentQuestion.question}</p>
                     {currentQuestion.type === 'definition' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => playAudio('question')}
-                        className={`h-7 w-7 p-0 rounded-full shrink-0 ${audioPlaying === 'question' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}
-                      >
-                        <Volume2 size={14} />
-                      </Button>
+                      <AudioPlayer
+                        text={currentQuestion.question}
+                        language="en-US"
+                        buttonSize="sm"
+                        onPlay={() => playAudio('question')}
+                      />
                     )}
                   </div>
                 </div>
@@ -487,40 +490,44 @@ const Exercise = () => {
                 {/* Option / Input Area */}
                 {currentQuestion.type === 'fill_word' ? (
                   <div className="flex flex-col items-center">
-                    {!showFeedback ? (
-                        <HandwritingInput
-                          onSubmit={(text) => {
-                            setFillInAnswer(text);
-                            setTimeout(() => {
-                              if (text.trim()) {
-                                const btnSubmit = document.getElementById("hidden-submit-btn");
-                                if (btnSubmit) btnSubmit.click();
-                              }
-                            }, 50);
-                          }}
-                          placeholder=""
-                          width={260}
-                          height={90}
-                        />
-                    ) : (
-                        <div className="w-[260px] h-[90px] bg-gray-200 rounded-sm mb-4 flex items-center justify-center relative">
-                           {/* Add drawing traces if needed or just display letter */}
-                           <span className="text-2xl font-bold text-gray-800">{fillInAnswer}</span>
-                           {!isCorrect && <div className="absolute top-2 right-2 text-red-500 font-bold">✗</div>}
-                           {isCorrect && <div className="absolute top-2 right-2 text-[#5bb018] font-bold">✓</div>}
-                        </div>
-                    )}
+                    {/* 直接输入答案。原先的手写板没有识别能力，写完还要在浏览器弹窗里
+                        再打一遍字；可用系统输入法（含手写输入）作答 */}
+                    <div className="relative w-full max-w-[260px]">
+                      <input
+                        type="text"
+                        value={fillInAnswer}
+                        onChange={(e) => setFillInAnswer(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && fillInAnswer.trim() && !showFeedback) handleSubmit();
+                        }}
+                        disabled={showFeedback}
+                        autoComplete="off"
+                        aria-label="填写缺少的字"
+                        placeholder="在这里输入"
+                        data-fill-input
+                        className={`w-full h-16 text-center text-3xl font-bold rounded-2xl border-2 outline-none transition-colors placeholder:text-base placeholder:font-normal placeholder:text-gray-400 ${
+                          showFeedback
+                            ? isCorrect ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-red-500 bg-red-50 text-red-800'
+                            : 'border-indigo-200 bg-white/80 text-gray-900 focus:border-indigo-500'
+                        }`}
+                      />
+                      {showFeedback && (
+                        <span className={`absolute top-1/2 -translate-y-1/2 right-4 text-xl font-bold ${isCorrect ? 'text-emerald-700' : 'text-red-700'}`} aria-hidden="true">
+                          {isCorrect ? '✓' : '✗'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   // Multiple Choice Selection
                   <div className="space-y-3 mt-2">
                     {currentQuestion.options.map((option, index) => {
-                      let btnClass = "w-full text-left min-h-[48px] py-3.5 px-5 rounded-[18px] transition-all duration-300 flex items-center focus:outline-none justify-between ";
+                      let btnClass = "w-full text-left min-h-[48px] py-3.5 pl-5 pr-14 rounded-[18px] transition-all duration-300 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
                       const isSelected = selectedOption === option;
                       
                       if (showFeedback) {
                         if (option === currentQuestion.correctAnswer) {
-                          btnClass += "bg-[#5bb018] border-none shadow-[0_4px_14px_0_rgba(91,176,24,0.39)] z-10 text-white font-bold";
+                          btnClass += "bg-emerald-700 border-none shadow-[0_4px_14px_0_rgba(4,120,87,0.35)] z-10 text-white font-bold";
                         } else if (isSelected) {
                           btnClass += "bg-rose-50 border-rose-300 shadow-sm text-rose-900 border font-bold";
                         } else {
@@ -536,31 +543,36 @@ const Exercise = () => {
                       // Custom rendering if the option is the Chinese Word (like '发生') vs english options
                       const isHanziOption = /[\u4e00-\u9fa5]/.test(option);
 
+                      const isCorrectOption = option === currentQuestion.correctAnswer;
+
                       return (
-                        <div key={index}>
+                        <div key={index} className="relative">
                           <button
                             disabled={showFeedback}
                             onClick={() => handleOptionChange(option)}
                             className={btnClass}
                           >
                             <span className="text-base leading-snug break-words flex items-center">
-                              <span className={`mr-3 ${showFeedback && option === currentQuestion.correctAnswer ? 'text-white/90' : 'text-indigo-400'}`}>{letter}.</span> 
+                              <span className={`mr-3 ${showFeedback && isCorrectOption ? 'text-white' : 'text-indigo-600'}`}>{letter}.</span>
                               <span>{option}</span>
                             </span>
-                            {isHanziOption && !showFeedback && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className={`h-7 w-7 rounded-full ${isSelected ? 'text-indigo-600 hover:bg-indigo-100' : 'text-indigo-400 hover:text-indigo-600 hover:bg-white/50'}`}
-                                  onClick={(e) => {
-                                      e.stopPropagation();
-                                      playAudio(`option-${index}`);
-                                  }}
-                                >
-                                  <Volume2 size={14} />
-                                </Button>
+                            {showFeedback && (isCorrectOption || isSelected) && (
+                              <span className="text-lg font-bold" aria-label={isCorrectOption ? '正确答案' : '你的选择'}>
+                                {isCorrectOption ? '✓' : '✗'}
+                              </span>
                             )}
                           </button>
+                          {/* 与选项按钮并列而非嵌套：<button> 里不能再放 <button> */}
+                          {isHanziOption && !showFeedback && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20">
+                              <AudioPlayer
+                                text={option}
+                                language="zh-CN"
+                                buttonSize="sm"
+                                onPlay={() => playAudio(`option-${index}`)}
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -572,17 +584,19 @@ const Exercise = () => {
                     <div className={`mt-5 px-5 py-5 -mx-5 border-t animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-[#def6cd] border-[#baecbc]' : 'bg-[#ffe4e6] border-[#fbbabf]'}`}>
                        
                        <div className="flex items-center gap-2 mb-3">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-[#5bb018]' : 'bg-[#ef4444]'}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-red-600'}`}>
                             <span className="text-white text-lg font-bold">{isCorrect ? '✓' : '✗'}</span>
                           </div>
-                          <span className={`font-extrabold text-[18px] tracking-wide ${isCorrect ? 'text-[#5bb018]' : 'text-[#ef4444]'}`}>
+                          <span className={`font-extrabold text-[18px] tracking-wide ${isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
                              {isCorrect ? 'Excellent!' : 'Incorrect'}
                           </span>
                        </div>
                        
                        {!isCorrect && (
-                          <div className="text-[#ef4444] font-extrabold text-[14px] mb-3">
-                             Correct answer: {currentQuestion.type === 'fill_word' ? currentQuestion.correctAnswer : String.fromCharCode(65 + currentQuestion.options.indexOf(currentQuestion.correctAnswer))}
+                          <div className="text-red-700 font-extrabold text-[14px] mb-3">
+                             Correct answer: {currentQuestion.type === 'fill_word'
+                               ? currentQuestion.correctAnswer
+                               : `${String.fromCharCode(65 + currentQuestion.options.indexOf(currentQuestion.correctAnswer))}. ${currentQuestion.correctAnswer}`}
                           </div>
                        )}
 
@@ -612,7 +626,7 @@ const Exercise = () => {
                            ) : (
                              <p className="text-[14px] font-bold text-gray-800 leading-relaxed tracking-wide">
                                <span className="mr-2 text-indigo-700">{wordLabel}</span> {word.pinyin} <br/>
-                               <span className="text-base font-medium text-gray-600 font-mono mt-1 inline-block">{wordDefinition}</span>
+                               <span className="text-base font-medium text-gray-600 mt-1 inline-block">{wordDefinition}</span>
                              </p>
                            )}
                          </div>
@@ -622,7 +636,7 @@ const Exercise = () => {
                        <Button 
                          onClick={handleContinue}
                          className={`w-full h-[48px] rounded-[14px] border-none font-extrabold tracking-widest text-[14px] transition-all duration-300 text-white shadow-xl mb-[calc(env(safe-area-inset-bottom)+1.5rem)] ${
-                            isCorrect ? 'bg-[#5bb018] hover:bg-[#4d9711] shadow-[#5bb018]/30' : 'bg-[#ef4444] hover:bg-[#dc2626] shadow-[#ef4444]/30'
+                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/30' : 'bg-red-600 hover:bg-red-700 shadow-red-600/30'
                          }`}
                        >
                          CONTINUE
@@ -634,8 +648,6 @@ const Exercise = () => {
               {/* Spacer to guarantee scroll reaching the bottom properly */}
               <div className="h-6 w-full shrink-0"></div>
 
-              {/* Support button element for implicit submits */}
-              <button id="hidden-submit-btn" className="hidden" onClick={handleSubmit}></button>
 
               {/* 仅在未反馈时才在底部显示唯一的SUBMIT类提交按钮 */}
               {!showFeedback && (
@@ -645,7 +657,7 @@ const Exercise = () => {
                     disabled={currentQuestion.type === 'fill_word' ? !fillInAnswer.trim() : !selectedOption}
                     className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
                   >
-                    CONTINUE
+                    CHECK
                   </Button>
                 </div>
               )}
@@ -655,8 +667,6 @@ const Exercise = () => {
             <div className="absolute top-1/4 -right-12 w-48 h-48 bg-indigo-300 rounded-full mix-blend-multiply filter blur-3xl opacity-20 pointer-events-none z-10"></div>
             <div className="absolute bottom-1/4 -left-12 w-48 h-48 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-20 pointer-events-none z-10"></div>
 
-            {/* Home Indicator */}
-            <div className="absolute bottom-1.5 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-gray-800/20 rounded-full backdrop-blur-xl z-50"></div>
         </div>
       </div>
     </div>
