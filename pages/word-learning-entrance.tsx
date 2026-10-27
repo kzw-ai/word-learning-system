@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { buildApiUrl } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
+import { guestDisplayName, isGuestId } from '@/src/lib/guestIdentity';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
 
 const DEFAULT_WORD_ID = 1;
@@ -57,6 +58,13 @@ export default function Component() {
   const { userId, availableUsers } = useLearningContext();
 
   const currentUser = useMemo(() => availableUsers.find(user => user.userId === userId), [availableUsers, userId]);
+  const isGuest = isGuestId(userId);
+  // 登录用户显示用户名；访客显示由 ID 推出的固定名字
+  const displayName = useMemo(() => {
+    if (currentUser?.username) return currentUser.username;
+    if (isGuest) return guestDisplayName(userId);
+    return typeof window !== 'undefined' ? window.localStorage.getItem('username') : null;
+  }, [currentUser, isGuest, userId]);
 
   const activeModuleLabel = useMemo(() => {
     if (!learningSession.module) {
@@ -273,9 +281,23 @@ export default function Component() {
         <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex flex-col relative z-20">
           <div className="px-5 mb-4">
               <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">Word Learning</h1>
-              {/* 只显示登录用户名；内部 user_id 对学习者没有意义 */}
-              {currentUser?.username && (
-                <p className="text-sm text-gray-500 mt-1 font-medium">{currentUser.username}</p>
+              {/* 显示用户名或访客名；内部 user_id 对学习者没有意义 */}
+              {displayName && (
+                <p className="text-sm text-gray-500 mt-1 font-medium">
+                  {displayName}
+                  {isGuest && (
+                    <>
+                      {' · 访客 · '}
+                      <button
+                        type="button"
+                        onClick={() => router.push('/register')}
+                        className="text-indigo-600 underline underline-offset-2"
+                      >
+                        注册后换设备也能继续
+                      </button>
+                    </>
+                  )}
+                </p>
               )}
               <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
                 <div className="flex justify-between items-center">

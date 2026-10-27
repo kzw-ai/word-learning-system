@@ -76,10 +76,11 @@ export class TimeTracker {
     this.sessionId = this.generateSessionId();
     this.startTime = new Date();
     this.lastActiveTime = new Date();
-    this.disabled =
-      typeof window === 'undefined' || !window.localStorage.getItem('session_token');
+    // 未登录的访客也记录：后端凭访客 cookie 识别身份（见 src/lib/guestIdentity.ts）。
+    // 此前没有 session_token 就整个停用，而注册登录又跑不通，结果线上一条学习数据都没有
+    this.disabled = typeof window === 'undefined' || !config.userId;
     if (this.disabled) {
-      console.info('⏸️ 未登录，学习时间追踪已停用（事件仅记录在本地）');
+      console.info('⏸️ 身份尚未确定，学习时间追踪暂不上报');
     }
 
     this.initializeTracking();

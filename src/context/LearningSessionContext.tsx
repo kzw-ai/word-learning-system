@@ -108,6 +108,8 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
 
   // Load from localStorage on user switch, then async-fetch from backend
   useEffect(() => {
+    // 身份尚未确定（首帧）时不加载；hydrated 保持 false，追踪器等它就绪才创建
+    if (!userId) return;
     const localSession = loadSessionFromStorage(userId);
     setSession(localSession);
     setHydrated(true);

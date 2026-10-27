@@ -100,10 +100,15 @@ class TestCoreEndpoints:
         resp = client.get('/word/99999')
         assert resp.status_code == 404
 
-    def test_users_list(self, client):
+    def test_users_list(self, client, monkeypatch):
+        # 用户列表只给开发期的 UserSwitcher 用
+        monkeypatch.setenv('ALLOW_USER_ID_PARAM', '1')
         data = client.get('/api/users').get_json()
         assert data['success'] is True
         assert isinstance(data['data'], list)
+
+    def test_users_list_hidden_in_production(self, client):
+        assert client.get('/api/users').status_code == 404
 
 
 # ================================================
@@ -281,3 +286,91 @@ class TestAuthFlow:
             '/api/auth/validate', headers={'X-Session-Token': 'not-a-real-token'},
         ).get_json()
         assert data['valid'] is False
+
+
+# ================================================
+# 访客身份与防冒充
+# ================================================
+
+GUEST = 'guest_' + 'a1b2c3d4e5f6g7h8i9j0'
+OTHER_GUEST = 'guest_' + 'z9y8x7w6v5u4t3s2r1q0'
+
+
+def guest_headers(guest_id=GUEST):
+    return {'X-Guest-Id': guest_id}
+
+
+class TestGuestIdentity:
+    def test_user_id_in_url_is_not_an_identity(self, anon_client, auth_session):
+        # 生产模式下，URL 里填别人的 user_id 不能读到对方的数据
+        user_id, _ = auth_session
+        resp = anon_client.get(f'/api/review/user/{user_id}/due')
+        assert resp.status_code == 401
+
+    def test_guest_can_read_own_data(self, anon_client):
+        resp = anon_client.get(f'/api/review/user/{GUEST}/due', headers=guest_headers())
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
+
+    def test_guest_cannot_read_other_guest(self, anon_client):
+        resp = anon_client.get(f'/api/review/user/{OTHER_GUEST}/due', headers=guest_headers())
+        assert resp.status_code == 403
+
+    def test_malformed_guest_id_rejected(self, anon_client):
+        resp = anon_client.get('/api/review/user/guest_short/due',
+                               headers=guest_headers('guest_short'))
+        assert resp.status_code == 401
+
+    def test_guest_cookie_works(self, app):
+        c = app.test_client()
+        c.set_cookie('guest_id', GUEST)
+        resp = c.get(f'/api/review/user/{GUEST}/due')
+        assert resp.status_code == 200
+
+    def test_guest_learning_session_recorded(self, anon_client):
+        resp = anon_client.post('/api/learning/session/start', json={
+            'sessionId': 's-guest-1', 'userId': GUEST, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers())
+        assert resp.get_json()['success'] is True, resp.get_json()
+
+    def test_learning_state_is_owner_only(self, anon_client):
+        put = anon_client.put(f'/api/users/{GUEST}/learning-state',
+                              json={'wordId': 1, 'word': '发生'}, headers=guest_headers())
+        assert put.get_json()['success'] is True
+        assert anon_client.get(f'/api/users/{GUEST}/learning-state',
+                               headers=guest_headers()).status_code == 200
+        # 此前这两个接口没有任何认证
+        assert anon_client.get(f'/api/users/{GUEST}/learning-state').status_code == 401
+        assert anon_client.put(f'/api/users/{OTHER_GUEST}/learning-state', json={'wordId': 2},
+                               headers=guest_headers()).status_code == 403
+
+    def test_register_merges_guest_data(self, app):
+        import sqlite3
+        guest = 'guest_' + 'm3rg3m3rg3m3rg3m3rg3'
+        c = app.test_client()
+        c.post('/api/learning/session/start', json={
+            'sessionId': 's-guest-merge', 'userId': guest, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers(guest))
+        c.put(f'/api/users/{guest}/learning-state', json={'wordId': 1, 'word': '发生'},
+              headers=guest_headers(guest))
+
+        reg = c.post('/api/auth/register', json={'username': 'merged_user', 'password': 'secret123'},
+                     headers=guest_headers(guest)).get_json()
+        assert reg['success'], reg
+        assert reg['data']['merged_guest_rows'] >= 1
+
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db)
+        try:
+            owner = conn.execute("SELECT user_id FROM learning_session WHERE session_id='s-guest-merge'").fetchone()[0]
+            assert owner == reg['data']['user_id']
+            word = conn.execute("SELECT current_word FROM user_profile WHERE user_id=?",
+                                (reg['data']['user_id'],)).fetchone()[0]
+            assert word == '发生'
+            assert conn.execute("SELECT COUNT(*) FROM user_profile WHERE user_id=?", (guest,)).fetchone()[0] == 0
+        finally:
+            conn.close()

@@ -3,6 +3,9 @@
 用户数据隔离与权限控制模块
 """
 
+import os
+import re
+import sqlite3
 from functools import wraps
 from flask import request, jsonify
 
@@ -15,40 +18,69 @@ def get_auth_manager():
         return None
 
 
+# 访客身份：前端首次访问时生成的随机 ID，随 cookie（或 X-Guest-Id 头）发送。
+# 随机串本身就是凭证——足够长、猜不到，所以无法冒充别的访客。
+GUEST_ID_PATTERN = re.compile(r'^guest_[A-Za-z0-9]{16,64}$')
+
+
+def user_id_param_allowed():
+    """是否允许把请求里的 user_id（URL / query / body）当作身份。
+
+    只用于开发和测试（UserSwitcher 切换测试用户、pytest）。生产环境里打开它
+    就等于任何人在请求里填别人的 user_id 即可读写对方数据，所以默认关闭，
+    须显式设置环境变量 ALLOW_USER_ID_PARAM=1。
+    """
+    return os.environ.get('ALLOW_USER_ID_PARAM') == '1'
+
+
+def get_guest_id():
+    """请求携带的、格式合法的访客 ID；没有则为 None"""
+    guest_id = request.headers.get('X-Guest-Id') or request.cookies.get('guest_id')
+    if guest_id and GUEST_ID_PATTERN.match(guest_id):
+        return guest_id
+    return None
+
+
 def get_current_user_from_request():
     """
-    从请求中获取当前登录用户ID
-    支持多种认证方式：
-    1. Session Token (推荐)
-    2. User ID参数 (向后兼容)
-    
+    从请求中确定当前用户。按优先级：
+    1. Session Token —— 已登录用户
+    2. 请求里的 user_id —— 仅当 ALLOW_USER_ID_PARAM=1（开发/测试）
+    3. 访客 ID —— 未登录访客
+
     Returns:
-        tuple: (user_id, is_authenticated)
+        tuple: (user_id, is_authenticated)。登录用户与访客的身份都由请求凭证
+        证明，is_authenticated 为 True；只有开发模式下取自参数的身份为 False。
     """
     auth_manager = get_auth_manager()
-    
-    # 方式1：Session Token认证
+
     if auth_manager:
         session_token = request.headers.get('X-Session-Token') or request.cookies.get('session_token')
         if session_token:
-            validation = auth_manager.validate_session(session_token)
+            try:
+                validation = auth_manager.validate_session(session_token)
+            except sqlite3.Error:
+                # 认证表缺失等数据库问题：按未登录处理，而不是让整个请求 500
+                validation = {'valid': False}
             if validation['valid']:
                 return validation['user_id'], True
-    
-    # 方式2：URL参数 (向后兼容)。view_args 在无路由匹配时为 None
-    view_args = request.view_args or {}
-    if 'user_id' in view_args:
-        return view_args['user_id'], False
-    
-    # 方式3：Query参数
-    user_id = request.args.get('user_id')
-    if user_id:
-        return user_id, False
-    
-    # 方式4：JSON Body
-    if request.json and 'user_id' in request.json:
-        return request.json['user_id'], False
-    
+
+    if user_id_param_allowed():
+        # view_args 在无路由匹配时为 None
+        view_args = request.view_args or {}
+        if 'user_id' in view_args:
+            return view_args['user_id'], False
+        user_id = request.args.get('user_id')
+        if user_id:
+            return user_id, False
+        body = request.get_json(silent=True)
+        if isinstance(body, dict) and (body.get('user_id') or body.get('userId')):
+            return body.get('user_id') or body.get('userId'), False
+
+    guest_id = get_guest_id()
+    if guest_id:
+        return guest_id, True
+
     return None, False
 
 

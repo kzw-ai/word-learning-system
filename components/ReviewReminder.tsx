@@ -17,6 +17,7 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    if (!userId) return;
     fetchDueReviews();
   }, [userId]);
 

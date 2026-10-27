@@ -10,16 +10,19 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useRouter } from 'next/router';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
+import { useLearningContext } from '@/src/context/LearningContext';
 
 export default function TimeTrackingDemo() {
   const [selectedOption, setSelectedOption] = useState('');
   const [demoStartTime] = useState(new Date());
   const [actionCount, setActionCount] = useState(0);
   const router = useRouter();
+  // 用当前身份上报：后端只允许为自己创建会话，写死的 demo_user 会被拒绝
+  const { userId } = useLearningContext();
 
   // 时间追踪配置
   const tracking = useComprehensiveTracking({
-    userId: 'demo_user',
+    userId,
     wordId: 999, // 演示词汇ID
     moduleType: 'demo',
     sessionType: 'test'

@@ -36,13 +36,17 @@ try:
     from user_data_isolation import (
         require_authentication, 
         check_data_ownership,
-        get_current_user_from_request
+        get_current_user_from_request,
+        get_guest_id,
+        user_id_param_allowed
     )
 except ImportError:
     print("⚠️  数据隔离模块未找到，将使用基础功能")
     require_authentication = lambda allow_url_param=True: lambda f: f
     check_data_ownership = lambda: lambda f: f
     get_current_user_from_request = lambda: (None, False)
+    get_guest_id = lambda: None
+    user_id_param_allowed = lambda: True
 
 # 导入易混淆词API模块
 try:
@@ -859,7 +863,10 @@ def get_word_exercises(word_id):
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
-    """获取用户列表，可选搜索与限制数量"""
+    """获取用户列表，可选搜索与限制数量（仅开发期的 UserSwitcher 使用）"""
+    # 生产环境不公开全部用户
+    if not user_id_param_allowed():
+        return jsonify({'success': False, 'error': 'Not found'}), 404
     try:
         try:
             limit = int(request.args.get('limit', 50))
@@ -1016,8 +1023,11 @@ def get_recent_sessions(user_id, current_user_id=None, **kwargs):
 # ================================================
 
 @app.route('/api/users/<user_id>/learning-state', methods=['GET'])
-def get_learning_state(user_id):
+@require_authentication(allow_url_param=True)
+def get_learning_state(user_id, current_user_id=None, **kwargs):
     """获取用户当前学习状态（用于跨设备恢复）"""
+    if user_id != current_user_id:
+        return jsonify({'success': False, 'error': '无权访问其他用户的数据', 'code': 'PERMISSION_DENIED'}), 403
     try:
         profile = UserProfile.query.filter_by(user_id=user_id).first()
         if not profile:
@@ -1041,8 +1051,11 @@ def get_learning_state(user_id):
 
 
 @app.route('/api/users/<user_id>/learning-state', methods=['PUT'])
-def save_learning_state(user_id):
+@require_authentication(allow_url_param=True)
+def save_learning_state(user_id, current_user_id=None, **kwargs):
     """保存用户当前学习状态（跨设备持久化）"""
+    if user_id != current_user_id:
+        return jsonify({'success': False, 'error': '无权修改其他用户的数据', 'code': 'PERMISSION_DENIED'}), 403
     try:
         data = request.get_json()
         if not data:
@@ -1583,6 +1596,39 @@ def generate_dashboard_data(user_id, time_range):
 # 用户认证API
 # ================================================
 
+def merge_guest_into_user(guest_id, user_id):
+    """把访客名下的学习数据转到刚注册的账号，返回迁移的行数。
+
+    learning_event / exercise_record 挂在 session_id 上，随 learning_session 一起转移。
+    访客的档案（当前学习位置等）复制到新账号后删除。
+    """
+    conn = sqlite3.connect(_db_path)
+    try:
+        moved = 0
+        for table in ('learning_session', 'user_progress', 'adaptive_recommendation',
+                      'confusable_exercise_records'):
+            moved += conn.execute(
+                f"UPDATE {table} SET user_id = ? WHERE user_id = ?", (user_id, guest_id)
+            ).rowcount
+        conn.execute("""
+            UPDATE user_profile SET
+                current_word_id = (SELECT current_word_id FROM user_profile WHERE user_id = :g),
+                current_word = (SELECT current_word FROM user_profile WHERE user_id = :g),
+                current_module = (SELECT current_module FROM user_profile WHERE user_id = :g),
+                current_vks_level = (SELECT current_vks_level FROM user_profile WHERE user_id = :g)
+            WHERE user_id = :u AND EXISTS (SELECT 1 FROM user_profile WHERE user_id = :g)
+        """, {'g': guest_id, 'u': user_id})
+        conn.execute("DELETE FROM user_profile WHERE user_id = ?", (guest_id,))
+        conn.commit()
+        return moved
+    except sqlite3.Error as e:
+        conn.rollback()
+        print(f"⚠️  访客数据合并失败: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     """用户注册"""
@@ -1614,11 +1660,15 @@ def register():
         )
         
         if result['success']:
+            # 先以访客身份学习、后注册的学习者，进度并入新账号
+            guest_id = get_guest_id()
+            merged = merge_guest_into_user(guest_id, result['user_id']) if guest_id else 0
             return jsonify({
                 'success': True,
                 'data': {
                     'user_id': result['user_id'],
-                    'username': username
+                    'username': username,
+                    'merged_guest_rows': merged
                 },
                 'message': result['message']
             })
@@ -1913,6 +1963,15 @@ def initialize_database():
             ensure_user_profile_columns()
             ensure_learning_event_columns()
             ensure_user_progress_unique_index()
+            # 注册/登录依赖的列和 user_session 表此前只在测试里建过，部署后
+            # 注册登录必然 500。幂等执行；不设测试密码（见 migrate_auth_system）
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import migrate_auth  # pyrefly: ignore  # 运行时动态路径
+                migrate_auth.migrate_auth_system(_db_path, seed_test_passwords=False)
+            except Exception as e:
+                print(f"⚠️  认证表结构迁移失败: {str(e)}")
             print("✅ 数据库表创建成功")
             
             # 检查是否需要添加初始数据

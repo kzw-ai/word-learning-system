@@ -6,6 +6,11 @@ import {
   setApiBaseUrlOverride
 } from '@/src/lib/apiClient';
 import type { UserProfileSummary } from '@/src/lib/types';
+import { ensureGuestId } from '@/src/lib/guestIdentity';
+import { buildApiUrl } from '@/src/lib/apiClient';
+
+// 开发期才允许用 UserSwitcher 切换到任意测试用户（后端也须设 ALLOW_USER_ID_PARAM=1）
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
 export interface LearningUser {
   userId: string;
@@ -48,12 +53,34 @@ const USERS_STORAGE_KEY = 'learningSystem.availableUsers';
 
 const LearningContext = createContext<LearningContextValue | undefined>(undefined);
 
+/**
+ * 当前身份：登录账号 > 开发期手动切换的测试用户 > 本设备的访客 ID。
+ * 访客 ID 总是先确保存在，它的 cookie 是后端识别未登录访客的依据。
+ */
+const LOGIN_KEYS = ['session_token', 'user_id', 'username'];
+
+const writeSessionCookie = (token: string) => {
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `session_token=${token}; Path=/; Max-Age=604800; SameSite=Lax${secure}`;
+};
+
 const readInitialUserId = () => {
-  if (typeof window === 'undefined') {
-    return DEFAULT_USERS[0].userId;
+  const guestId = ensureGuestId();
+  const token = window.localStorage.getItem('session_token');
+  const accountId = window.localStorage.getItem('user_id');
+  if (token && accountId) {
+    // 页面里很多请求是不带认证头的普通 fetch，后端靠 cookie 认人。登录时下发的
+    // cookie 是会话级的，浏览器重开后就没了，而 localStorage 里的凭证还在——
+    // 此时请求会被当成访客、与账号对不上而被拒。这里同步补写一份；若服务器的
+    // HttpOnly cookie 仍在，浏览器会忽略这次写入
+    writeSessionCookie(token);
+    return accountId;
   }
-  const stored = window.localStorage.getItem(USER_STORAGE_KEY);
-  return stored || DEFAULT_USERS[0].userId;
+  if (IS_DEV) {
+    const stored = window.localStorage.getItem(USER_STORAGE_KEY);
+    if (stored) return stored;
+  }
+  return guestId;
 };
 
 const readInitialUsers = (): LearningUser[] => {
@@ -104,13 +131,32 @@ const sortUsers = (users: LearningUser[]) =>
 export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
   // 初始值必须与 SSR 一致（不读 localStorage），挂载后由下方 effect 加载存储值，
   // 否则老用户回访时首次客户端渲染与预渲染 HTML 不一致，触发水合错误
-  const [userId, setUserIdState] = useState<string>(DEFAULT_USERS[0].userId);
+  // 首帧为空：真实身份要到挂载后才能从 localStorage 读出。各处据此先不发请求，
+  // 否则会先以一个不属于自己的 ID 请求一轮（现在会被后端拒绝）
+  const [userId, setUserIdState] = useState<string>('');
   const [availableUsers, setAvailableUsers] = useState<LearningUser[]>(DEFAULT_USERS);
   const [apiBaseUrl, setApiBaseUrlState] = useState<string>(() => getDefaultApiBaseUrl());
   const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     setUserIdState(readInitialUserId());
+
+    // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
+    const token = window.localStorage.getItem('session_token');
+    if (token) {
+      fetch(buildApiUrl('/api/auth/validate'), { headers: { 'X-Session-Token': token } })
+        .then(r => r.json())
+        .then(result => {
+          if (result && result.valid === false) {
+            LOGIN_KEYS.forEach(key => window.localStorage.removeItem(key));
+            document.cookie = 'session_token=; Path=/; Max-Age=0';
+            setUserIdState(ensureGuestId());
+          }
+        })
+        .catch(() => {
+          // 网络失败时保持现状，不因为一次失败就登出
+        });
+    }
     setAvailableUsers(readInitialUsers());
     setApiBaseUrlState(getApiBaseUrl());
   }, []);
@@ -210,7 +256,8 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
   }, [persistUsers]);
 
   useEffect(() => {
-    refreshUsers();
+    // 用户列表只供开发期的 UserSwitcher 使用，生产环境后端不提供
+    if (IS_DEV) refreshUsers();
   }, [refreshUsers, apiBaseUrl]);
 
   const value = useMemo<LearningContextValue>(() => ({

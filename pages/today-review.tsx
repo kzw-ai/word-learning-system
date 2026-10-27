@@ -43,6 +43,7 @@ const TodayReview = () => {
 
   const fetchDueReviews = async () => {
     const requestUser = userId;
+    if (!requestUser) return;
     try {
       setLoading(true);
       setLoadedFor(null);
