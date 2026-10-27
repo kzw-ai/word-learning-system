@@ -12,9 +12,20 @@ jobs:
   prguard:
     runs-on: ubuntu-latest
     steps:
+      # 安全提示：本 workflow 用的是 pull_request_target，会带着仓库密钥
+      # （OPENAI_API_KEY 等）运行，且对 fork 的 PR 也生效。
+      #
+      # 因此这里绝不能检出 PR 分支的代码（曾经写过
+      # `ref: github.event.pull_request.head.sha`）——那等于把陌生人提交的
+      # 内容放进一个持有密钥、且有 pull-requests: write 权限的环境里。
+      # 只要后续有人往本 job 里加一步 npm ci / npm run build / pytest，
+      # 那些代码就会被执行，密钥随即泄露。
+      #
+      # prguard 通过 GitHub API 读取 diff，不需要 PR 的工作区。
+      # 若将来确实需要在 PR 代码上跑构建或测试，请新建一个使用
+      # `on: pull_request` 的独立 workflow（该事件不向 fork 暴露密钥），
+      # 不要在这里放开。
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
       - uses: 1137043480/prguard@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
