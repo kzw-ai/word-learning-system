@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
 import AudioPlayer from '@/components/AudioPlayer';
 import { buildApiUrl } from '@/src/lib/apiClient';
+import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
 
 interface ConfusableWord {
   id: number;
@@ -29,6 +30,7 @@ interface ConfusablePair {
  */
 export default function ConfusableWordsPage() {
   const router = useRouter();
+  const { session } = useLearningSession();
   const [pairs, setPairs] = useState<ConfusablePair[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -254,10 +256,10 @@ export default function ConfusableWordsPage() {
             <div className="px-5 pt-3 space-y-2.5">
               {fromExercise && (
                 <Button
-                  onClick={() => router.push('/learning-dashboard')}
+                  onClick={() => router.push(afterWordRoute(session))}
                   className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
                 >
-                  完成辨析 · 查看学习分析 <ArrowRight size={16} className="ml-1.5" />
+                  {session.reviewMode ? '完成辨析 · 继续复习' : '完成辨析 · 查看学习分析'} <ArrowRight size={16} className="ml-1.5" />
                 </Button>
               )}
               <div className="flex gap-3">

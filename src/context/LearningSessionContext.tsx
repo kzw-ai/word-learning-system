@@ -7,6 +7,16 @@ export interface LearningSessionState {
   word?: string | null;
   module?: string | null;
   vksLevel?: string | null;
+  /**
+   * 从「今日复习」进入时为 true：学完一个词后回到复习列表继续下一个，
+   * 而不是去学习看板。只存本地，不同步到服务器。
+   */
+  reviewMode?: boolean | null;
+  /**
+   * 本轮复习已经开始过的词。复习列表据此过滤，不依赖后端把它们移出到期列表——
+   * 作答没能记录时（例如未登录、追踪器停用），否则会一直重复同一个词。
+   */
+  reviewedWordIds?: number[] | null;
   lastUpdated?: string | null;
 }
 
@@ -28,6 +38,8 @@ const DEFAULT_SESSION: LearningSessionState = {
   word: null,
   module: null,
   vksLevel: null,
+  reviewMode: null,
+  reviewedWordIds: null,
   lastUpdated: null
 };
 
@@ -51,6 +63,8 @@ const loadSessionFromStorage = (userId: string): LearningSessionState => {
         word: parsed.word ?? null,
         module: parsed.module ?? null,
         vksLevel: parsed.vksLevel ?? null,
+        reviewMode: parsed.reviewMode ?? null,
+        reviewedWordIds: Array.isArray(parsed.reviewedWordIds) ? parsed.reviewedWordIds : null,
         lastUpdated: parsed.lastUpdated ?? null
       };
     }
@@ -111,6 +125,9 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
             word: serverState.word ?? localSession.word,
             module: serverState.module ?? localSession.module,
             vksLevel: serverState.vksLevel ?? localSession.vksLevel,
+            // 服务器不存这个字段，沿用本地的
+            reviewMode: localSession.reviewMode,
+            reviewedWordIds: localSession.reviewedWordIds,
             lastUpdated: serverState.lastUpdated ?? localSession.lastUpdated
           };
           setSession(merged);
@@ -208,6 +225,10 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     </LearningSessionContext.Provider>
   );
 };
+
+/** 学完一个词之后去哪：复习模式回到复习列表，否则去学习看板 */
+export const afterWordRoute = (session: LearningSessionState) =>
+  session.reviewMode ? '/today-review' : '/learning-dashboard';
 
 export const useLearningSession = () => {
   const context = useContext(LearningSessionContext);

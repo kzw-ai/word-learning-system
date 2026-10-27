@@ -8,7 +8,7 @@ import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { fetchWordExercises, buildApiUrl } from '@/src/lib/apiClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
 import { useLearningContext } from '@/src/context/LearningContext';
-import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
 import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
@@ -340,10 +340,13 @@ const Exercise = () => {
       return;
     }
 
-    if (next) {
+    // 复习模式先回复习列表：练习的 next 恒为 dashboard，不能交给它
+    if (learningSession.reviewMode) {
+      router.push(afterWordRoute(learningSession));
+    } else if (next) {
       goTo(next.key);
     } else {
-      router.push('/learning-dashboard');
+      router.push(afterWordRoute(learningSession));
     }
   };
 
@@ -355,7 +358,7 @@ const Exercise = () => {
 
   const handleLeave = () => {
     trackButtonClick('leave-button', '返回学习看板');
-    router.push('/learning-dashboard');
+    router.push(afterWordRoute(learningSession));
   };
 
   const getQuestionTypeTitle = (type: ExerciseType) => {

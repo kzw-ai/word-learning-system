@@ -26,7 +26,7 @@ from adaptive_engine import AdaptiveRecommendationEngine, SpacedRepetitionAlgori
 
 @pytest.fixture
 def db_path(tmp_path):
-    """建一个最小可用的临时数据库（word + user_progress）"""
+    """建一个最小可用的临时数据库（word + character + user_progress）"""
     path = str(tmp_path / 'test.db')
     conn = sqlite3.connect(path)
     conn.executescript("""
@@ -68,9 +68,18 @@ def db_path(tmp_path):
             updated_at DATETIME,
             FOREIGN KEY(word_id) REFERENCES word (id)
         );
+        CREATE TABLE character (
+            id INTEGER NOT NULL PRIMARY KEY,
+            character VARCHAR(10) NOT NULL,
+            word_id INTEGER NOT NULL,
+            FOREIGN KEY(word_id) REFERENCES word (id)
+        );
     """)
     conn.execute("INSERT INTO word (id, pinyin, definition) VALUES (1, 'fāshēng', 'happen')")
     conn.execute("INSERT INTO word (id, pinyin, definition) VALUES (2, 'túrán', 'sudden')")
+    # 词 2 故意不给 character 行，覆盖「拼不出汉字」的分支
+    conn.executemany("INSERT INTO character (character, word_id) VALUES (?, ?)",
+                     [('发', 1), ('生', 1)])
     conn.commit()
     conn.close()
     return path
@@ -366,6 +375,14 @@ class TestDueReviews:
             insert_progress(db_path, user_id='u1', word_id=word_id,
                             next_review_suggested=datetime.now() - timedelta(days=1))
         assert len(spaced.get_due_reviews('u1', limit=1)) == 1
+
+    def test_word_is_hanzi_with_pinyin_fallback(self, spaced, db_path):
+        for word_id in (1, 2):
+            insert_progress(db_path, user_id='u1', word_id=word_id,
+                            next_review_suggested=datetime.now() - timedelta(days=1))
+        by_id = {r['word_id']: r for r in spaced.get_due_reviews('u1')}
+        assert (by_id[1]['word'], by_id[1]['pinyin']) == ('发生', 'fāshēng')
+        assert by_id[2]['word'] == 'túrán'  # 没有 character 行时退回拼音
 
     def test_update_after_exercise_persists(self, spaced, db_path):
         insert_progress(db_path, user_id='u1', word_id=1, review_count=1)

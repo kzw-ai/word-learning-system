@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Clock, BookOpen, TrendingUp } from 'lucide-react';
 interface ReviewItem {
   word_id: number;
   word: string;
+  pinyin?: string;
   mastery_level: number;
   days_overdue: number;
   review_count: number;
@@ -21,11 +22,17 @@ interface ReviewItem {
 const TodayReview = () => {
   const router = useRouter();
   const { userId } = useLearningContext();
-  const { updateSession } = useLearningSession();
+  const { session, hydrated, updateSession } = useLearningSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
-  const [selectedReview, setSelectedReview] = useState<ReviewItem | null>(null);
+  const [dueReviews, setReviews] = useState<ReviewItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // 点了开始复习、正在跳走：此刻刚把这个词记入 reviewedWordIds，过滤后的列表
+  // 可能瞬间变空，不能据此判定「复习做完了」而清掉复习模式
+  const leavingRef = useRef(false);
+  // 复习模式下隐藏本轮已经复习过的词
+  const reviewed = session.reviewMode ? session.reviewedWordIds ?? [] : [];
+  const reviews = dueReviews.filter((r) => !reviewed.includes(r.word_id));
 
   useEffect(() => {
     fetchDueReviews();
@@ -39,6 +46,7 @@ const TodayReview = () => {
 
       if (response.ok && result.success) {
         setReviews(result.data);
+        setLoaded(true);
       } else {
         setError(result.error || 'API服务未运行');
       }
@@ -49,12 +57,24 @@ const TodayReview = () => {
     }
   };
 
+  // 复习清空后退出复习模式，之后学完的词照常去学习看板
+  useEffect(() => {
+    if (hydrated && loaded && reviews.length === 0 && session.reviewMode && !leavingRef.current) {
+      updateSession({ reviewMode: null, reviewedWordIds: null });
+    }
+  }, [hydrated, loaded, reviews.length, session.reviewMode, updateSession]);
+
   const startReview = (review: ReviewItem) => {
+    leavingRef.current = true;
+    // reviewMode：学完这个词后回到本页，接着复习列表里剩下的词。
+    // 复习过的词 SM-2 会推后下次复习时间，重新拉取时自然不在列表里了。
     updateSession({
       wordId: review.word_id,
       word: review.word,
       module: review.recommended_module,
-      vksLevel: undefined
+      vksLevel: undefined,
+      reviewMode: true,
+      reviewedWordIds: [...reviewed, review.word_id]
     });
 
     const moduleRoutes: Record<string, string> = {
@@ -65,7 +85,7 @@ const TodayReview = () => {
       exercise: '/exercise'
     };
 
-    const route = moduleRoutes[review.recommended_module] || '/exercise';
+    const route = moduleRoutes[review.recommended_module] || moduleRoutes.word;
     router.push(route);
   };
 
@@ -90,7 +110,7 @@ const TodayReview = () => {
       sentence: '例句学习',
       exercise: '练习'
     };
-    return labels[module] || module;
+    return labels[module] || labels.word;
   };
 
   if (loading) {
@@ -152,13 +172,18 @@ const TodayReview = () => {
               <div 
                 key={`${review.word_id}-${index}`}
                 className="glass-card p-5 rounded-2xl border border-white/60 bg-white/40 hover:bg-white/60 transition-colors shadow-sm cursor-pointer"
-                onClick={() => setSelectedReview(review)}
+                onClick={() => startReview(review)}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <h3 className="font-bold text-xl text-indigo-950">{review.word}</h3>
+                    <h3 className="font-bold text-xl text-indigo-950">
+                      {review.word}
+                      {review.pinyin && review.pinyin !== review.word && (
+                        <span className="ml-2 text-sm font-normal text-gray-500">{review.pinyin}</span>
+                      )}
+                    </h3>
                     <p className="text-sm text-gray-500 mt-1">
-                      Reviewed {review.review_count} times
+                      Reviewed {review.review_count ?? 0} times
                     </p>
                   </div>
                   {getPriorityBadge(review.priority_score)}
@@ -222,12 +247,16 @@ const TodayReview = () => {
                 }}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-600/20 h-12 text-base font-semibold"
               >
-                Start First Review
+                {session.reviewMode ? `Continue Review (${reviews.length} left)` : 'Start First Review'}
               </Button>
             )}
             <Button
               variant="outline"
-              onClick={() => router.push('/')}
+              onClick={() => {
+                // 主动离开即结束本轮复习，下次进来重新开始
+                updateSession({ reviewMode: null, reviewedWordIds: null });
+                router.push('/');
+              }}
               className="w-full bg-white/50 border-white/60 text-gray-700 hover:bg-white/80 hover:text-indigo-600 h-12 rounded-xl font-semibold backdrop-blur-md text-base"
             >
               Back to Home

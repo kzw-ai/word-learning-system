@@ -683,14 +683,25 @@ class SpacedRepetitionAlgorithm:
             
             for result in results:
                 word_id, pinyin, mastery_level, next_review, review_count, consecutive_incorrect = result
+                # 种子脚本写入的旧行可能是 NULL，按 0 处理，否则优先级计算直接抛异常
+                mastery_level = mastery_level or 0
+                consecutive_incorrect = consecutive_incorrect or 0
                 
                 # 计算优先级
                 days_overdue = (datetime.now() - datetime.fromisoformat(next_review)).days
                 priority = (1 - mastery_level) * (1 + days_overdue * 0.1) * (1 + consecutive_incorrect * 0.2)
                 
+                # word 表没有汉字列，按 character 表顺序拼出；拼不出时退回拼音
+                cursor.execute(
+                    "SELECT character FROM character WHERE word_id = ? ORDER BY id",
+                    (word_id,)
+                )
+                hanzi = ''.join(row[0] for row in cursor.fetchall())
+
                 reviews.append({
                     'word_id': word_id,
-                    'word': pinyin,
+                    'word': hanzi or pinyin,
+                    'pinyin': pinyin,
                     'mastery_level': mastery_level,
                     'days_overdue': days_overdue,
                     'review_count': review_count,
