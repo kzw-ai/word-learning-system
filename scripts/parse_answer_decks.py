@@ -277,6 +277,41 @@ def create_table(conn):
     """)
 
 
+def insert_items(conn, resolved):
+    """写入已匹配到词库的题目；按唯一索引去重，重复执行不会新增。"""
+    create_table(conn)
+    inserted = skipped = 0
+    now = datetime.now()
+    for s in resolved:
+        for it in s['items']:
+            try:
+                conn.execute("""
+                    INSERT INTO exercise_item
+                    (word_id, question_type, stem, options_json, correct_answer,
+                     source_deck, source_slide, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (s['word_id'], it['question_type'], it['stem'],
+                      json.dumps(it['options'], ensure_ascii=False) if it['options'] else None,
+                      it['correct_answer'], s['deck'], s['slide'], now))
+                inserted += 1
+            except sqlite3.IntegrityError:
+                skipped += 1
+    conn.commit()
+    return inserted, skipped
+
+
+def import_into(db_path):
+    """供后端启动时调用：解析课件并导入，返回 (新增, 跳过, 未匹配词数)。"""
+    slides, _ = parse_all()
+    conn = sqlite3.connect(db_path)
+    try:
+        resolved, unmatched = resolve_word_ids(conn, slides)
+        inserted, skipped = insert_items(conn, resolved)
+    finally:
+        conn.close()
+    return inserted, skipped, len(unmatched)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--import', dest='do_import', action='store_true', help='写入数据库')
@@ -315,24 +350,7 @@ def main():
         conn.close()
         return 0 if not problems else 1
 
-    create_table(conn)
-    inserted = skipped = 0
-    now = datetime.now()
-    for s in resolved:
-        for it in s['items']:
-            try:
-                conn.execute("""
-                    INSERT INTO exercise_item
-                    (word_id, question_type, stem, options_json, correct_answer,
-                     source_deck, source_slide, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (s['word_id'], it['question_type'], it['stem'],
-                      json.dumps(it['options'], ensure_ascii=False) if it['options'] else None,
-                      it['correct_answer'], s['deck'], s['slide'], now))
-                inserted += 1
-            except sqlite3.IntegrityError:
-                skipped += 1
-    conn.commit()
+    inserted, skipped = insert_items(conn, resolved)
     print('💾 写入 %s: 新增 %d 条，已存在跳过 %d 条' % (args.db, inserted, skipped))
     conn.close()
     return 0

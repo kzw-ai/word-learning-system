@@ -758,49 +758,6 @@ def get_word_exercises(word_id):
     options = build_options()
     questions = []
 
-    if word.id == 1:
-        # Override to strict prototype content for "发生" (word id 1) to match images perfectly
-        questions = [
-            {
-                'id': f'definition-{word.id}',
-                'type': 'definition',
-                'question': 'happen; occur; take place',
-                'options': ['嘴', '哪儿', '第一', '发生'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'collocation-{word.id}-1',
-                'type': 'collocation',
-                'question': '容易 ( )',
-                'options': ['最后', '一直', '五', '发生'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'choose_word-{word.id}-1',
-                'type': 'choose_word',
-                'question': '不愿意 ( ) 的事情终于出现了。',
-                'options': ['发生', '发现'],
-                'correctAnswer': '发生'
-            },
-            {
-                'id': f'sentence-{word.id}-1',
-                'type': 'fill_word',
-                'question': '不愿意发 ( ) 的事情终于出现了。',
-                'options': [],
-                'correctAnswer': '生'
-            }
-        ]
-        return jsonify({
-            'success': True,
-            'data': {
-                'wordId': word.id,
-                'word': base_hanzi,
-                'definition': 'happen; occur; take place',
-                'questions': questions[:question_limit] if question_limit < len(questions) else questions
-            }
-        })
-
-    # Default logic for other words
     questions.append({
         'id': f'definition-{word.id}',
         'type': 'definition',
@@ -1998,6 +1955,18 @@ def initialize_database():
             if ConfusablePair.query.count() == 0:
                 print("📝 添加易混淆词数据...")
                 seed_confusable_pairs()
+
+            # 论文课件里的人工命题。此前只能手动跑导入脚本，新部署的库里
+            # exercise_item 为空，练习会静默回落到随机干扰项。
+            if ExerciseItem.query.count() == 0:
+                try:
+                    import sys
+                    sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                    import parse_answer_decks  # pyrefly: ignore  # 运行时动态路径
+                    inserted, _, unmatched = parse_answer_decks.import_into(_db_path)
+                    print(f"📝 导入论文练习题 {inserted} 条（词库未匹配 {unmatched} 组）")
+                except Exception as e:
+                    print(f"⚠️  论文练习题导入失败: {str(e)}")
 
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:
