@@ -17,7 +17,7 @@ export function registerServiceWorker(config?: ServiceWorkerConfig) {
     return;
   }
 
-  window.addEventListener('load', () => {
+  const register = () => {
     const swUrl = '/service-worker.js';
 
     navigator.serviceWorker
@@ -35,15 +35,10 @@ export function registerServiceWorker(config?: ServiceWorkerConfig) {
           installingWorker.onstatechange = () => {
             if (installingWorker.state === 'installed') {
               if (navigator.serviceWorker.controller) {
-                // 新的 Service Worker 可用
+                // 新的 Service Worker 安装时自行 skipWaiting 接管，接管后由下面的
+                // controllerchange 刷新页面，无需再弹窗询问
                 console.log('🔄 检测到新版本，准备更新...');
                 config?.onUpdate?.(registration);
-
-                // 提示用户刷新
-                if (confirm('检测到新版本，是否立即更新？')) {
-                  installingWorker.postMessage({ type: 'SKIP_WAITING' });
-                  window.location.reload();
-                }
               } else {
                 // 首次安装成功
                 console.log('✅ Service Worker 首次安装完成');
@@ -66,7 +61,15 @@ export function registerServiceWorker(config?: ServiceWorkerConfig) {
       console.log('🔄 Service Worker 控制器已更新，刷新页面...');
       window.location.reload();
     });
-  });
+  };
+
+  // 本函数在 React 的 useEffect 里调用，此时 load 事件通常已经触发过，
+  // 只监听 load 会导致 Service Worker 有时根本注册不上
+  if (document.readyState === 'complete') {
+    register();
+  } else {
+    window.addEventListener('load', register, { once: true });
+  }
 }
 
 /**

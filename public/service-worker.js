@@ -1,17 +1,11 @@
 // Service Worker for offline caching
-const CACHE_NAME = 'word-learning-v1';
+//
+// v1 对所有同源 GET 一律「缓存优先」，连页面和 /api/ 接口都只取第一次缓存的结果：
+// 老用户永远看不到新部署的页面，到期复习、练习题等接口数据也冻结在第一次请求时。
+// v2 改为：接口不缓存；页面网络优先、断网才用缓存；只有带内容哈希的
+// /_next/static/ 静态资源缓存优先。改名为 v2 后，activate 会删掉 v1 的旧缓存。
+const CACHE_NAME = 'word-learning-v2';
 const urlsToCache = [
-  '/',
-  '/index.tsx',
-  '/word-learning',
-  '/character-learning',
-  '/collocation-learning',
-  '/sentence-learning',
-  '/exercise',
-  '/learning-dashboard',
-  '/today-review',
-  '/login',
-  '/register',
   '/manifest.json',
   '/offline.html'
 ];
@@ -57,65 +51,49 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 跳过非 GET 请求
-  if (request.method !== 'GET') {
+  // 非 GET、非 http(s)、跨域请求不处理
+  if (request.method !== 'GET' || !url.protocol.startsWith('http') || url.origin !== location.origin) {
     return;
   }
 
-  // 跳过 Chrome extensions 和其他特殊协议
-  if (!url.protocol.startsWith('http')) {
+  // 后端数据接口（由 Next 转发到 Flask）永远走网络，绝不缓存
+  if (url.pathname.startsWith('/api/') || url.pathname === '/words' || url.pathname.startsWith('/word/')) {
     return;
   }
 
+  // 文件名带内容哈希，内容变了文件名就变，可以安全地缓存优先
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => cached || fetchAndCache(request))
+    );
+    return;
+  }
+
+  // 页面与其他资源：网络优先，失败时才用缓存，页面再退到离线页
   event.respondWith(
-    caches.match(request)
-      .then((response) => {
-        // 缓存命中，返回缓存内容
-        if (response) {
-          console.log('[Service Worker] 从缓存返回:', request.url);
-          return response;
-        }
-
-        // 缓存未命中，发起网络请求
-        return fetch(request)
-          .then((response) => {
-            // 检查是否是有效响应
-            if (!response || response.status !== 200 || response.type === 'error') {
-              return response;
-            }
-
-            // 克隆响应
-            const responseToCache = response.clone();
-
-            // 缓存新的响应（仅缓存成功的响应）
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                // 只缓存同源请求
-                if (url.origin === location.origin) {
-                  cache.put(request, responseToCache);
-                }
-              });
-
-            return response;
-          })
-          .catch((error) => {
-            console.error('[Service Worker] 请求失败:', request.url, error);
-            
-            // 如果是导航请求（页面），返回离线页面
-            if (request.mode === 'navigate') {
-              return caches.match('/offline.html');
-            }
-            
-            // 返回空响应
-            return new Response('网络错误', {
-              status: 408,
-              statusText: 'Network Error',
-              headers: { 'Content-Type': 'text/plain' }
-            });
-          });
+    fetchAndCache(request).catch(() =>
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        if (request.mode === 'navigate') return caches.match('/offline.html');
+        return new Response('网络错误', {
+          status: 408,
+          statusText: 'Network Error',
+          headers: { 'Content-Type': 'text/plain' }
+        });
       })
+    )
   );
 });
+
+function fetchAndCache(request) {
+  return fetch(request).then((response) => {
+    if (response && response.status === 200 && response.type === 'basic') {
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+    }
+    return response;
+  });
+}
 
 // 监听消息（可用于手动触发缓存更新）
 self.addEventListener('message', (event) => {
