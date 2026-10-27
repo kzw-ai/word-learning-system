@@ -7,6 +7,7 @@ import { useLearningNavigation } from "@/src/hooks/useLearningNavigation";
 import { useLearningContext } from "@/src/context/LearningContext";
 import { useComprehensiveTracking } from "@/hooks/useTimeTracking";
 import AudioPlayer from "@/components/AudioPlayer";
+import CollocationText from "@/components/CollocationText";
 
 export default function Component() {
   const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } =
@@ -135,29 +136,11 @@ export default function Component() {
               {word.collocations && word.collocations.length > 0 && (
                 <div className="glass-card p-4 rounded-2xl border border-white/40 space-y-3 mt-4">
                   {word.collocations.map((col, index) => {
-                    // Extracting "容易（三级）发生" pattern from DB for UI rendering
-                    const parts = col.collocation.split('（');
-                    let prefix = col.collocation;
-                    let level = '';
-                    let suffix = '';
-                    
-                    if (parts.length > 1) {
-                        prefix = parts[0];
-                        const subParts = parts[1].split('）');
-                        if (subParts.length > 1) {
-                            level = subParts[0];
-                            suffix = subParts[1].replace(word.hanzi || word.pinyin, '');
-                        }
-                    }
-
                     return (
                     <div key={index} className="flex justify-between items-center group">
                       <div className="flex-1 pr-4">
                         <div className="flex items-center gap-1.5 text-lg font-semibold text-gray-800 mb-1 flex-wrap">
-                          {prefix && <span>{prefix}</span>}
-                          {level && <span className="text-base text-indigo-500/80 bg-indigo-50 px-1.5 rounded">({level})</span>}
-                          {suffix && <span>{suffix}</span>}
-                          <span className="text-indigo-600 font-bold ml-1">{word.hanzi || word.pinyin}</span>
+                          <CollocationText text={col.collocation} target={word.hanzi || word.pinyin} />
                         </div>
                         <p className="text-base font-normal text-gray-600 mt-1">{col.translation}</p>
                       </div>
@@ -229,10 +212,10 @@ export default function Component() {
                 variant="ghost"
                 size="sm"
                 disabled={!previous}
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 onClick={() => handleNavigate("previous")}
               >
-                ← {previous ? previous.label : "欢迎页"}
+                ← {previous ? previous.label : "上一步"}
               </Button>
               <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">
                 Character
@@ -241,7 +224,7 @@ export default function Component() {
                 variant="ghost"
                 size="sm"
                 disabled={!next}
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 onClick={() => handleNavigate("next")}
               >
                 {next ? next.label : "结束"} →

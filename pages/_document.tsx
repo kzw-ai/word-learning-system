@@ -23,7 +23,9 @@ export default function Document() {
         <meta name="keywords" content="词汇学习,HSK,中文,VKS,智能学习,离线学习" />
         
         {/* 视口设置 */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        {/* 允许双指缩放（看清汉字笔画、无障碍）；viewport-fit=cover 才能让 iOS 上的
+            env(safe-area-inset-*) 取到真实的刘海/底部安全区 */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
       <body>
         <Main />

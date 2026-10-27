@@ -8,6 +8,7 @@ import { useLearningContext } from '@/src/context/LearningContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
+import CollocationText from '@/components/CollocationText';
 
 export default function Component() {
   const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
@@ -76,7 +77,8 @@ export default function Component() {
     return (
       <div className="flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20">
         <div className="flex-1 space-y-4">
-          <ReviewReminder userId={userId} showInline={true} />
+          {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
+          {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
           
           <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 text-center relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full mix-blend-multiply filter blur-2xl opacity-50 pointer-events-none -mr-10 -mt-10"></div>
@@ -107,28 +109,11 @@ export default function Component() {
               {collocations.length > 0 && (
                 <div className="glass-card p-5 rounded-2xl border border-white/40 space-y-4 mt-4">
                   {collocations.map((col, index) => {
-                    const parts = col.collocation.split('（');
-                    let prefix = col.collocation;
-                    let level = '';
-                    let suffix = '';
-                    
-                    if (parts.length > 1) {
-                        prefix = parts[0];
-                        const subParts = parts[1].split('）');
-                        if (subParts.length > 1) {
-                            level = subParts[0];
-                            suffix = subParts[1].replace(word.hanzi || word.pinyin, '');
-                        }
-                    }
-
                     return (
                     <div key={index} className="flex justify-between items-center group">
                       <div className="flex-1 pr-4">
                         <div className="flex items-center gap-1.5 text-lg font-semibold text-gray-800 mb-1 flex-wrap">
-                          {prefix && <span>{prefix}</span>}
-                          {level && <span className="text-base text-indigo-500/80 bg-indigo-50 px-1.5 rounded">({level})</span>}
-                          {suffix && <span>{suffix}</span>}
-                          <span className="text-indigo-600 font-bold ml-1">{word.hanzi || word.pinyin}</span>
+                          <CollocationText text={col.collocation} target={word.hanzi || word.pinyin} />
                         </div>
                         <p className="text-base font-normal text-gray-500 mt-0.5">{col.translation}</p>
                       </div>
@@ -195,16 +180,16 @@ export default function Component() {
           <div className="px-5 mb-3">
             <div className="flex justify-between items-center">
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 variant="ghost"
                 disabled={!previous}
                 onClick={() => handleNavigate('previous')}
               >
-                ← {previous ? previous.label : '入门' }
+                ← {previous ? previous.label : '上一步'}
               </Button>
-              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">word learning</h1>
+              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Word</h1>
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 variant="ghost"
                 disabled={!next}
                 onClick={() => handleNavigate('next')}
@@ -212,7 +197,7 @@ export default function Component() {
                 {next ? next.label : '结束'} →
               </Button>
             </div>
-            <p className="text-xs text-indigo-600/70 mt-2 font-medium ml-1">
+            <p className="text-sm text-indigo-700 mt-2 font-medium ml-1">
               当前模块：{resolveModuleLabel('word')}
             </p>
           </div>

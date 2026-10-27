@@ -161,11 +161,8 @@ const LearningDashboard = () => {
           <div className="px-5 mb-4 shrink-0">
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight flex items-center">
               <TrendingUp className="mr-2 text-indigo-500" size={24} />
-              学习Dashboard
+              学习看板 Dashboard
             </h1>
-            <p className="text-sm text-gray-500 mt-1.5 font-medium">
-              账号：{userId}
-            </p>
           </div>
 
           {/* Main Content */}

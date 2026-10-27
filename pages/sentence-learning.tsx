@@ -144,16 +144,16 @@ export default function Component() {
           <div className="px-5 mb-3">
             <div className="flex justify-between items-center">
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 variant="ghost"
                 disabled={!previous}
                 onClick={() => handleNavigate('previous')}
               >
-                ← {previous?.label || '上一模块'}
+                ← {previous?.label || '上一步'}
               </Button>
-              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">sentence</h1>
+              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Sentence</h1>
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-xs font-semibold"
+                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 variant="ghost"
                 disabled={!next}
                 onClick={() => handleNavigate('next')}
@@ -161,7 +161,7 @@ export default function Component() {
                 {next?.label || '结束'} →
               </Button>
             </div>
-            <p className="text-xs text-indigo-600/70 mt-2 font-medium ml-1">
+            <p className="text-sm text-indigo-700 mt-2 font-medium ml-1">
               当前模块：{resolveModuleLabel('sentence')}
             </p>
           </div>

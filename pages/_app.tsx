@@ -32,7 +32,8 @@ function MyApp({ Component, pageProps }: AppProps) {
     <LearningProvider>
       <LearningSessionProvider>
         <Component {...pageProps} />
-        <UserSwitcher />
+        {/* 切换测试用户的调试工具：生产环境不显示，它会悬浮遮住各页的主按钮 */}
+        {process.env.NODE_ENV !== 'production' && <UserSwitcher />}
         <NetworkStatus />
       </LearningSessionProvider>
     </LearningProvider>

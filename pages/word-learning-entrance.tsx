@@ -147,8 +147,8 @@ export default function Component() {
   const learningOptions = [
     { value: 'A', text: 'I have never seen this word.', path: '/character-learning', label: '字学习' },
     { value: 'B', text: "I don't know what it means.", path: '/word-learning', label: '词学习' },
-    { value: 'C', text: "I know its meaning, but I don't know its collocations.", path: '/collocation-learning', label: '搭配学习' },
-    { value: 'D', text: "I know its collocation, but I don't know how to use it in a sentence.", path: '/sentence-learning', label: '例句学习' },
+    { value: 'C', text: "I know what it means, but not which words go with it.", path: '/collocation-learning', label: '搭配学习' },
+    { value: 'D', text: "I know which words go with it, but I can't use it in a sentence yet.", path: '/sentence-learning', label: '例句学习' },
     { value: 'E', text: 'I can use it in a sentence.', path: '/exercise', label: '练习' }
   ];
 
@@ -273,9 +273,10 @@ export default function Component() {
         <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex flex-col relative z-20">
           <div className="px-5 mb-4">
               <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">Word Learning</h1>
-              <p className="text-sm text-gray-500 mt-1 font-medium">
-                {currentUser?.username ? `${currentUser.username} (${userId})` : userId}
-              </p>
+              {/* 只显示登录用户名；内部 user_id 对学习者没有意义 */}
+              {currentUser?.username && (
+                <p className="text-sm text-gray-500 mt-1 font-medium">{currentUser.username}</p>
+              )}
               <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
                 <div className="flex justify-between items-center">
                   <span>词汇量: {currentUser?.wordsStudied ?? 0}</span>
@@ -310,8 +311,8 @@ export default function Component() {
             <div className="flex-1 px-5 pb-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
               <div className="space-y-4">
                   <div className="glass-panel p-5 rounded-2xl">
-                    <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How about you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
-                    <p className="text-base text-gray-500 font-medium">Please choose one choice below and continue to next page.</p>
+                    <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
+                    <p className="text-base text-gray-500 font-medium">Choose the answer that fits you best.</p>
                   
                   <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-3 mt-4">
                     {learningOptions.map((option) => (
@@ -350,7 +351,7 @@ export default function Component() {
                   disabled={!selectedOption || isSubmitting}
                   className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:from-gray-300 disabled:to-gray-300 hover:shadow-lg disabled:shadow-none text-white py-6 text-base font-bold rounded-2xl mt-4 mb-[calc(env(safe-area-inset-bottom)+1.5rem)] border-none transition-all duration-300"
                 >
-                  <span className="relative z-10 tracking-wider text-glow">{isSubmitting ? '处理中...' : 'CONTINUE'}</span>
+                  <span className="relative z-10 tracking-wider text-glow">{isSubmitting ? 'LOADING…' : 'CONTINUE'}</span>
                   {!(!selectedOption || isSubmitting) && (
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity duration-300"></div>
                   )}
