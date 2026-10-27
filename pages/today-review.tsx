@@ -83,6 +83,7 @@ const TodayReview = () => {
       wordId: review.word_id,
       word: review.word,
       module: review.recommended_module,
+      entryModule: review.recommended_module,
       vksLevel: undefined,
       reviewMode: true,
       reviewedWordIds: [...reviewed, review.word_id],

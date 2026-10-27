@@ -12,6 +12,7 @@ import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearni
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
+import StepProgress from '@/components/learning/StepProgress';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -451,6 +452,9 @@ const Exercise = () => {
               >
                 {learningSession.reviewMode ? '复习列表' : (next ? next.label : '结束')} →
               </Button>
+            </div>
+            <div className="mt-3">
+              <StepProgress current="exercise" entry={learningSession.entryModule} />
             </div>
           </div>
           

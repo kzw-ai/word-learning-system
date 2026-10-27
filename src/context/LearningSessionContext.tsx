@@ -19,6 +19,11 @@ export interface LearningSessionState {
    */
   reviewedWordIds?: number[] | null;
   reviewDate?: string | null;
+  /**
+   * 这一轮从哪一步进入（VKS 自评或复习 / 推荐决定）。步骤进度条据此把之前的
+   * 步骤显示为「已跳过」。只存本地。
+   */
+  entryModule?: string | null;
   lastUpdated?: string | null;
 }
 
@@ -43,6 +48,7 @@ const DEFAULT_SESSION: LearningSessionState = {
   reviewMode: null,
   reviewedWordIds: null,
   reviewDate: null,
+  entryModule: null,
   lastUpdated: null
 };
 
@@ -69,6 +75,7 @@ const loadSessionFromStorage = (userId: string): LearningSessionState => {
         reviewMode: parsed.reviewMode ?? null,
         reviewedWordIds: Array.isArray(parsed.reviewedWordIds) ? parsed.reviewedWordIds : null,
         reviewDate: parsed.reviewDate ?? null,
+        entryModule: parsed.entryModule ?? null,
         lastUpdated: parsed.lastUpdated ?? null
       };
     }

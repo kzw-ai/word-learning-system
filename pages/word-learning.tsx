@@ -1,21 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { WordHero, DefinitionBlock, CharacterBreakdown, RecapSection } from "@/components/learning/WordBlocks";
+import StepProgress from "@/components/learning/StepProgress";
 import { Button } from "@/components/ui/button";
-import { Battery, Signal, Wifi, Volume2 } from 'lucide-react';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
-import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
+import { useLearningNavigation } from '@/src/hooks/useLearningNavigation';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import ReviewReminder from '@/components/ReviewReminder';
-import AudioPlayer from '@/components/AudioPlayer';
-import CollocationText from '@/components/CollocationText';
 
 export default function Component() {
   const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
   const { userId } = useLearningContext();
   const { word, loading, error } = useWordData({ initialWordId: learningSession.wordId ?? undefined });
   const { previous, next, goTo } = useLearningNavigation('word');
-  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
 
   const tracking = useComprehensiveTracking({
     userId,
@@ -54,9 +52,6 @@ export default function Component() {
     goTo(target.key);
   };
 
-  const mainExample = word?.examples?.[0];
-  const collocations = word?.collocations ?? [];
-
   const renderBody = () => {
     if (loading) {
       return (
@@ -80,84 +75,18 @@ export default function Component() {
           {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
           {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
           
-          <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 text-center relative overflow-hidden">
+          <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full mix-blend-multiply filter blur-2xl opacity-50 pointer-events-none -mr-10 -mt-10"></div>
-            
-            <div className="flex flex-col items-center mb-2">
-              <h2 className="text-[54px] font-extrabold text-gray-900 leading-none mb-2 mt-2">{word.hanzi}</h2>
-              <div className="flex items-center gap-2 bg-indigo-50/80 px-4 py-1.5 rounded-full mb-2 z-10">
-                <span className="text-sm font-medium text-indigo-700 tracking-widest">{word.pinyin}</span>
-                <AudioPlayer 
-                  text={word.hanzi} 
-                  language="zh-CN"
-                  buttonSize="sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-4 relative z-10 text-left">
-              {/* Word Definition Block */}
-              {word.definition && (
-                <div className="glass-card p-5 rounded-2xl border border-white/40 mt-4">
-                  <p className="text-lg text-gray-700 font-medium leading-relaxed">
-                     {word.definition}
-                  </p>
-                </div>
-              )}
-
-              {/* Collocations Block */}
-              {collocations.length > 0 && (
-                <div className="glass-card p-5 rounded-2xl border border-white/40 space-y-4 mt-4">
-                  {collocations.map((col, index) => {
-                    return (
-                    <div key={index} className="flex justify-between items-center group">
-                      <div className="flex-1 pr-4">
-                        <div className="flex items-center gap-1.5 text-lg font-semibold text-gray-800 mb-1 flex-wrap">
-                          <CollocationText text={col.collocation} target={word.hanzi || word.pinyin} />
-                        </div>
-                        <p className="text-base font-normal text-gray-500 mt-0.5">{col.translation}</p>
-                      </div>
-                      <AudioPlayer 
-                        text={col.collocation.replace(/\uff08[^\uff09]*\uff09/g, '')} 
-                        audioUrl={col.audio}
-                        language="zh-CN"
-                        buttonSize="sm"
-                      />
-                    </div>
-                  )})}
-                </div>
-              )}
-
-               {/* Example Sentences Block */}
-               {mainExample && (
-                <div className="glass-card p-5 rounded-2xl border border-white/40 space-y-5 mt-4">
-                    <div className="group flex flex-col relative">
-                      <div className="flex justify-between items-start">
-                        <p className="text-lg font-semibold text-gray-800 leading-relaxed pr-8">
-                          {mainExample.sentence}
-                        </p>
-                        <div className="absolute top-0 right-0">
-                          <AudioPlayer 
-                            text={mainExample.sentence} 
-                            audioUrl={mainExample.audio}
-                            language="zh-CN"
-                            buttonSize="sm"
-                          />
-                        </div>
-                      </div>
-                      {mainExample.pinyin && (
-                        <p className="text-base text-indigo-600/80 mt-2 font-medium tracking-wide leading-relaxed">
-                          {mainExample.pinyin}
-                        </p>
-                      )}
-                      <p className="text-base text-gray-600 mt-2 leading-relaxed">
-                        {mainExample.translation}
-                      </p>
-                    </div>
-                </div>
-              )}
+            <div className="relative z-10 space-y-6">
+              <WordHero word={word} />
+              <DefinitionBlock word={word} />
             </div>
           </div>
+          {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
+          <RecapSection labels={["拆字"]}>
+            <CharacterBreakdown word={word} />
+          </RecapSection>
+          <div className="h-6 w-full shrink-0"></div>
         </div>
 
         {/* 底部按钮区域保持为单大绿色 CONTINUE 按钮以符合原型图 */}
@@ -197,9 +126,9 @@ export default function Component() {
                 {next ? next.label : '结束'} →
               </Button>
             </div>
-            <p className="text-sm text-indigo-700 mt-2 font-medium ml-1">
-              当前模块：{resolveModuleLabel('word')}
-            </p>
+            <div className="mt-3">
+              <StepProgress current="word" entry={learningSession.entryModule} />
+            </div>
           </div>
           
           {renderBody()}
