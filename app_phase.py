@@ -1975,9 +1975,9 @@ def initialize_database():
                 import sys
                 sys.path.insert(0, os.path.join(basedir, 'scripts'))
                 import parse_answer_decks  # pyrefly: ignore  # 运行时动态路径
-                inserted, pruned, unmatched = parse_answer_decks.import_into(_db_path)
-                if inserted or pruned:
-                    print(f"📝 论文练习题同步：新增 {inserted} 条，删除过期 {pruned} 条")
+                inserted, updated, pruned, unmatched = parse_answer_decks.import_into(_db_path)
+                if inserted or updated or pruned:
+                    print(f"📝 论文练习题同步：新增 {inserted} 条，更新 {updated} 条，删除过期 {pruned} 条")
                 if unmatched:
                     print(f"⚠️  论文练习题有 {unmatched} 组在词库中找不到对应词")
             except Exception as e:

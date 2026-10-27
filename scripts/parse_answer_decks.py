@@ -302,58 +302,78 @@ def create_table(conn):
     """)
 
 
-def insert_items(conn, resolved):
-    """写入已匹配到词库的题目；按唯一索引去重，重复执行不会新增。"""
-    create_table(conn)
-    inserted = skipped = 0
+def sync_items(conn, slides, resolved):
+    """把 exercise_item 与解析结果对齐：新题插入、答案/选项/词变了的更新、
+    课件里已不存在的删除。不提交，由调用方在同一事务里提交或回滚。
+
+    返回 (新增, 更新, 删除)。
+    """
+    # 只清理本次成功解析出题的课件。课件文件缺失或整份解析失败时，
+    # 它的题保持原样——缺输入不能被当成「这些题都该删」。
+    parsed_decks = {s['deck'] for s in slides}
+    current = {(s['deck'], s['slide'], it['question_type'], it['stem'])
+               for s in slides for it in s['items']}
+    stale = [row[0] for row in conn.execute(
+        "SELECT id, source_deck, source_slide, question_type, stem FROM exercise_item"
+    ) if row[1] in parsed_decks and tuple(row[1:]) not in current]
+    conn.executemany("DELETE FROM exercise_item WHERE id = ?", [(i,) for i in stale])
+
+    # 去重键不含答案和选项，按键 upsert：题干不变而答案被修正时也要更新
+    inserted = updated = 0
     now = datetime.now()
     for s in resolved:
         for it in s['items']:
-            try:
+            options_json = json.dumps(it['options'], ensure_ascii=False) if it['options'] else None
+            key = (s['deck'], s['slide'], it['question_type'], it['stem'])
+            row = conn.execute("""
+                SELECT id, word_id, options_json, correct_answer FROM exercise_item
+                WHERE source_deck = ? AND source_slide = ? AND question_type = ? AND stem = ?
+            """, key).fetchone()
+            if row is None:
                 conn.execute("""
                     INSERT INTO exercise_item
                     (word_id, question_type, stem, options_json, correct_answer,
                      source_deck, source_slide, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (s['word_id'], it['question_type'], it['stem'],
-                      json.dumps(it['options'], ensure_ascii=False) if it['options'] else None,
+                """, (s['word_id'], it['question_type'], it['stem'], options_json,
                       it['correct_answer'], s['deck'], s['slide'], now))
                 inserted += 1
-            except sqlite3.IntegrityError:
-                skipped += 1
-    conn.commit()
-    return inserted, skipped
+            elif row[1:] != (s['word_id'], options_json, it['correct_answer']):
+                conn.execute("""
+                    UPDATE exercise_item SET word_id = ?, options_json = ?, correct_answer = ?
+                    WHERE id = ?
+                """, (s['word_id'], options_json, it['correct_answer'], row[0]))
+                updated += 1
+    return inserted, updated, len(stale)
 
 
-def prune_stale_items(conn, slides):
-    """删掉课件解析结果里已不存在的题（解析器修正后旧题干/旧答案会残留）。
-    去重键不含答案，只插入不会修正已入库的错题，所以同步时必须做这一步。"""
-    current = {(s['deck'], s['slide'], it['question_type'], it['stem'])
-               for s in slides for it in s['items']}
-    stale = [row[0] for row in conn.execute(
-        "SELECT id, source_deck, source_slide, question_type, stem FROM exercise_item"
-    ) if tuple(row[1:]) not in current]
-    conn.executemany("DELETE FROM exercise_item WHERE id = ?", [(i,) for i in stale])
-    conn.commit()
-    return len(stale)
+def sync_database(db_path, slides):
+    """在一个 IMMEDIATE 事务里完成建表、匹配和同步，失败整体回滚。
+    IMMEDIATE 让多个 worker 同时启动时排队执行，而不是交错删改。"""
+    conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        try:
+            create_table(conn)
+            resolved, unmatched = resolve_word_ids(conn, slides)
+            counts = sync_items(conn, slides, resolved)
+            conn.execute('COMMIT')
+        except Exception:
+            conn.execute('ROLLBACK')
+            raise
+    finally:
+        conn.close()
+    return counts, unmatched
 
 
 def import_into(db_path):
-    """供后端每次启动时调用，把 exercise_item 与课件同步。
-
-    幂等：已有的题跳过，新匹配到词库的词补入，课件里已不存在的题删除。
-    返回 (新增, 删除, 未匹配词数)。
-    """
+    """供后端每次启动时调用，把 exercise_item 与课件同步；重复执行不改变任何行。
+    返回 (新增, 更新, 删除, 未匹配词数)。"""
     slides, _ = parse_all()
-    conn = sqlite3.connect(db_path)
-    try:
-        create_table(conn)
-        pruned = prune_stale_items(conn, slides)
-        resolved, unmatched = resolve_word_ids(conn, slides)
-        inserted, _ = insert_items(conn, resolved)
-    finally:
-        conn.close()
-    return inserted, pruned, len(unmatched)
+    if not slides:
+        raise RuntimeError(f'{DATA_DIR} 下没有解析出任何题，未改动数据库')
+    (inserted, updated, pruned), unmatched = sync_database(db_path, slides)
+    return inserted, updated, pruned, len(unmatched)
 
 
 def main():
@@ -394,12 +414,13 @@ def main():
         conn.close()
         return 0 if not problems else 1
 
-    create_table(conn)
-    pruned = prune_stale_items(conn, slides)
-    inserted, skipped = insert_items(conn, resolved)
-    print('💾 写入 %s: 新增 %d 条，已存在跳过 %d 条，删除过期 %d 条'
-          % (args.db, inserted, skipped, pruned))
     conn.close()
+    if not slides:
+        print('❌ 没有解析出任何题，未改动数据库')
+        return 1
+    (inserted, updated, pruned), _ = sync_database(args.db, slides)
+    print('💾 写入 %s: 新增 %d 条，更新 %d 条，删除过期 %d 条'
+          % (args.db, inserted, updated, pruned))
     return 0
 
 
