@@ -1,18 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { WordHero, ExampleList, DefinitionBlock, CollocationList, CharacterBreakdown, RecapSection } from "@/components/learning/WordBlocks";
+import StepProgress from "@/components/learning/StepProgress";
 import { Button } from "@/components/ui/button";
-import { Battery, Signal, Wifi, Volume2 } from 'lucide-react';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
-import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
+import { useLearningNavigation } from '@/src/hooks/useLearningNavigation';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
-import AudioPlayer from '@/components/AudioPlayer';
 
 export default function Component() {
   const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
   const { word, loading, error } = useWordData({ initialWordId: learningSession.wordId ?? undefined });
   const { previous, next, goTo } = useLearningNavigation('sentence');
-  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
   const { userId } = useLearningContext();
 
   const tracking = useComprehensiveTracking({
@@ -50,8 +49,6 @@ export default function Component() {
     goTo(target.key);
   };
 
-  const mainExample = word?.examples?.[0];
-
   const renderBody = () => {
     if (loading) {
       return (
@@ -61,7 +58,7 @@ export default function Component() {
       );
     }
 
-    if (error || !word || !mainExample) {
+    if (error || !word) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-red-500 text-sm text-center">
           暂时无法加载例句，请确认 API 服务是否可用。
@@ -72,56 +69,20 @@ export default function Component() {
     return (
       <div className="flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20">
         <div className="flex-1 space-y-4">
-          <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 text-center relative overflow-hidden">
+          <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full mix-blend-multiply filter blur-2xl opacity-50 pointer-events-none -mr-10 -mt-10"></div>
-            
-            <div className="flex flex-col items-center mb-2">
-              <h2 className="text-[54px] font-extrabold text-gray-900 leading-none mb-2 mt-2">{word.hanzi}</h2>
-              <div className="flex items-center gap-2 bg-indigo-50/80 px-4 py-1.5 rounded-full mb-2 z-10">
-                <span className="text-sm font-medium text-indigo-700 tracking-widest">{word.pinyin}</span>
-                <AudioPlayer 
-                  text={word.hanzi}
-                  language="zh-CN"
-                  buttonSize="sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-4 relative z-10 text-left">
-               {/* Example Sentences Block */}
-               {word.examples && word.examples.length > 0 && (
-                <div className="glass-card p-5 rounded-2xl border border-white/40 space-y-6 mt-4">
-                  {word.examples.map((ex, index) => (
-                    <div key={index} className="group flex flex-col relative">
-                      <div className="flex justify-between items-start">
-                        <p className="text-lg font-semibold text-gray-800 leading-relaxed pr-8">
-                          {ex.sentence}
-                        </p>
-                        <div className="absolute top-0 right-0">
-                          <AudioPlayer 
-                            text={ex.sentence} 
-                            audioUrl={ex.audio}
-                            language="zh-CN"
-                            buttonSize="sm"
-                          />
-                        </div>
-                      </div>
-                      {ex.pinyin && (
-                        <p className="text-base text-indigo-600/80 mt-2 font-medium tracking-wide leading-relaxed">
-                          {ex.pinyin}
-                        </p>
-                      )}
-                      <p className="text-base text-gray-600 mt-2 leading-relaxed">
-                        {ex.translation}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Spacer to guarantee scroll reaching the bottom properly */}
-              <div className="h-6 w-full shrink-0"></div>
+            <div className="relative z-10 space-y-6">
+              <WordHero word={word} />
+              <ExampleList word={word} />
             </div>
           </div>
+          {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
+          <RecapSection labels={["词义", "搭配", "拆字"]}>
+            <DefinitionBlock word={word} />
+            <CollocationList word={word} />
+            <CharacterBreakdown word={word} />
+          </RecapSection>
+          <div className="h-6 w-full shrink-0"></div>
         </div>
 
         {/* 底部按钮区域保持为单大绿色 CONTINUE 按钮以符合原型图 */}
@@ -161,9 +122,9 @@ export default function Component() {
                 {next?.label || '结束'} →
               </Button>
             </div>
-            <p className="text-sm text-indigo-700 mt-2 font-medium ml-1">
-              当前模块：{resolveModuleLabel('sentence')}
-            </p>
+            <div className="mt-3">
+              <StepProgress current="sentence" entry={learningSession.entryModule} />
+            </div>
           </div>
           
           {renderBody()}
