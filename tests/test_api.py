@@ -374,3 +374,40 @@ class TestGuestIdentity:
             assert conn.execute("SELECT COUNT(*) FROM user_profile WHERE user_id=?", (guest,)).fetchone()[0] == 0
         finally:
             conn.close()
+
+
+class TestSessionBoundWrites:
+    """事件与作答必须写进「自己的、真实存在的」会话"""
+
+    def test_events_require_identity(self, anon_client):
+        resp = anon_client.post('/api/learning/events/batch', json={
+            'sessionId': 's-guest-1', 'events': [{'type': 'click'}]})
+        assert resp.status_code == 401
+
+    def test_events_into_unknown_session_rejected(self, anon_client):
+        resp = anon_client.post('/api/learning/events/batch', json={
+            'sessionId': 's-does-not-exist', 'events': [{'type': 'click'}]}, headers=guest_headers())
+        assert resp.status_code == 404
+
+    def test_events_into_other_users_session_rejected(self, anon_client):
+        # s-guest-1 由 GUEST 创建（见 TestGuestIdentity），换一个访客写入
+        anon_client.post('/api/learning/session/start', json={
+            'sessionId': 's-guest-owned', 'userId': GUEST, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers())
+        resp = anon_client.post('/api/learning/events/batch', json={
+            'sessionId': 's-guest-owned', 'events': [{'type': 'click'}]},
+            headers=guest_headers(OTHER_GUEST))
+        assert resp.status_code == 403
+        ok = anon_client.post('/api/learning/events/batch', json={
+            'sessionId': 's-guest-owned', 'events': [{'type': 'click'}]}, headers=guest_headers())
+        assert ok.get_json()['success'] is True
+
+    def test_exercise_into_unknown_session_rejected(self, anon_client):
+        resp = anon_client.post('/api/learning/exercise/record', json={
+            'sessionId': 's-does-not-exist', 'questionId': 'q1', 'questionType': 'definition',
+            'userAnswer': 'a', 'correctAnswer': 'a', 'isCorrect': True,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+        }, headers=guest_headers())
+        assert resp.status_code == 404

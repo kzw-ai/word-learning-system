@@ -200,6 +200,7 @@ export class TimeTracker {
         method: 'POST',
         body: JSON.stringify({
           sessionId: this.sessionId,
+          userId: this.config.userId,
           questionId: exerciseData.questionId,
           questionType: exerciseData.questionType,
           questionContent: exerciseData.questionContent,
@@ -288,6 +289,7 @@ export class TimeTracker {
         method: 'POST',
         body: JSON.stringify({
           sessionId: this.sessionId,
+          userId: this.config.userId,
           endTime: endTime.toISOString(),
           durationSeconds: totalDuration,
           activeTimeSeconds: activeDuration,
@@ -340,6 +342,7 @@ export class TimeTracker {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: this.sessionId,
+          userId: this.config.userId,
           events: eventsToSend.map(e => ({
             type: e.type,
             target: e.target,

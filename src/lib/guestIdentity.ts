@@ -17,6 +17,37 @@ const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 export const isGuestId = (id: string | null | undefined): id is string =>
   Boolean(id) && GUEST_ID_PATTERN.test(id as string);
 
+/** localStorage 读写的容错封装：隐私模式、站点数据被禁用时访问会直接抛错 */
+export const safeGetItem = (key: string): string | null => {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+export const safeSetItem = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // 存不下就只在本次页面生命周期内有效
+  }
+};
+
+export const safeRemoveItem = (key: string) => {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // 同上
+  }
+};
+
+// 本页面生命周期内的访客 ID。localStorage 不可用时，没有它每次调用都会生成新 ID
+let cachedGuestId: string | null = null;
+
+/** 本设备此前是否已有访客 ID（用于判断是不是第一次以访客身份访问） */
+export const hasStoredGuestId = () => isGuestId(safeGetItem(GUEST_STORAGE_KEY));
+
 const generateGuestId = () => {
   const bytes = new Uint8Array(20);
   window.crypto.getRandomValues(bytes);
@@ -31,20 +62,12 @@ const writeGuestCookie = (id: string) => {
 
 /** 取本设备的访客 ID，没有就生成；每次都重写 cookie，防止被单独清掉 */
 export const ensureGuestId = (): string => {
-  let id: string | null = null;
-  try {
-    id = window.localStorage.getItem(GUEST_STORAGE_KEY);
-  } catch {
-    // 隐私模式等情况下 localStorage 不可用：本次访问用一个临时 ID
-  }
+  let id = safeGetItem(GUEST_STORAGE_KEY);
   if (!isGuestId(id)) {
-    id = generateGuestId();
-    try {
-      window.localStorage.setItem(GUEST_STORAGE_KEY, id);
-    } catch {
-      // 同上
-    }
+    id = isGuestId(cachedGuestId) ? cachedGuestId : generateGuestId();
+    safeSetItem(GUEST_STORAGE_KEY, id);
   }
+  cachedGuestId = id;
   writeGuestCookie(id);
   return id;
 };

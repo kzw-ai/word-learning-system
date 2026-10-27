@@ -539,7 +539,15 @@ def record_exercise_result(current_user_id=None, **kwargs):
         
         # 验证权限：检查session是否属于当前用户
         session = LearningSession.query.filter_by(session_id=data['sessionId']).first()
-        if session and session.user_id != current_user_id:
+        # 会话不存在不能当作「通过」：否则任何身份都能往编造的会话里写作答，
+        # 也会掩盖会话没建成、作答却「保存成功」的情况
+        if session is None:
+            return jsonify({
+                'success': False,
+                'error': '会话不存在',
+                'code': 'SESSION_NOT_FOUND'
+            }), 404
+        if session.user_id != current_user_id:
             return jsonify({
                 'success': False,
                 'error': '无权为其他用户的会话记录练习',
@@ -619,7 +627,8 @@ def record_exercise_result(current_user_id=None, **kwargs):
 
 
 @app.route('/api/learning/events/batch', methods=['POST'])
-def record_batch_events():
+@require_authentication(allow_url_param=True)
+def record_batch_events(current_user_id=None, **kwargs):
     """批量记录学习事件（页面停留、点击、音频播放等）"""
     try:
         data = request.get_json()
@@ -628,6 +637,14 @@ def record_batch_events():
         
         if not session_id:
             return jsonify({'success': False, 'error': 'sessionId is required'}), 400
+
+        # 此前不认证也不查归属：知道 sessionId 就能往别人的会话里写伪造事件，
+        # 编一个不存在的 sessionId 也能写进孤立事件
+        session = LearningSession.query.filter_by(session_id=session_id).first()
+        if session is None:
+            return jsonify({'success': False, 'error': '会话不存在', 'code': 'SESSION_NOT_FOUND'}), 404
+        if session.user_id != current_user_id:
+            return jsonify({'success': False, 'error': '无权为其他用户的会话记录事件', 'code': 'PERMISSION_DENIED'}), 403
         
         if not events:
             return jsonify({'success': True, 'message': 'No events to record', 'count': 0})
@@ -1597,12 +1614,12 @@ def generate_dashboard_data(user_id, time_range):
 # ================================================
 
 def merge_guest_into_user(guest_id, user_id):
-    """把访客名下的学习数据转到刚注册的账号，返回迁移的行数。
+    """把访客名下的学习数据转到刚注册的账号，返回迁移的行数；失败返回 None。
 
     learning_event / exercise_record 挂在 session_id 上，随 learning_session 一起转移。
     访客的档案（当前学习位置等）复制到新账号后删除。
     """
-    conn = sqlite3.connect(_db_path)
+    conn = sqlite3.connect(_db_path, timeout=30)
     try:
         moved = 0
         for table in ('learning_session', 'user_progress', 'adaptive_recommendation',
@@ -1624,7 +1641,7 @@ def merge_guest_into_user(guest_id, user_id):
     except sqlite3.Error as e:
         conn.rollback()
         print(f"⚠️  访客数据合并失败: {e}")
-        return 0
+        return None
     finally:
         conn.close()
 
@@ -1668,7 +1685,10 @@ def register():
                 'data': {
                     'user_id': result['user_id'],
                     'username': username,
-                    'merged_guest_rows': merged
+                    'merged_guest_rows': merged or 0,
+                    # 账号已建好，但访客数据没并过来（如数据库锁超时）：明确告知，
+                    # 不与「本来就没有访客数据」混为一谈
+                    'guest_merge': 'failed' if merged is None else ('done' if merged else 'none')
                 },
                 'message': result['message']
             })

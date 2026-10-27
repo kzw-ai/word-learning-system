@@ -88,6 +88,11 @@ word learning system/
 1. 编辑 `app_phase.py` 或相关 Python 文件
 2. 运行 `pm2 restart learn-backend`
 
+### 用户身份（不要在生产环境放开）
+- 身份只认两种凭证：登录 session token，或未登录访客的 `guest_id` cookie（前端首次访问自动生成，见 `src/lib/guestIdentity.ts`）
+- 请求里的 `user_id`（URL / query / body）**不是**身份。只有设置环境变量 `ALLOW_USER_ID_PARAM=1` 时才被接受，用于本地开发切换测试用户（右下角 UserSwitcher）和 pytest
+- **生产环境的 PM2 进程绝不能设置 `ALLOW_USER_ID_PARAM`**——设了就等于任何人在请求里填别人的 `user_id` 即可读写对方数据
+
 ### UI/UX 设计约定
 - 所有学习页面使用**响应式全屏布局**：手机全屏 (`h-[100dvh]`)，桌面居中限宽 (`max-w-[430px]`)
 - 使用 `env(safe-area-inset-top)` 适配手机刘海/灵动岛

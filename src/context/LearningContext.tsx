@@ -6,7 +6,7 @@ import {
   setApiBaseUrlOverride
 } from '@/src/lib/apiClient';
 import type { UserProfileSummary } from '@/src/lib/types';
-import { ensureGuestId } from '@/src/lib/guestIdentity';
+import { ensureGuestId, hasStoredGuestId, safeGetItem, safeRemoveItem, safeSetItem } from '@/src/lib/guestIdentity';
 import { buildApiUrl } from '@/src/lib/apiClient';
 
 // 开发期才允许用 UserSwitcher 切换到任意测试用户（后端也须设 ALLOW_USER_ID_PARAM=1）
@@ -64,10 +64,24 @@ const writeSessionCookie = (token: string) => {
   document.cookie = `session_token=${token}; Path=/; Max-Age=604800; SameSite=Lax${secure}`;
 };
 
+/**
+ * 这台浏览器第一次拿到访客 ID 时，把它原先以 test_user_001（或开发期选过的
+ * 测试用户）身份存在本地的学习位置挪过来，免得部署后老访客的续学进度丢失。
+ * 只动本地存储；共享测试账号在数据库里的记录不搬，那不属于这个访客。
+ */
+const migrateLegacyLocalSession = (guestId: string) => {
+  const legacyId = safeGetItem(USER_STORAGE_KEY) || DEFAULT_USERS[0].userId;
+  const legacy = safeGetItem(`learningSession:${legacyId}`);
+  if (legacy && !safeGetItem(`learningSession:${guestId}`)) {
+    safeSetItem(`learningSession:${guestId}`, legacy);
+  }
+};
+
 const readInitialUserId = () => {
+  const isFirstGuestVisit = !hasStoredGuestId();
   const guestId = ensureGuestId();
-  const token = window.localStorage.getItem('session_token');
-  const accountId = window.localStorage.getItem('user_id');
+  const token = safeGetItem('session_token');
+  const accountId = safeGetItem('user_id');
   if (token && accountId) {
     // 页面里很多请求是不带认证头的普通 fetch，后端靠 cookie 认人。登录时下发的
     // cookie 是会话级的，浏览器重开后就没了，而 localStorage 里的凭证还在——
@@ -77,8 +91,11 @@ const readInitialUserId = () => {
     return accountId;
   }
   if (IS_DEV) {
-    const stored = window.localStorage.getItem(USER_STORAGE_KEY);
+    const stored = safeGetItem(USER_STORAGE_KEY);
     if (stored) return stored;
+  }
+  if (isFirstGuestVisit) {
+    migrateLegacyLocalSession(guestId);
   }
   return guestId;
 };
@@ -87,7 +104,7 @@ const readInitialUsers = (): LearningUser[] => {
   if (typeof window === 'undefined') {
     return DEFAULT_USERS;
   }
-  const stored = window.localStorage.getItem(USERS_STORAGE_KEY);
+  const stored = safeGetItem(USERS_STORAGE_KEY);
   if (!stored) {
     return DEFAULT_USERS;
   }
@@ -141,20 +158,35 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
   useEffect(() => {
     setUserIdState(readInitialUserId());
 
-    // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
-    const token = window.localStorage.getItem('session_token');
+    const token = safeGetItem('session_token');
     if (token) {
+      // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
       fetch(buildApiUrl('/api/auth/validate'), { headers: { 'X-Session-Token': token } })
         .then(r => r.json())
         .then(result => {
-          if (result && result.valid === false) {
-            LOGIN_KEYS.forEach(key => window.localStorage.removeItem(key));
+          // 响应较慢时用户可能已重新登录：只处理被校验的那个凭证，
+          // 否则旧凭证的「失效」会把刚登录的新账号清掉
+          if (result && result.valid === false && safeGetItem('session_token') === token) {
+            LOGIN_KEYS.forEach(safeRemoveItem);
             document.cookie = 'session_token=; Path=/; Max-Age=0';
             setUserIdState(ensureGuestId());
           }
         })
         .catch(() => {
           // 网络失败时保持现状，不因为一次失败就登出
+        });
+    } else {
+      // 本地没有凭证，但服务器下发的 HttpOnly 登录 cookie 可能还有效（JS 读不到它）。
+      // 后端会按这个 cookie 认人，前端若仍当自己是访客，请求就会对不上而被拒
+      fetch(buildApiUrl('/api/auth/validate'))
+        .then(r => r.json())
+        .then(result => {
+          if (result && result.valid && result.user_id && !safeGetItem('session_token')) {
+            setUserIdState(result.user_id);
+          }
+        })
+        .catch(() => {
+          // 拿不到就按访客继续
         });
     }
     setAvailableUsers(readInitialUsers());
@@ -172,7 +204,7 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     if (typeof window === 'undefined') {
       return;
     }
-    window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    safeSetItem(USERS_STORAGE_KEY, JSON.stringify(users));
   }, []);
 
   const updateAvailableUsers = useCallback((nextUser: LearningUser) => {
@@ -200,7 +232,7 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     setUserIdState(trimmed);
     updateAvailableUsers({ userId: trimmed });
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(USER_STORAGE_KEY, trimmed);
+      safeSetItem(USER_STORAGE_KEY, trimmed);
     }
   }, [updateAvailableUsers]);
 

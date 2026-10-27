@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { buildApiUrl } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
-import { guestDisplayName, isGuestId } from '@/src/lib/guestIdentity';
+import { guestDisplayName, isGuestId, safeGetItem } from '@/src/lib/guestIdentity';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
 
 const DEFAULT_WORD_ID = 1;
@@ -61,9 +61,11 @@ export default function Component() {
   const isGuest = isGuestId(userId);
   // 登录用户显示用户名；访客显示由 ID 推出的固定名字
   const displayName = useMemo(() => {
+    // 身份确定前（服务端渲染与客户端首帧）一律不显示，两边才一致，不会水合报错
+    if (!userId) return null;
     if (currentUser?.username) return currentUser.username;
     if (isGuest) return guestDisplayName(userId);
-    return typeof window !== 'undefined' ? window.localStorage.getItem('username') : null;
+    return safeGetItem('username');
   }, [currentUser, isGuest, userId]);
 
   const activeModuleLabel = useMemo(() => {
