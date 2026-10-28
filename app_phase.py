@@ -134,6 +134,9 @@ class UserProfile(db.Model):
     current_word = db.Column(db.String(50))
     current_module = db.Column(db.String(30))
     current_vks_level = db.Column(db.String(5))
+    # 当前这一轮是照哪条推荐在学：随学习位置一起跨设备同步，换设备续学时
+    # 学习会话仍能绑定到这条推荐（推荐效果按绑定算）
+    current_recommendation_id = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -153,6 +156,9 @@ class LearningSession(db.Model):
     completed = db.Column(db.Boolean, default=False)
     interrupted = db.Column(db.Boolean, default=False)
     device_type = db.Column(db.String(20), default='web')
+    # 照哪条推荐开始学的（adaptive_recommendation.id）；推荐效果按它算，见
+    # score_recommendation_from_session
+    recommendation_id = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -338,6 +344,42 @@ def accumulate_exercise_into_progress(user_id, word_id, question_type, is_correc
 SESSION_PASS_ACCURACY = 0.8
 
 
+def session_first_answers(session):
+    """这节练习的作答，同一道题提交多次（双击、重放）只取第一次"""
+    rows = (ExerciseRecord.query.filter_by(session_id=session.session_id)
+            .order_by(ExerciseRecord.id).all())
+    first_by_question = {}
+    for r in rows:
+        first_by_question.setdefault(r.question_id, r)
+    return list(first_by_question.values())
+
+
+def score_recommendation_from_session(session):
+    """把这节练习的正确率记为它所绑定推荐的效果。
+
+    推荐效果 = 照这条推荐开始学之后，第一节有作答的练习的正确率（同一题只算第一次）。
+    用会话上绑定的 recommendation_id 认定「照这条推荐学的」，不靠时间先后推断：
+    多台设备、反馈晚到都不影响归属。每题提交后重算，最终是整节的成绩；之后绑定
+    同一推荐的练习不再改它。在调用方的事务里运行，由调用方提交。
+    """
+    if not session.recommendation_id:
+        return
+    first_answered = (
+        db.session.query(func.min(LearningSession.id))
+        .join(ExerciseRecord, ExerciseRecord.session_id == LearningSession.session_id)
+        .filter(LearningSession.recommendation_id == session.recommendation_id)
+        .scalar()
+    )
+    if first_answered != session.id:
+        return
+    recommendation = db.session.get(AdaptiveRecommendation, session.recommendation_id)
+    records = session_first_answers(session)
+    # 已记为没采纳的推荐不计效果（结论以第一次为准，不被之后的会话推翻）
+    if recommendation is None or recommendation.is_accepted is False or not records:
+        return
+    recommendation.effectiveness_score = sum(1 for r in records if r.is_correct) / len(records)
+
+
 def schedule_review_from_session(session, progress):
     """按这节练习到目前为止的全部作答，重排这个词的下次复习。
 
@@ -360,12 +402,7 @@ def schedule_review_from_session(session, progress):
     if newer_answered:
         return False
 
-    rows = (ExerciseRecord.query.filter_by(session_id=session.session_id)
-            .order_by(ExerciseRecord.id).all())
-    first_by_question = {}
-    for r in rows:
-        first_by_question.setdefault(r.question_id, r)
-    records = list(first_by_question.values())
+    records = session_first_answers(session)
     if not records:
         return False
 
@@ -544,6 +581,16 @@ def start_learning_session(current_user_id=None, **kwargs):
                 'code': 'PERMISSION_DENIED'
             }), 403
         
+        # 照推荐开始学的会话绑定那条推荐。只认自己的、针对这个词的推荐；
+        # 对不上就当没有，不拒绝建会话
+        recommendation = None
+        rec_id = data.get('recommendationId')
+        if type(rec_id) is int:
+            recommendation = db.session.get(AdaptiveRecommendation, rec_id)
+            if (recommendation is None or recommendation.user_id != current_user_id
+                    or recommendation.target_word_id != data['wordId']):
+                recommendation = None
+
         # 使用认证的用户ID
         session = LearningSession(
             session_id=data['sessionId'],
@@ -553,10 +600,19 @@ def start_learning_session(current_user_id=None, **kwargs):
             module_type=data['moduleType'],
             initial_level=data.get('initialLevel'),
             start_time=datetime.fromisoformat(data['startTime'].replace('Z', '+00:00')),
-            device_type=data.get('deviceType', 'web')
+            device_type=data.get('deviceType', 'web'),
+            recommendation_id=recommendation.id if recommendation else None,
         )
         
         db.session.add(session)
+        # 照推荐建了会话就是采纳了：前端的反馈请求不等待，可能晚到或丢失，这里补上。
+        # 条件更新，已有结论（含同时到达的「没采纳」）不改，与反馈接口「第一次为准」一致
+        if recommendation is not None:
+            AdaptiveRecommendation.query.filter(
+                AdaptiveRecommendation.id == recommendation.id,
+                AdaptiveRecommendation.is_accepted.is_(None),
+            ).update({'is_accepted': True, 'actual_choice': f"{data['moduleType']}:{data['wordId']}"},
+                     synchronize_session=False)
         db.session.commit()
         
         return jsonify({
@@ -705,6 +761,7 @@ def record_exercise_result(current_user_id=None, **kwargs):
                 )
                 if progress is not None and spaced_repetition:
                     schedule_review_from_session(session, progress)
+                score_recommendation_from_session(session)
             except Exception as e:
                 db.session.rollback()
                 print(f"⚠️  用户进度或间隔重复更新失败: {str(e)}")
@@ -1167,7 +1224,8 @@ def get_learning_state(user_id, current_user_id=None, **kwargs):
         if not profile:
             return jsonify({
                 'success': True,
-                'data': {'wordId': None, 'word': None, 'module': None, 'vksLevel': None, 'lastUpdated': None}
+                'data': {'wordId': None, 'word': None, 'module': None, 'vksLevel': None,
+                         'recommendationId': None, 'lastUpdated': None}
             })
         
         return jsonify({
@@ -1177,6 +1235,7 @@ def get_learning_state(user_id, current_user_id=None, **kwargs):
                 'word': profile.current_word,
                 'module': profile.current_module,
                 'vksLevel': profile.current_vks_level,
+                'recommendationId': profile.current_recommendation_id,
                 # updated_at 存的是不带时区的 UTC；不标时区的话浏览器按本地时间解析，
                 # 东八区会把服务器状态看早 8 小时，另一台设备 8 小时内的进度恢复不过来
                 'lastUpdated': profile.updated_at.replace(tzinfo=timezone.utc).isoformat() if profile.updated_at else None
@@ -1211,6 +1270,11 @@ def save_learning_state(user_id, current_user_id=None, **kwargs):
             profile.current_module = data['module']
         if 'vksLevel' in data:
             profile.current_vks_level = data['vksLevel']
+        # 缺这个字段也当作「没有」：现在的前端每次都带，不带的是部署前还开着的旧页面，
+        # 它从今日复习等入口重新开始时不会清掉，沿用会把无关的学习记到旧推荐上。
+        # 只存整数；是否属于本人、是否针对这个词，在建学习会话绑定时再校验
+        rec_id = data.get('recommendationId')
+        profile.current_recommendation_id = rec_id if type(rec_id) is int else None
         
         profile.updated_at = datetime.utcnow()
         db.session.commit()
@@ -1291,39 +1355,46 @@ def get_adaptive_recommendation(user_id, current_user_id=None, **kwargs):
 @app.route('/api/adaptive/feedback', methods=['POST'])
 @require_authentication(allow_url_param=True)
 def record_recommendation_feedback(current_user_id=None, **kwargs):
-    """记录推荐反馈"""
+    """记录用户有没有照推荐去学。
+
+    accepted：照推荐开始学了（true），或推荐显示着却选了别的（false）。
+    actualChoice：实际去学的，如 'word:17'、'today-review'。
+    以第一次上报为准：同一条推荐重复上报（重放、先后两个入口）不改已有结论。
+    推荐效果 effectiveness_score 不由前端给，见 score_recommendation_from_session。
+    """
+    data = request.get_json(silent=True) or {}
+
+    feedback_user_id = data.get('userId')
+    if feedback_user_id and feedback_user_id != current_user_id:
+        return jsonify({
+            'success': False,
+            'error': '无权提交其他用户的反馈',
+            'code': 'PERMISSION_DENIED'
+        }), 403
+
+    accepted = data.get('accepted')
+    actual_choice = data.get('actualChoice')
+    # type(...) is int：bool 是 int 的子类，isinstance 会放过 recommendationId: true
+    if not isinstance(accepted, bool) or type(data.get('recommendationId')) is not int:
+        return jsonify({'success': False, 'error': '需要 recommendationId（整数）与 accepted（布尔）'}), 400
+    if actual_choice is not None and (not isinstance(actual_choice, str) or len(actual_choice) > 100):
+        return jsonify({'success': False, 'error': 'actualChoice 须为不超过 100 字的字符串'}), 400
+
+    rec = db.session.get(AdaptiveRecommendation, data['recommendationId'])
+    if rec is None or rec.user_id != current_user_id:
+        # 别人的推荐也按「不存在」答，不暴露 id 是否有效
+        return jsonify({'success': False, 'error': 'Recommendation not found'}), 404
+
     try:
-        data = request.get_json()
-        
-        # 验证权限：只能提交自己的反馈
-        feedback_user_id = data.get('userId')
-        if feedback_user_id and feedback_user_id != current_user_id:
-            return jsonify({
-                'success': False,
-                'error': '无权提交其他用户的反馈',
-                'code': 'PERMISSION_DENIED'
-            }), 403
-        
-        if recommendation_engine:
-            success = recommendation_engine.record_recommendation_feedback(
-                data['recommendationId'],
-                current_user_id,  # 使用认证的用户ID
-                {
-                    'accepted': data.get('accepted', False),
-                    'actual_choice': data.get('actualChoice'),
-                    'effectiveness_score': data.get('effectivenessScore')
-                }
-            )
-            
-            if success:
-                return jsonify({'success': True, 'message': 'Feedback recorded'})
-            else:
-                return jsonify({'success': False, 'error': 'Recommendation not found'}), 404
-        else:
-            return jsonify({'success': True, 'message': 'Feedback received (simple mode)'})
-        
+        updated = AdaptiveRecommendation.query.filter(
+            AdaptiveRecommendation.id == rec.id,
+            AdaptiveRecommendation.is_accepted.is_(None),
+        ).update({'is_accepted': accepted, 'actual_choice': actual_choice}, synchronize_session=False)
+        db.session.commit()
     except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({'success': True, 'updated': bool(updated)})
 
 @app.route('/api/review/user/<user_id>/due', methods=['GET'])
 @require_authentication(allow_url_param=True)
@@ -1751,7 +1822,8 @@ def merge_guest_into_user(guest_id, user_id):
                 current_word_id = (SELECT current_word_id FROM user_profile WHERE user_id = :g),
                 current_word = (SELECT current_word FROM user_profile WHERE user_id = :g),
                 current_module = (SELECT current_module FROM user_profile WHERE user_id = :g),
-                current_vks_level = (SELECT current_vks_level FROM user_profile WHERE user_id = :g)
+                current_vks_level = (SELECT current_vks_level FROM user_profile WHERE user_id = :g),
+                current_recommendation_id = (SELECT current_recommendation_id FROM user_profile WHERE user_id = :g)
             WHERE user_id = :u AND EXISTS (SELECT 1 FROM user_profile WHERE user_id = :g)
         """, {'g': guest_id, 'u': user_id})
         conn.execute("DELETE FROM user_profile WHERE user_id = ?", (guest_id,))
@@ -2042,6 +2114,7 @@ def ensure_user_profile_columns():
         'current_word': 'VARCHAR(50)',
         'current_module': 'VARCHAR(30)',
         'current_vks_level': 'VARCHAR(5)',
+        'current_recommendation_id': 'INTEGER',
     }
     for column, ddl in new_columns.items():
         if existing and column not in existing:
@@ -2049,6 +2122,23 @@ def ensure_user_profile_columns():
             print(f"   ➕ 已为 user_profile 补齐 {column} 列")
     conn.commit()
     conn.close()
+
+
+def ensure_learning_session_columns():
+    """为旧数据库补齐 learning_session 新增列（create_all 不会修改已存在的表）"""
+    conn = sqlite3.connect(_db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(learning_session)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if existing and 'recommendation_id' not in existing:
+            cursor.execute("ALTER TABLE learning_session ADD COLUMN recommendation_id INTEGER")
+            conn.commit()
+            print("   ➕ 已为 learning_session 补齐 recommendation_id 列")
+    except sqlite3.Error as e:
+        print(f"⚠️  learning_session 列迁移失败: {e}")
+    finally:
+        conn.close()
 
 
 def ensure_learning_event_columns():
@@ -2100,6 +2190,7 @@ def initialize_database():
         with app.app_context():
             db.create_all()
             ensure_user_profile_columns()
+            ensure_learning_session_columns()
             ensure_learning_event_columns()
             ensure_user_progress_unique_index()
             # 注册/登录依赖的列和 user_session 表此前只在测试里建过，部署后

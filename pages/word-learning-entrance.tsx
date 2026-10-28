@@ -6,6 +6,7 @@ import { Battery, Signal, Wifi } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { buildApiUrl } from '@/src/lib/apiClient';
+import { sendRecommendationFeedback } from '@/src/lib/authClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { guestDisplayName, isGuestId, safeGetItem } from '@/src/lib/guestIdentity';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
@@ -41,7 +42,9 @@ const resolveModuleRoute = (moduleName: string | undefined, fallbackPath: string
   if (match) {
     return { path: match.path, label: match.label, moduleKey: normalized };
   }
-  return { path: fallbackPath, label: fallbackLabel, moduleKey: 'word' };
+  // 认不出模块名时按回退路径反查，不能一律记成 word（会话里的模块就和实际页面对不上）
+  const fallbackKey = Object.keys(moduleRouteMap).find((key) => moduleRouteMap[key].path === fallbackPath);
+  return { path: fallbackPath, label: fallbackLabel, moduleKey: fallbackKey ?? 'word' };
 };
 
 export default function Component() {
@@ -53,7 +56,7 @@ export default function Component() {
   const [recommendationMessage, setRecommendationMessage] = useState<string | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   // 本次要测评的目标词：由推荐引擎决定（挂载后加载，初始用默认词保证水合一致）
-  const [targetWord, setTargetWord] = useState<{ id: number; word: string } | null>(null);
+  const [targetWord, setTargetWord] = useState<{ id: number; word: string; recommendationId?: number } | null>(null);
   const router = useRouter();
   const { userId, availableUsers } = useLearningContext();
 
@@ -95,9 +98,12 @@ export default function Component() {
   const { trackPageEnter, trackPageLeave, trackNavigation } = pageTracking;
   const { trackSelectionChange, trackButtonClick } = interactionTracking;
 
+  // 自评是对页面上问的这个词的。只有会话里正是这个词时才预选它已有的档位；
+  // 推荐的词晚到、换掉了页面上的词时，之前的选择作废，要重新选
+  const askedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
   useEffect(() => {
-    setSelectedOption(learningSession.vksLevel ?? '');
-  }, [learningSession.vksLevel]);
+    setSelectedOption(learningSession.wordId === askedWordId ? learningSession.vksLevel ?? '' : '');
+  }, [askedWordId, learningSession.wordId, learningSession.vksLevel]);
 
   // 从推荐引擎获取本次学习的目标词
   useEffect(() => {
@@ -107,9 +113,9 @@ export default function Component() {
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !result.data) return;
-        const { word_id: wordId, word } = result.data;
+        const { word_id: wordId, word, recommendationId } = result.data;
         if (wordId && word) {
-          setTargetWord({ id: wordId, word });
+          setTargetWord({ id: wordId, word, recommendationId });
         }
       })
       .catch(() => {
@@ -148,18 +154,19 @@ export default function Component() {
       });
     }
 
+    // 只改页面上的选择；点「继续」时连同词一起写进会话。此前选择时就写，
+    // 会话里还是上一个词，档位就先记到了上一个词上
     setSelectedOption(value);
-    updateLearningSession({ vksLevel: value });
     setRecommendationMessage(null);
     setRecommendationError(null);
   };
 
   const learningOptions = [
-    { value: 'A', text: 'I have never seen this word.', path: '/character-learning', label: '字学习' },
-    { value: 'B', text: "I don't know what it means.", path: '/word-learning', label: '词学习' },
-    { value: 'C', text: "I know what it means, but not which words go with it.", path: '/collocation-learning', label: '搭配学习' },
-    { value: 'D', text: "I know which words go with it, but I can't use it in a sentence yet.", path: '/sentence-learning', label: '例句学习' },
-    { value: 'E', text: 'I can use it in a sentence.', path: '/exercise', label: '练习' }
+    { value: 'A', module: 'character', text: 'I have never seen this word.', path: '/character-learning', label: '字学习' },
+    { value: 'B', module: 'word', text: "I don't know what it means.", path: '/word-learning', label: '词学习' },
+    { value: 'C', module: 'collocation', text: "I know what it means, but not which words go with it.", path: '/collocation-learning', label: '搭配学习' },
+    { value: 'D', module: 'sentence', text: "I know which words go with it, but I can't use it in a sentence yet.", path: '/sentence-learning', label: '例句学习' },
+    { value: 'E', module: 'exercise', text: 'I can use it in a sentence.', path: '/exercise', label: '练习' }
   ];
 
   const handleContinue = async () => {
@@ -185,75 +192,22 @@ export default function Component() {
     setIsSubmitting(true);
     setRecommendationError(null);
 
-    let resolvedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
-    let resolvedWord = targetWord?.word ?? DEFAULT_WORD_NAME;
-    let resolvedModule = resolveModuleRoute(undefined, selectedLearning.path, selectedLearning.label);
-
-    const context = {
-      vks_level: selectedOption,
-      selectedPath: selectedLearning.path,
-      timestamp: new Date().toISOString()
-    };
+    // 学的是页面上问的那个词：进页时推荐引擎给的词，没拿到推荐时是默认词。
+    // 入口模块由所选档位决定（与后端的 VKS→模块对照表相同），不再请求第二次推荐：
+    // 第二次请求会让引擎另挑一个词，自评档位就记到了没问过的词上，还多一条对不上的推荐日志
+    const resolvedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
+    const resolvedWord = targetWord?.word ?? DEFAULT_WORD_NAME;
+    const resolvedModule = resolveModuleRoute(selectedLearning.module, selectedLearning.path, selectedLearning.label);
+    const recommendationId = targetWord?.recommendationId ?? null;
+    setRecommendationMessage(`推荐模块：${resolvedModule.label}（词汇：${resolvedWord}）`);
 
     try {
-      try {
-        const url = `${buildApiUrl(`/api/adaptive/recommendation/${userId}`)}?context=${encodeURIComponent(JSON.stringify(context))}`;
-        const response = await fetch(url, {
-          method: 'GET',
-          cache: 'no-cache'
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data) {
-            const data = result.data;
-            // 词以页面展示的 targetWord 为准（问的是哪个词就学哪个词），
-            // 仅当挂载时没拿到推荐才采用本次返回的词
-            if (!targetWord) {
-              resolvedWordId = data.word_id ?? data.wordId ?? DEFAULT_WORD_ID;
-              resolvedWord = data.word ?? resolvedWord;
-            }
-            resolvedModule = resolveModuleRoute(data.recommended_module ?? data.recommendedModule ?? data.type, selectedLearning.path, selectedLearning.label);
-
-            trackEvent('recommendation_received', 'entrance', {
-              recommendationId: data.recommendationId,
-              type: data.type,
-              recommendedModule: resolvedModule.moduleKey,
-              wordId: resolvedWordId,
-              word: resolvedWord,
-              reason: data.reason,
-              confidence: data.confidence
-            });
-
-            setRecommendationMessage(`推荐模块：${resolvedModule.label}（词汇：${resolvedWord}）`);
-          } else {
-            const message = result.error || '推荐服务未返回结果，使用默认路径';
-            setRecommendationError(message);
-            trackEvent('recommendation_failed', 'entrance', {
-              error: message,
-              response: result
-            });
-          }
-        } else {
-          const message = `推荐接口返回错误：HTTP ${response.status}`;
-          setRecommendationError(message);
-          trackEvent('recommendation_failed', 'entrance', {
-            error: message
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setRecommendationError(`推荐接口调用失败：${message}`);
-        trackEvent('recommendation_failed', 'entrance', {
-          error: message
-        });
-      }
-
       trackEvent('vks_test_complete', 'entrance', {
         selectedLevel: selectedOption,
         selectedPath: selectedLearning.path,
         resolvedPath: resolvedModule.path,
         resolvedModule: resolvedModule.moduleKey,
+        recommendationId,
         decisionTime: Date.now() - pageStartTime.getTime(),
         totalTime: Date.now() - pageStartTime.getTime(),
         userId
@@ -261,14 +215,20 @@ export default function Component() {
 
       updateConfig({ wordId: resolvedWordId, moduleType: resolvedModule.moduleKey });
 
-    updateLearningSession({
-      wordId: resolvedWordId,
-      word: resolvedWord,
-      module: resolvedModule.moduleKey,
-      entryModule: resolvedModule.moduleKey,
-      vksLevel: selectedOption,
-      reviewMode: null
-    });
+      // 照推荐的词开始学了
+      sendRecommendationFeedback(userId, recommendationId, true, `${resolvedModule.moduleKey}:${resolvedWordId}`);
+
+      updateLearningSession({
+        wordId: resolvedWordId,
+        word: resolvedWord,
+        module: resolvedModule.moduleKey,
+        entryModule: resolvedModule.moduleKey,
+        vksLevel: selectedOption,
+        recommendationId,
+        reviewMode: null,
+        // 用户主动确认：即使内容与原来相同也要刷新时间戳，不能被稍后到的服务器旧状态覆盖
+        lastUpdated: new Date().toISOString()
+      });
 
       await endSession(true);
       trackNavigation('word-learning-entrance', resolvedModule.path);

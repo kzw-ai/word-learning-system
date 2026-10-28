@@ -145,6 +145,7 @@ export interface LearningStateData {
   word?: string | null;
   module?: string | null;
   vksLevel?: string | null;
+  recommendationId?: number | null;
   lastUpdated?: string | null;
 }
 

@@ -9,7 +9,7 @@ import { useLearningContext } from '@/src/context/LearningContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 
 export default function Component() {
-  const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
+  const { session: learningSession, hydrated: sessionHydrated, restored: sessionRestored, updateSession: updateLearningSession } = useLearningSession();
   const { word, loading, error } = useWordData({ initialWordId: learningSession.wordId ?? undefined });
   const { previous, next, goTo } = useLearningNavigation('sentence');
   const { userId } = useLearningContext();
@@ -20,7 +20,9 @@ export default function Component() {
     moduleType: 'sentence',
     sessionType: 'learning',
     initialLevel: learningSession.vksLevel ?? undefined,
-    ready: sessionHydrated
+    recommendationId: learningSession.recommendationId ?? undefined,
+    // 等服务器状态恢复完再建会话：档位与推荐可能来自另一台设备
+    ready: sessionHydrated && sessionRestored
   });
   const { pageTracking, interactionTracking, trackEvent } = tracking;
 

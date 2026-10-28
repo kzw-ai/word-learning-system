@@ -36,7 +36,7 @@ const Exercise = () => {
   const isReviewMode = router.query.mode === 'review';
   const isTestMode = router.query.mode === 'test';
   const { userId } = useLearningContext();
-  const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
+  const { session: learningSession, hydrated: sessionHydrated, restored: sessionRestored, updateSession: updateLearningSession } = useLearningSession();
   const initialWordId = learningSession.wordId ?? DEFAULT_WORD_ID;
   const initialWordLabel = learningSession.word ?? DEFAULT_WORD_NAME;
   const { previous, next, goTo } = useLearningNavigation('exercise');
@@ -74,9 +74,10 @@ const Exercise = () => {
     // 本页的 wordId 要等题目加载完才跟上会话里的词：两者不一致时这个档位属于
     // 另一个词，不能记到当前会话上。跟上之后追踪器随 wordId 重建，带上档位
     initialLevel: learningSession.wordId === wordId ? learningSession.vksLevel ?? undefined : undefined,
+    recommendationId: learningSession.wordId === wordId ? learningSession.recommendationId ?? undefined : undefined,
     // wordId 首帧是默认词（会话状态还没读出），题目加载完才是真正要练的词。
     // 提前建追踪器会先给默认词写一条 0 秒的幽灵会话
-    ready: sessionHydrated && exerciseQuestions.length > 0
+    ready: sessionHydrated && sessionRestored && exerciseQuestions.length > 0
   });
   const { trackPageEnter, trackPageLeave } = pageTracking;
   const { trackButtonClick, trackSelectionChange, trackAudioPlay } = interactionTracking;

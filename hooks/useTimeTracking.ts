@@ -20,6 +20,10 @@ export interface UseTimeTrackingReturn {
  */
 export const useTimeTracking = (config: TimeTrackingConfig): UseTimeTrackingReturn => {
   const trackerRef = useRef<TimeTracker | null>(null);
+  // 追踪器建好之前的作答，连同作答时的身份与词：补发时只发给同一身份、同一个词的会话
+  const pendingExercisesRef = useRef<{ userId: string; wordId: number; exercise: ExerciseData }[]>([]);
+  const configRef = useRef(config);
+  configRef.current = config;
   const [isTracking, setIsTracking] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<any>(null);
 
@@ -35,6 +39,12 @@ export const useTimeTracking = (config: TimeTrackingConfig): UseTimeTrackingRetu
     // 开始追踪
     trackerRef.current = new TimeTracker(config);
     setIsTracking(true);
+    // 补发追踪器建好之前的作答（TimeTracker 会先等会话在后端建好）。身份或词对不上的
+    // 丢弃：那是用户已经离开的那个词的题，不能记进这个词的会话
+    const pending = pendingExercisesRef.current.splice(0);
+    pending
+      .filter((item) => item.userId === config.userId && item.wordId === config.wordId)
+      .forEach((item) => trackerRef.current?.trackExercise(item.exercise));
 
     // 定期更新会话信息
     const interval = setInterval(() => {
@@ -75,6 +85,13 @@ export const useTimeTracking = (config: TimeTrackingConfig): UseTimeTrackingRetu
   const trackExercise = useCallback(async (exerciseData: ExerciseData) => {
     if (trackerRef.current) {
       await trackerRef.current.trackExercise(exerciseData);
+    } else {
+      // 追踪器还在等会话状态就绪（例如服务器状态恢复中）时作答不能丢：先存着，建好后补发
+      pendingExercisesRef.current.push({
+        userId: configRef.current.userId,
+        wordId: configRef.current.wordId,
+        exercise: exerciseData
+      });
     }
   }, []);
 

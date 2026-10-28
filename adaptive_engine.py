@@ -605,7 +605,8 @@ class AdaptiveRecommendationEngine:
                 recommendation.get('confidence', 0.0),
                 self.algorithm_version,
                 json.dumps(recommendation),
-                datetime.now()
+                # UTC，与其他表的 created_at（模型默认 utcnow）一致
+                datetime.utcnow()
             ))
             
             conn.commit()
