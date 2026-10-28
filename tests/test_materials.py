@@ -104,3 +104,29 @@ class TestCleanMaterials:
         make_db(db)
         clean_materials.clean_database(db)
         assert clean_materials.clean_database(db) == 0
+
+
+class TestSupplementMaterials:
+    """data/learning_materials/supplement_confusable_words.json：课件里没有的词按论文规则补写"""
+
+    def test_loaded_with_the_slides(self):
+        from import_learning_materials import load_all_words  # pyrefly: ignore
+        words = {w['hanzi']: w for w in load_all_words()}
+        for hanzi in ('以为', '认为', '因为', '所以'):
+            assert hanzi in words, hanzi
+            word = words[hanzi]
+            assert len(word['collocations']) == 2 and len(word['examples']) >= 1
+
+    def test_well_formed(self):
+        from import_learning_materials import load_all_words, split_word_pinyin  # pyrefly: ignore
+        words = {w['hanzi']: w for w in load_all_words()}
+        for hanzi in ('以为', '认为', '因为', '所以'):
+            word = words[hanzi]
+            # 每条搭配、每个例句都含目标词；例句的逐词切分拼回去等于原句
+            assert all(hanzi in c['collocation'] for c in word['collocations'])
+            for ex in word['examples']:
+                assert hanzi in ex['sentence']
+                tokens = [t.split('/')[0].lstrip('，。') for t in ex['pinyin'].split() if '/' in t]
+                assert ''.join(tokens) == ex['sentence'].replace('，', '').replace('。', '')
+            # 单字拼音与整词拼音的音节一致
+            assert [c['pinyin'] for c in word['characters']] == split_word_pinyin(word['pinyin'], len(hanzi))

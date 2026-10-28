@@ -12,7 +12,7 @@ import os
 import json
 import random
 import sqlite3
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 
 # 导入自适应引擎
@@ -791,11 +791,29 @@ def get_word_exercises(word_id):
     options = build_options()
     questions = []
 
+    # 释义题的干扰项优先放易混淆词对里的「搭档」（以为↔认为、因为↔所以）：论文原题的
+    # 干扰项特意选形近、义近的词，随机抽来的词一眼就能排除。英文释义能区分两者，
+    # 所以只用在释义题；搭配题不放——「还 ( )」填以为、认为都通，会出成歧义题。
+    definition_options = list(options)
+    partner = db.session.execute(text("""
+        SELECT CASE WHEN word1_id = :wid THEN word2_id ELSE word1_id END
+        FROM confusable_pairs WHERE word1_id = :wid OR word2_id = :wid
+        ORDER BY id LIMIT 1
+    """), {'wid': word.id}).scalar()
+    partner_word = Word.query.get(partner) if partner else None
+    partner_hanzi = get_word_hanzi(partner_word) if partner_word else None
+    if (partner_hanzi and partner_hanzi != base_hanzi and partner_hanzi not in definition_options
+            and Character.query.filter_by(word_id=partner).count() > 0):
+        distractors = [o for o in definition_options if o != base_hanzi]
+        if distractors:
+            definition_options[definition_options.index(distractors[0])] = partner_hanzi
+            random.shuffle(definition_options)
+
     questions.append({
         'id': f'definition-{word.id}',
         'type': 'definition',
         'question': word.definition,
-        'options': options,
+        'options': definition_options,
         'correctAnswer': base_hanzi,
         'feedback': f"正确答案：{base_hanzi}。释义：{word.definition}"
     })

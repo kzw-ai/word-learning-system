@@ -1,0 +1,106 @@
+{
+  "description": "易混淆词对「以为/认为」「因为/所以」的补充学习素材。论文课件里这四个词没有学习词条，由此文件补齐。按论文的选材规则编写：搭配词限新 HSK（2012）一至三级并标注等级；例句遵循 i+1，除目标词外只用一至三级词汇（已对照 HSK 2012 词表逐词核对等级与拼音）。搭配按常用度人工选定——论文用 BCC 语料库互信息排序，这里没有该语料库。",
+  "status": "待作者审核",
+  "supplement_words": [
+    {
+      "hanzi": "以为",
+      "pinyin": "yǐwéi",
+      "definition": "v. think (usually mistakenly); assume",
+      "characters": [
+        {"character": "以", "pinyin": "yǐ", "definition": "prep. with; by means of; according to"},
+        {"character": "为", "pinyin": "wéi", "definition": "v. act as; be; regard as"}
+      ],
+      "collocations": [
+        {"collocation": "还（二级） 以为", "translation": "(I) thought (but it turns out not)"},
+        {"collocation": "一直（三级） 以为", "translation": "had always (wrongly) thought"}
+      ],
+      "examples": [
+        {
+          "sentence": "我还以为你今天不来了。",
+          "pinyin": "我/wǒ 还/hái 以为/yǐwéi 你/nǐ 今天/jīntiān 不/bù 来/lái 了/le 。",
+          "translation": "I thought you weren't coming today."
+        },
+        {
+          "sentence": "我以为他是老师，其实他是医生。",
+          "pinyin": "我/wǒ 以为/yǐwéi 他/tā 是/shì 老师/lǎoshī ，其实/qíshí 他/tā 是/shì 医生/yīshēng 。",
+          "translation": "I thought he was a teacher, but actually he is a doctor."
+        }
+      ]
+    },
+    {
+      "hanzi": "认为",
+      "pinyin": "rènwéi",
+      "definition": "v. think; consider; hold the view that",
+      "characters": [
+        {"character": "认", "pinyin": "rèn", "definition": "v. recognize; know; admit"},
+        {"character": "为", "pinyin": "wéi", "definition": "v. act as; be; regard as"}
+      ],
+      "collocations": [
+        {"collocation": "大家（二级） 认为", "translation": "everyone thinks"},
+        {"collocation": "认为 应该（三级）", "translation": "think (one) should"}
+      ],
+      "examples": [
+        {
+          "sentence": "我认为这个办法很好。",
+          "pinyin": "我/wǒ 认为/rènwéi 这/zhè 个/gè 办法/bànfǎ 很/hěn 好/hǎo 。",
+          "translation": "I think this method is very good."
+        },
+        {
+          "sentence": "大家都认为学习汉语很有意思。",
+          "pinyin": "大家/dàjiā 都/dōu 认为/rènwéi 学习/xuéxí 汉语/hànyǔ 很/hěn 有/yǒu 意思/yìsi 。",
+          "translation": "Everyone thinks learning Chinese is very interesting."
+        }
+      ]
+    },
+    {
+      "hanzi": "因为",
+      "pinyin": "yīnwèi",
+      "definition": "conj. because; since",
+      "characters": [
+        {"character": "因", "pinyin": "yīn", "definition": "n. cause; reason"},
+        {"character": "为", "pinyin": "wèi", "definition": "prep. for; because of"}
+      ],
+      "collocations": [
+        {"collocation": "因为 X，所以（二级） X", "translation": "because X, (so) X"},
+        {"collocation": "因为 下雨（一级）", "translation": "because it rained"}
+      ],
+      "examples": [
+        {
+          "sentence": "因为下雨，所以我们没去公园。",
+          "pinyin": "因为/yīnwèi 下雨/xiàyǔ ，所以/suǒyǐ 我们/wǒmen 没/méi 去/qù 公园/gōngyuán 。",
+          "translation": "Because it rained, we didn't go to the park."
+        },
+        {
+          "sentence": "我很累，因为昨天晚上没睡觉。",
+          "pinyin": "我/wǒ 很/hěn 累/lèi ，因为/yīnwèi 昨天/zuótiān 晚上/wǎnshang 没/méi 睡觉/shuìjiào 。",
+          "translation": "I'm very tired because I didn't sleep last night."
+        }
+      ]
+    },
+    {
+      "hanzi": "所以",
+      "pinyin": "suǒyǐ",
+      "definition": "conj. so; therefore",
+      "characters": [
+        {"character": "所", "pinyin": "suǒ", "definition": "n. place; part. that which"},
+        {"character": "以", "pinyin": "yǐ", "definition": "prep. with; by means of; according to"}
+      ],
+      "collocations": [
+        {"collocation": "因为（二级） X，所以 X", "translation": "because X, so X"},
+        {"collocation": "所以 要（二级）", "translation": "so (one) should"}
+      ],
+      "examples": [
+        {
+          "sentence": "他生病了，所以今天没去学校。",
+          "pinyin": "他/tā 生病/shēngbìng 了/le ，所以/suǒyǐ 今天/jīntiān 没/méi 去/qù 学校/xuéxiào 。",
+          "translation": "He was ill, so he didn't go to school today."
+        },
+        {
+          "sentence": "因为天气很冷，所以要多穿衣服。",
+          "pinyin": "因为/yīnwèi 天气/tiānqì 很/hěn 冷/lěng ，所以/suǒyǐ 要/yào 多/duō 穿/chuān 衣服/yīfu 。",
+          "translation": "Because the weather is cold, you should wear more clothes."
+        }
+      ]
+    }
+  ]
+}

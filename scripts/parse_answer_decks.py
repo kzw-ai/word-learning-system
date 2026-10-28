@@ -220,13 +220,14 @@ def parse_slide(text, deck, slide_index):
                 continue
             m = RE_FILL_ANSWER.search(sentence)
             answer = m.group(1)
-            # 填回答案后句子里必须出现目标词，否则考的不是这个词
-            # （课件里「变化」一页写成了「变（好）」）
+            # 填回答案后句子里至少要有目标词的一个字，否则多半是解析错位、把别的
+            # 幻灯片的句子算到了这个词头上。不要求完整的词：作者有意用同字的
+            # 相关词出题，如「变化」一页考「变（好）」
             filled = sentence[:m.start()] + answer + sentence[m.end():]
-            if target_word and target_word not in filled:
+            if target_word and not any(ch in filled for ch in target_word):
                 problems.append(
                     f'{deck} slide{slide_index}: 填词题补全后是「{filled}」，'
-                    f'不含目标词「{target_word}」，跳过'
+                    f'与目标词「{target_word}」没有共同的字，跳过'
                 )
                 continue
             items.append({

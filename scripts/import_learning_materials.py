@@ -405,17 +405,28 @@ def parse_word(hanzi: str, pinyin: str, slides: list[dict]) -> dict:
 
 
 def load_all_words() -> list[dict]:
-    """读取全部课件 JSON，按汉字合并所有 slide 后解析"""
+    """读取全部课件 JSON，按汉字合并所有 slide 后解析。
+
+    另外读入 supplement_words：课件里没有学习词条、按论文选材规则补写的结构化素材
+    （如 supplement_confusable_words.json），格式与 parse_word 的结果相同，不需要解析。
+    同一个词课件里有就以课件为准。
+    """
     merged: dict[str, dict] = {}
+    supplements: list[dict] = []
     for path in sorted(DATA_DIR.glob('*.json')):
         if path.name.startswith('_') or 'answer' in path.name.lower():
             continue
         data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            continue
         for cand in data.get('word_candidates', []):
             hanzi = cand['hanzi'].strip()
             entry = merged.setdefault(hanzi, {'pinyin': cand['pinyin'].strip(), 'slides': []})
             entry['slides'].append(cand)
-    return [parse_word(h, e['pinyin'], e['slides']) for h, e in merged.items()]
+        supplements.extend(data.get('supplement_words', []))
+    words = [parse_word(h, e['pinyin'], e['slides']) for h, e in merged.items()]
+    words += [w for w in supplements if w['hanzi'] not in merged]
+    return words
 
 
 def existing_hanzi_map(cursor: sqlite3.Cursor) -> dict[str, int]:
