@@ -54,7 +54,7 @@ def setup_confusable_tables():
     if row:
         fasheng_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('fasheng', 'happen; occur; take place')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('fāshēng', 'happen; occur; take place')")
         fasheng_id = cur.lastrowid
     
     # Word 2: faxian
@@ -63,10 +63,10 @@ def setup_confusable_tables():
     if row:
         faxian_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('faxian', 'discover; find out; realize')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('fāxiàn', 'discover; find out; realize')")
         faxian_id = cur.lastrowid
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('发', 'fa', 'send out; emit', '/audio/faxian_char1.mp3', ?)", (faxian_id,))
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('现', 'xian', 'appear; present', '/audio/faxian_char2.mp3', ?)", (faxian_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('发', 'fā', 'send out; emit', '/audio/faxian_char1.mp3', ?)", (faxian_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('现', 'xiàn', 'appear; present', '/audio/faxian_char2.mp3', ?)", (faxian_id,))
     
     # Word 3: yiwei
     cur.execute("SELECT id FROM word WHERE pinyin='yiwei' OR pinyin='yǐwéi'")
@@ -74,10 +74,10 @@ def setup_confusable_tables():
     if row:
         yiwei_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('yiwei', 'think (mistakenly); assume')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('yǐwéi', 'think (mistakenly); assume')")
         yiwei_id = cur.lastrowid
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('以', 'yi', 'use; take', '/audio/yiwei_char1.mp3', ?)", (yiwei_id,))
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wei', 'think; consider', '/audio/yiwei_char2.mp3', ?)", (yiwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('以', 'yǐ', 'use; take', '/audio/yiwei_char1.mp3', ?)", (yiwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wéi', 'think; consider', '/audio/yiwei_char2.mp3', ?)", (yiwei_id,))
     
     # Word 4: renwei
     cur.execute("SELECT id FROM word WHERE pinyin='renwei' OR pinyin='rènwéi'")
@@ -85,10 +85,10 @@ def setup_confusable_tables():
     if row:
         renwei_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('renwei', 'think; consider; believe')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('rènwéi', 'think; consider; believe')")
         renwei_id = cur.lastrowid
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('认', 'ren', 'recognize; know', '/audio/renwei_char1.mp3', ?)", (renwei_id,))
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wei', 'think; consider', '/audio/renwei_char2.mp3', ?)", (renwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('认', 'rèn', 'recognize; know', '/audio/renwei_char1.mp3', ?)", (renwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wéi', 'think; consider', '/audio/renwei_char2.mp3', ?)", (renwei_id,))
     
     # Word 5: yinwei
     cur.execute("SELECT id FROM word WHERE pinyin='yinwei' OR pinyin='yīnwèi'")
@@ -96,10 +96,10 @@ def setup_confusable_tables():
     if row:
         yinwei_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('yinwei', 'because; since')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('yīnwèi', 'because; since')")
         yinwei_id = cur.lastrowid
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('因', 'yin', 'cause; reason', '/audio/yinwei_char1.mp3', ?)", (yinwei_id,))
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wei', 'for; because', '/audio/yinwei_char2.mp3', ?)", (yinwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('因', 'yīn', 'cause; reason', '/audio/yinwei_char1.mp3', ?)", (yinwei_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('为', 'wèi', 'for; because', '/audio/yinwei_char2.mp3', ?)", (yinwei_id,))
     
     # Word 6: suoyi
     cur.execute("SELECT id FROM word WHERE pinyin='suoyi' OR pinyin='suǒyǐ'")
@@ -107,10 +107,10 @@ def setup_confusable_tables():
     if row:
         suoyi_id = row[0]
     else:
-        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('suoyi', 'so; therefore')")
+        cur.execute("INSERT INTO word (pinyin, definition) VALUES ('suǒyǐ', 'so; therefore')")
         suoyi_id = cur.lastrowid
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('所', 'suo', 'place; that which', '/audio/suoyi_char1.mp3', ?)", (suoyi_id,))
-        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('以', 'yi', 'use; by means of', '/audio/suoyi_char2.mp3', ?)", (suoyi_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('所', 'suǒ', 'place; that which', '/audio/suoyi_char1.mp3', ?)", (suoyi_id,))
+        cur.execute("INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES ('以', 'yǐ', 'use; by means of', '/audio/suoyi_char2.mp3', ?)", (suoyi_id,))
     
     # Insert confusable pairs
     pairs = [
