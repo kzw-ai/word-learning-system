@@ -4,6 +4,7 @@
 添加到 app_phase.py 中
 """
 
+import hashlib
 import json
 import re
 
@@ -15,17 +16,27 @@ from user_data_isolation import get_current_user_from_request
 # 无 character 行的词，pinyin 列里混写了汉字，形如 '突然 tūrán'
 HANZI_PREFIX = re.compile(r'^([\u4e00-\u9fff]+)\s+(.+)$')
 
+def question_version(question):
+    """一道辨析题的版本号：题干、选项、答案任何一项改了，版本号就变。作答记下它，改过的题以前的作答不再算数"""
+    key = {k: question.get(k) for k in ('stem', 'options', 'correct_answer')}
+    return hashlib.sha256(json.dumps(key, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def parse_questions(raw):
-    """confusable_pairs.questions（JSON）→ 辨析题列表；旧数据没有这一列的值时为空列表"""
+    """confusable_pairs.questions（JSON）→ 辨析题列表，每题附上 version；旧数据没有这一列的值时为空列表"""
     try:
         questions = json.loads(raw) if raw else []
     except ValueError:
         return []
-    return questions if isinstance(questions, list) else []
+    if not isinstance(questions, list):
+        return []
+    return [dict(q, version=question_version(q)) for q in questions if isinstance(q, dict)]
 
 
-def register_confusable_apis(app, db, require_authentication, check_ownership, pair_due=None):
+def register_confusable_apis(app, db, require_authentication, check_ownership, pair_due=None, schema_ready=None):
     """注册易混淆词相关的API端点。
+
+    schema_ready() 为假时（启动时没能补齐辨析题需要的列和唯一索引），不带出辨析，作答接口返回 503。
 
     pair_due(user_id, pair_id, word1_id, word2_id, questions) 判断练习结束时要不要带出这一对的辨析
     （论文 2.2.4：两个词分别掌握到一定程度后再对比学习）；不传时只要有词对就带出。
@@ -124,7 +135,7 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
             if pair_due is None:
                 return jsonify({'success': True, 'pair_id': rows[0][0] if rows else None})
             viewer_id, _ = get_current_user_from_request()
-            if not viewer_id:
+            if not viewer_id or (schema_ready and not schema_ready()):
                 return jsonify({'success': True, 'pair_id': None})
             # 有辨析题、还没过关的词对优先；没有题的旧词对解锁后一直到期，排在后面才不会挡住新词对
             rows = sorted(rows, key=lambda r: (not parse_questions(r[3]), r[0]))
@@ -188,12 +199,15 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
     def record_confusable_exercise(current_user_id=None, **kwargs):
         """记录易混淆词辨析练习。
 
-        辨析题传 question_index（questions 里的下标）、question_stem（作答时看到的题干）、user_answer，
-        由这里对照题目判分，客户端给的 is_correct 不用；题干和现在的题对不上（页面过期、题目改过）时返回 409。
-        attempt_id 是客户端为这次作答生成的编号，重试沿用同一个，同一用户的同一编号只记一次。
+        辨析题传 question_index（questions 里的下标）、question_version（作答时那道题的 version）、user_answer，
+        由这里对照题目判分，客户端给的 is_correct 不用；题目改过或撤下了（页面过期）时返回 409 QUESTION_CHANGED。
+        attempt_id 是客户端为这次作答生成的编号，重试沿用同一个，同一用户的同一编号只记一次；
+        同一编号却带着不同内容时返回 409 ATTEMPT_CONFLICT。
         过关看每道题最近一次作答（见 app_phase.contrast_passed）。不带题号的旧调用照旧记录客户端的 is_correct。
         """
         try:
+            if schema_ready and not schema_ready():
+                return jsonify({'success': False, 'error': 'Saving answers is temporarily unavailable'}), 503
             data = request.get_json(silent=True)
             if not isinstance(data, dict):
                 return jsonify({'success': False, 'error': 'JSON object expected'}), 400
@@ -215,19 +229,19 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
 
             question_index = data.get('question_index')
             user_answer = data.get('user_answer')
-            question_stem = None
+            version = correct_answer = None
             if question_index is not None:
                 questions = parse_questions(row[0])
-                if not is_int(question_index) or not 0 <= question_index < len(questions):
+                if not is_int(question_index):
                     return jsonify({'success': False, 'error': 'Invalid question_index'}), 400
-                question = questions[question_index]
-                question_stem = question.get('stem')
-                if data.get('question_stem') != question_stem:
+                question = questions[question_index] if 0 <= question_index < len(questions) else None
+                if question is None or data.get('question_version') != question['version']:
                     return jsonify({'success': False, 'error': 'This question has changed. Please reload.',
                                     'code': 'QUESTION_CHANGED'}), 409
                 if user_answer not in question.get('options', []):
                     return jsonify({'success': False, 'error': 'user_answer is not one of the options'}), 400
-                is_correct = user_answer == question.get('correct_answer')
+                version, correct_answer = question['version'], question.get('correct_answer')
+                is_correct = user_answer == correct_answer
             else:
                 is_correct = data.get('is_correct')
                 if not isinstance(is_correct, bool):
@@ -236,26 +250,39 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
 
             query = text("""
                 INSERT OR IGNORE INTO confusable_exercise_records
-                (user_id, pair_id, is_correct, response_time, question_index, question_stem, user_answer, attempt_id)
-                VALUES (:user_id, :pair_id, :is_correct, :response_time, :question_index, :question_stem,
+                (user_id, pair_id, is_correct, response_time, question_index, question_version, user_answer, attempt_id)
+                VALUES (:user_id, :pair_id, :is_correct, :response_time, :question_index, :question_version,
                         :user_answer, :attempt_id)
             """)
 
-            db.session.execute(query, {
+            result = db.session.execute(query, {
                 'user_id': current_user_id,
                 'pair_id': pair_id,
                 'is_correct': is_correct,
                 'response_time': response_time,
                 'question_index': question_index,
-                'question_stem': question_stem,
+                'question_version': version,
                 'user_answer': user_answer,
                 'attempt_id': attempt_id,
             })
-            db.session.commit()
-            
+            if result.rowcount == 0 and attempt_id is not None:
+                # 这个作答编号已经记过：内容一致就是重试，返回当时的结果；不一致是冲突，不能报告保存成功
+                prior = db.session.execute(text("""
+                    SELECT pair_id, question_index, question_version, user_answer, is_correct
+                    FROM confusable_exercise_records WHERE user_id = :user_id AND attempt_id = :attempt_id
+                """), {'user_id': current_user_id, 'attempt_id': attempt_id}).fetchone()
+                db.session.rollback()
+                if prior is None or tuple(prior[:4]) != (pair_id, question_index, version, user_answer):
+                    return jsonify({'success': False, 'error': 'attempt_id was already used for a different answer',
+                                    'code': 'ATTEMPT_CONFLICT'}), 409
+                is_correct = bool(prior[4])
+            else:
+                db.session.commit()
+
             return jsonify({
                 'success': True,
                 'is_correct': is_correct,
+                'correct_answer': correct_answer,
                 'message': '练习记录已保存'
             })
             

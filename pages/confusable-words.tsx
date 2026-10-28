@@ -32,6 +32,8 @@ interface ContrastQuestion {
   stem: string;
   options: string[];
   correct_answer: string;
+  // 后端按题干、选项、答案算出的版本号；作答时带回去，题目改过时后端返回 409
+  version: string;
 }
 
 type SaveState = 'saving' | 'saved' | 'failed' | 'stale';
@@ -50,8 +52,8 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
   const questions = pair.questions ?? [];
   const [picked, setPicked] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<Record<number, SaveState>>({});
-  // 后端判的对错（以它为准；没返回之前先按本地答案显示）
-  const [judged, setJudged] = useState<Record<number, boolean>>({});
+  // 后端判分结果（对错与正确答案），以它为准；没返回之前先按本地答案显示
+  const [judged, setJudged] = useState<Record<number, { ok: boolean; answer: string }>>({});
   const shownAt = useRef(Date.now());
   const elapsed = useRef<Record<number, number>>({});
   const attempts = useRef<Record<number, string>>({});
@@ -73,7 +75,7 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
       const resp = await authenticatedPost('/api/confusable/exercise/record', {
         pair_id: pair.id,
         question_index: index,
-        question_stem: questions[index].stem,
+        question_version: questions[index].version,
         user_answer: option,
         response_time: elapsed.current[index],
         attempt_id: attempts.current[index],
@@ -86,7 +88,8 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
       const ok = resp.ok && result?.success;
       setSaved(prev => ({ ...prev, [index]: ok ? 'saved' : 'failed' }));
       if (ok && typeof result.is_correct === 'boolean') {
-        setJudged(prev => ({ ...prev, [index]: result.is_correct }));
+        const answer = typeof result.correct_answer === 'string' ? result.correct_answer : questions[index].correct_answer;
+        setJudged(prev => ({ ...prev, [index]: { ok: result.is_correct, answer } }));
       }
     } catch {
       setSaved(prev => ({ ...prev, [index]: 'failed' }));
@@ -102,9 +105,11 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
     void save(index, option);
   };
 
-  const isRight = (i: number) => judged[i] ?? picked[i] === questions[i].correct_answer;
-  const answered = Object.keys(picked).length;
-  const correct = questions.filter((_, i) => picked[i] !== undefined && isRight(i)).length;
+  const answerOf = (i: number) => judged[i]?.answer ?? questions[i].correct_answer;
+  const isRight = (i: number) => judged[i]?.ok ?? picked[i] === answerOf(i);
+  const allSaved = questions.every((_, i) => saved[i] === 'saved');
+  const anyStale = questions.some((_, i) => saved[i] === 'stale');
+  const correct = questions.filter((_, i) => isRight(i)).length;
 
   return (
     <div className="glass-panel rounded-2xl p-4">
@@ -118,8 +123,8 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
               <p className="text-base text-gray-800 leading-relaxed mb-2">{q.stem}</p>
               <div className="grid grid-cols-2 gap-2">
                 {q.options.map(option => {
-                  const state = !choice ? 'idle'
-                    : option === q.correct_answer ? 'right'
+                  const state = !choice || saved[i] === 'stale' ? 'idle'
+                    : option === answerOf(i) ? 'right'
                     : option === choice ? 'wrong' : 'idle';
                   return (
                     <button
@@ -138,9 +143,9 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
                   );
                 })}
               </div>
-              {choice && (
+              {choice && saved[i] !== 'stale' && (
                 <p className={`text-sm mt-1.5 ${isRight(i) ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {isRight(i) ? 'Correct.' : `Not quite: the answer is ${q.correct_answer}.`}
+                  {isRight(i) ? 'Correct.' : `Not quite: the answer is ${answerOf(i)}.`}
                 </p>
               )}
               {saved[i] === 'stale' && (
@@ -162,10 +167,15 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
           );
         })}
       </div>
-      {answered === questions.length && (
+      {allSaved && (
         <p className="text-sm font-semibold text-gray-700 mt-4">
           {correct} / {questions.length} correct
           {correct < questions.length ? '. This pair will come back next time you practise these words.' : '. Well done!'}
+        </p>
+      )}
+      {anyStale && (
+        <p className="text-sm font-semibold text-amber-700 mt-4">
+          Some questions have been updated. Please reload the page to try them again.
         </p>
       )}
     </div>

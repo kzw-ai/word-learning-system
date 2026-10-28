@@ -1058,12 +1058,14 @@ class TestConfusableContrast:
     def _offered(self, client, learner):
         return client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()['pair_id']
 
-    def _answer(self, client, learner, pair_id, index, correct, questions=None, attempt_id=None):
+    def _answer(self, client, learner, pair_id, index, correct, questions=None, attempt_id=None, answer=None):
         import uuid
+        from confusable_api import question_version
         q = (questions or self.QUESTIONS)[index]
-        answer = q['correct_answer'] if correct else next(o for o in q['options'] if o != q['correct_answer'])
+        if answer is None:
+            answer = q['correct_answer'] if correct else next(o for o in q['options'] if o != q['correct_answer'])
         return client.post('/api/confusable/exercise/record', headers=guest_headers(learner), json={
-            'pair_id': pair_id, 'question_index': index, 'question_stem': q['stem'], 'user_answer': answer,
+            'pair_id': pair_id, 'question_index': index, 'question_version': question_version(q), 'user_answer': answer,
             'response_time': 2.0, 'attempt_id': attempt_id or uuid.uuid4().hex})
 
     def test_offered_only_after_both_words_were_reviewed(self, anon_client, pair):
@@ -1095,23 +1097,39 @@ class TestConfusableContrast:
         import app_phase as mod
         pair_id, _ = pair
         learner = _learner('contrastjudge')
-        stem = self.QUESTIONS[0]['stem']
+        from confusable_api import question_version
+        v = question_version(self.QUESTIONS[0])
         post = lambda body: anon_client.post('/api/confusable/exercise/record', json=body, headers=guest_headers(learner))
-        wrong = post({'pair_id': pair_id, 'question_index': 0, 'question_stem': stem, 'user_answer': '考虑', 'is_correct': True})
+        wrong = post({'pair_id': pair_id, 'question_index': 0, 'question_version': v, 'user_answer': '考虑', 'is_correct': True})
         assert wrong.status_code == 200 and wrong.get_json()['is_correct'] is False, '客户端报的对错不用'
-        assert post({'pair_id': 99999, 'question_index': 0, 'question_stem': stem, 'user_answer': '想'}).status_code == 404
-        assert post({'pair_id': pair_id, 'question_index': 5, 'question_stem': stem, 'user_answer': '想'}).status_code == 400
-        assert post({'pair_id': pair_id, 'question_index': 0, 'question_stem': stem, 'user_answer': '别的'}).status_code == 400
-        assert post({'pair_id': pair_id, 'question_index': 0, 'question_stem': '旧题干', 'user_answer': '想'}).status_code == 409
+        assert wrong.get_json()['correct_answer'] == '想'
+        assert post({'pair_id': 99999, 'question_index': 0, 'question_version': v, 'user_answer': '想'}).status_code == 404
+        assert post({'pair_id': pair_id, 'question_index': 5, 'question_version': v, 'user_answer': '想'}).status_code == 409, '题目撤下了'
+        assert post({'pair_id': pair_id, 'question_index': 0, 'question_version': v, 'user_answer': '别的'}).status_code == 400
+        assert post({'pair_id': pair_id, 'question_index': 0, 'question_version': 'old', 'user_answer': '想'}).status_code == 409
         assert post({'pair_id': str(pair_id), 'is_correct': True}).status_code == 400
         assert post({'pair_id': pair_id, 'is_correct': True, 'response_time': True}).status_code == 400
         assert post({'pair_id': pair_id, 'is_correct': True, 'response_time': -1}).status_code == 400
         assert anon_client.post('/api/confusable/exercise/record', json=[1], headers=guest_headers(learner)).status_code == 400
-        # 重试沿用同一个作答编号：只记一条
+        # 重试沿用同一个作答编号：只记一条，返回当时的结果
         for _ in range(2):
-            assert self._answer(anon_client, learner, pair_id, 1, True, attempt_id='retry-1').status_code == 200
+            resp = self._answer(anon_client, learner, pair_id, 1, False, attempt_id='retry-1')
+            assert resp.status_code == 200 and resp.get_json()['is_correct'] is False
         with app.app_context():
             assert mod.ConfusableExerciseRecord.query.filter_by(user_id=learner, attempt_id='retry-1').count() == 1
+        # 同一个编号换了答案：冲突，不能报告保存成功
+        conflict = self._answer(anon_client, learner, pair_id, 1, True, attempt_id='retry-1')
+        assert conflict.status_code == 409 and conflict.get_json()['code'] == 'ATTEMPT_CONFLICT'
+
+    def test_paused_when_schema_is_not_ready(self, anon_client, pair, monkeypatch):
+        import app_phase as mod
+        pair_id, other = pair
+        learner = _learner('contrastpaused')
+        for n, word in enumerate((1, other, 1)):
+            self._practise(anon_client, learner, word, f's-contrast-z{n}')
+        monkeypatch.setattr(mod, 'CONTRAST_SCHEMA_READY', False)
+        assert self._offered(anon_client, learner) is None
+        assert self._answer(anon_client, learner, pair_id, 0, True).status_code == 503
 
     def test_changed_question_must_be_answered_again(self, app, anon_client, pair):
         import json
@@ -1130,6 +1148,12 @@ class TestConfusableContrast:
         assert self._offered(anon_client, learner) == pair_id, '第 2 题改过了，以前的作答不算'
         self._answer(anon_client, learner, pair_id, 1, True, questions=changed)
         assert self._offered(anon_client, learner) is None
+        # 只改答案（题干不变）也算改过：第 1 题以前答的「想」不再算对
+        changed[0] = dict(changed[0], correct_answer='考虑')
+        with app.app_context():
+            mod.db.session.get(mod.ConfusablePair, pair_id).questions = json.dumps(changed, ensure_ascii=False)
+            mod.db.session.commit()
+        assert self._offered(anon_client, learner) == pair_id
 
     def test_pairs_with_questions_come_before_old_pairs_without(self, app, anon_client, pair):
         import app_phase as mod
@@ -1163,7 +1187,8 @@ class TestConfusableContrast:
     def test_pair_payload_includes_questions(self, client, pair):
         pair_id, _ = pair
         data = client.get(f'/api/confusable/pair/{pair_id}').get_json()
-        assert data['pair']['questions'] == self.QUESTIONS
+        from confusable_api import question_version
+        assert data['pair']['questions'] == [dict(q, version=question_version(q)) for q in self.QUESTIONS]
         listed = client.get('/api/confusable/pairs?limit=50').get_json()['pairs']
         assert all(isinstance(p['questions'], list) for p in listed)
 
@@ -1266,6 +1291,16 @@ class TestHsk4BatchImport:
             reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
             assert reason == 'old', '旧词对的讲解保持原样，补题以后也不被覆盖'
             assert json.loads(questions) == q
+        finally:
+            conn.close()
+        # 补上的题由这个批次继续同步：撤下题目也能生效
+        old_pair['questions'] = []
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 1
+        conn = sqlite3.connect(db)
+        try:
+            reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
+            assert (reason, json.loads(questions)) == ('old', [])
             known = imp.hanzi_map(conn)
             assert conn.execute('SELECT reason FROM confusable_pairs WHERE word1_id = ?', (known['揣摩'],)).fetchone() == ('batch v2',)
         finally:

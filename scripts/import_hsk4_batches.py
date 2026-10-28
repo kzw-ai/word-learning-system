@@ -11,7 +11,8 @@
   练习题按 (来源, 序号, 题型, 题干) 更新、新增、删除已撤下的。重新审核后的修改因此能生效。
 - 词库里已有、但不归属这个批次的词：整个跳过，不往旧词里混入新内容。
 - 易混淆词对：还没有就插入并记下归属；归属这个批次的按素材同步全部内容；
-  不归属任何批次的旧词对只在还没有辨析题时补上题，讲解保持原样。
+  不归属任何批次的旧词对，讲解保持原样，只补辨析题：还没有题时补上并记下「题目归属」（kind = pair_questions），
+  之后由这个批次继续同步这些题（修改、撤下都能生效）。
 """
 
 from __future__ import annotations
@@ -115,7 +116,7 @@ def sync_exercises(conn, word_id, deck, exercises, now):
     return inserted, updated, len(stale)
 
 
-def sync_pair(conn, p, id1, id2, batch, pair_owners):
+def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
     """返回 'inserted' / 'updated' / None"""
     questions = json.dumps(p.get('questions', []), ensure_ascii=False)
     fields = (p['reason'], p['difference'], p['examples'], p['tips'], p['difficulty_level'], questions)
@@ -136,9 +137,18 @@ def sync_pair(conn, p, id1, id2, batch, pair_owners):
                 difficulty_level = ?, questions = ? WHERE id = ?''', (*fields, pair_id))
             return 'updated'
         return None
-    if owner is None and (not old_questions or old_questions == '[]') and p.get('questions'):
-        # 不归属任何批次的旧词对：只补辨析题，讲解保持原样；补过以后不再改动
+    if owner is not None:
+        return None  # 别的批次的词对
+    # 不归属任何批次的旧词对：讲解保持原样，只管辨析题
+    if question_owners.get(pair_id) == batch:
+        if old_questions != questions:
+            conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
+            return 'updated'
+        return None
+    if pair_id not in question_owners and (not old_questions or old_questions == '[]') and p.get('questions'):
         conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
+        claim(conn, 'pair_questions', pair_id, batch)
+        question_owners[pair_id] = batch
         return 'updated'
     return None
 
@@ -150,6 +160,7 @@ def import_batch(conn, batch, now):
     known = hanzi_map(conn)
     word_owners = owners(conn, 'word')
     pair_owners = owners(conn, 'pair')
+    question_owners = owners(conn, 'pair_questions')
     for w in batch['words']:
         hanzi = w['hanzi']
         word_id = known.get(hanzi)
@@ -172,7 +183,7 @@ def import_batch(conn, batch, now):
     for p in batch.get('confusable_pairs', []):
         id1, id2 = known.get(p['word1']), known.get(p['word2'])
         if id1 and id2:
-            result = sync_pair(conn, p, id1, id2, name, pair_owners)
+            result = sync_pair(conn, p, id1, id2, name, pair_owners, question_owners)
             counts[6] += result == 'inserted'
             counts[7] += result == 'updated'
     return counts
