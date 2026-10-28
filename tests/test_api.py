@@ -630,3 +630,130 @@ class TestSessionInitialLevel:
         assert anon_client.post('/api/learning/session/initial-level',
                                 json={'sessionId': 's-vks-guard', 'initialLevel': 'C'}).status_code == 401
         assert self._level(app, 's-vks-guard') is None
+
+
+# ================================================
+# 推荐反馈：是否采纳 + 推荐效果
+# ================================================
+
+class TestRecommendationFeedback:
+    def _recommend(self, client, learner):
+        resp = client.get(f'/api/adaptive/recommendation/{learner}', headers=guest_headers(learner))
+        data = resp.get_json()['data']
+        assert data.get('recommendationId'), data
+        return data['recommendationId'], data['word_id']
+
+    def _feedback(self, client, learner, rec_id, accepted, choice='word:1'):
+        return client.post('/api/adaptive/feedback', json={
+            'recommendationId': rec_id, 'accepted': accepted, 'actualChoice': choice,
+        }, headers=guest_headers(learner))
+
+    def _rec(self, app, rec_id):
+        import app_phase as mod
+        with app.app_context():
+            rec = mod.db.session.get(mod.AdaptiveRecommendation, rec_id)
+            return rec.is_accepted, rec.actual_choice, rec.effectiveness_score
+
+    def _exercise_session(self, client, learner, session_id, word_id, answers, rec_id=None):
+        body = {'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise',
+                'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}
+        if rec_id is not None:
+            body['recommendationId'] = rec_id
+        client.post('/api/learning/session/start', json=body, headers=guest_headers(learner))
+        for i, ok in enumerate(answers):
+            client.post('/api/learning/exercise/record', json={
+                'sessionId': session_id, 'questionId': f'q{i}', 'questionType': 'definition',
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': ok,
+                'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+            }, headers=guest_headers(learner))
+
+    def _bound(self, app, session_id):
+        import app_phase as mod
+        with app.app_context():
+            return mod.LearningSession.query.filter_by(session_id=session_id).one().recommendation_id
+
+    def test_first_answer_wins_and_is_private(self, app, anon_client):
+        learner = _learner('recfeedback')
+        rec_id, _ = self._recommend(anon_client, learner)
+        assert self._feedback(anon_client, learner, rec_id, True, 'word:5').get_json() == {'success': True, 'updated': True}
+        assert self._feedback(anon_client, learner, rec_id, False, 'today-review').get_json()['updated'] is False
+        assert self._rec(app, rec_id)[:2] == (True, 'word:5')
+
+        assert self._feedback(anon_client, OTHER_GUEST, rec_id, False).status_code == 404
+        assert self._feedback(anon_client, learner, 999999, True).status_code == 404
+        assert self._feedback(anon_client, learner, rec_id, 'yes').status_code == 400
+        assert self._feedback(anon_client, learner, str(rec_id), True).status_code == 400
+        assert self._feedback(anon_client, learner, True, True).status_code == 400, 'bool 不能当 id'
+        assert anon_client.post('/api/adaptive/feedback', json={
+            'recommendationId': rec_id, 'accepted': True}).status_code == 401
+
+    def test_effectiveness_is_first_bound_session(self, app, anon_client):
+        learner = _learner('receffect')
+        rec_id, word_id = self._recommend(anon_client, learner)
+        # 反馈请求丢了：照推荐建会话本身就记为采纳
+        self._exercise_session(anon_client, learner, 's-receffect-1', word_id, [True, True, False, True], rec_id)
+        assert self._bound(app, 's-receffect-1') == rec_id
+        assert self._rec(app, rec_id) == (True, f'exercise:{word_id}', 0.75)
+        # 之后绑定同一推荐的练习、没绑定的练习都不改它
+        self._exercise_session(anon_client, learner, 's-receffect-2', word_id, [False, False], rec_id)
+        self._exercise_session(anon_client, learner, 's-receffect-3', word_id, [False])
+        assert self._rec(app, rec_id)[2] == 0.75
+
+    def test_session_binds_only_own_recommendation_for_that_word(self, app, anon_client):
+        learner = _learner('recbinding')
+        rec_id, word_id = self._recommend(anon_client, learner)
+        other_word = word_id + 1 if word_id != 1 else 2
+        self._exercise_session(anon_client, learner, 's-recbind-word', other_word, [True], rec_id)
+        self._exercise_session(anon_client, OTHER_GUEST, 's-recbind-user', word_id, [True], rec_id)
+        self._exercise_session(anon_client, learner, 's-recbind-bool', word_id, [True], True)
+        assert self._bound(app, 's-recbind-word') is None
+        assert self._bound(app, 's-recbind-user') is None
+        assert self._bound(app, 's-recbind-bool') is None
+        assert self._rec(app, rec_id) == (None, None, None)
+
+    def test_rejected_recommendation_stays_rejected(self, app, anon_client):
+        learner = _learner('recrejected')
+        rec_id, word_id = self._recommend(anon_client, learner)
+        self._feedback(anon_client, learner, rec_id, False, 'today-review')
+        # 即使之后的会话带着这条推荐，「没采纳」的结论也不改
+        self._exercise_session(anon_client, learner, 's-recrejected-1', word_id, [True], rec_id)
+        assert self._rec(app, rec_id) == (False, 'today-review', None)
+
+    def test_learning_state_carries_recommendation_across_devices(self, app, anon_client):
+        learner = _learner('recsync')
+        rec_id, word_id = self._recommend(anon_client, learner)
+        state = {'wordId': word_id, 'word': 'x', 'module': 'word', 'vksLevel': 'B', 'recommendationId': rec_id}
+        assert anon_client.put(f'/api/users/{learner}/learning-state', json=state,
+                               headers=guest_headers(learner)).get_json()['success']
+        data = anon_client.get(f'/api/users/{learner}/learning-state', headers=guest_headers(learner)).get_json()['data']
+        assert data['recommendationId'] == rec_id
+
+        anon_client.put(f'/api/users/{learner}/learning-state', json={**state, 'recommendationId': 'oops'},
+                        headers=guest_headers(learner))
+        data = anon_client.get(f'/api/users/{learner}/learning-state', headers=guest_headers(learner)).get_json()['data']
+        assert data['recommendationId'] is None
+
+        # 旧页面不带这个字段：当作没有，不沿用之前存的推荐
+        anon_client.put(f'/api/users/{learner}/learning-state', json=state, headers=guest_headers(learner))
+        legacy = {k: v for k, v in state.items() if k != 'recommendationId'}
+        anon_client.put(f'/api/users/{learner}/learning-state', json=legacy, headers=guest_headers(learner))
+        data = anon_client.get(f'/api/users/{learner}/learning-state', headers=guest_headers(learner)).get_json()['data']
+        assert data['recommendationId'] is None
+
+    def test_registration_keeps_guest_recommendation(self, app):
+        client = app.test_client()
+        learner = _learner('recmerge')
+        rec_id, word_id = self._recommend(client, learner)
+        client.put(f'/api/users/{learner}/learning-state', json={
+            'wordId': word_id, 'module': 'word', 'recommendationId': rec_id}, headers=guest_headers(learner))
+        reg = client.post('/api/auth/register', json={'username': 'rec_merge_user', 'password': 'secret123'},
+                          headers=guest_headers(learner)).get_json()
+        assert reg['success'], reg
+        account = reg['data']['user_id']
+        login = client.post('/api/auth/login', json={'username': 'rec_merge_user', 'password': 'secret123'}).get_json()
+        token = login['data']['session_token']
+        data = client.get(f'/api/users/{account}/learning-state', headers={'X-Session-Token': token}).get_json()['data']
+        assert data['recommendationId'] == rec_id
+        # 推荐本身也归到了账号名下（访客身份已找不到它），换设备续学时建的会话仍能绑定它
+        # 新 client：登录后的 client 带着账号 cookie，身份会认成账号
+        assert self._feedback(app.test_client(), learner, rec_id, True).status_code == 404

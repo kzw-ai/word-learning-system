@@ -86,9 +86,12 @@ const TodayReview = () => {
       module: review.recommended_module,
       entryModule: review.recommended_module,
       vksLevel: undefined,
+      recommendationId: null,
       reviewMode: true,
       reviewedWordIds: [...reviewed, review.word_id],
-      reviewDate: todayReviewKey()
+      reviewDate: todayReviewKey(),
+      // 用户主动开始：即使内容与原来相同也要刷新时间戳
+      lastUpdated: new Date().toISOString()
     });
 
     const moduleRoutes: Record<string, string> = {

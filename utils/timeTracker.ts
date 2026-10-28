@@ -16,6 +16,8 @@ export interface TimeTrackingConfig {
    * 该列恒为 NULL，论文表 4.3 的头 5 个特征因此没有数据源。
    */
   initialLevel?: string;
+  /** 照哪条推荐开始学的（adaptive_recommendation.id），后端据此算推荐效果 */
+  recommendationId?: number;
   /**
    * 会话状态是否已从 localStorage 水合完毕。为 false 时 useTimeTracking 不创建
    * 追踪器——提前创建会先写出 initial_level 为 NULL 的幽灵会话。
@@ -150,6 +152,7 @@ export class TimeTracker {
           sessionType: this.config.sessionType,
           moduleType: this.config.moduleType,
           initialLevel: this.config.initialLevel,
+          recommendationId: this.config.recommendationId,
           startTime: this.startTime.toISOString(),
           deviceType: this.getDeviceType()
         })
@@ -179,7 +182,8 @@ export class TimeTracker {
   public async setInitialLevel(level: string, wordId: number) {
     if (this.disabled || this.config.initialLevel || wordId !== this.config.wordId) return;
     this.config = { ...this.config, initialLevel: level };
-    if (!(await this.sessionStarted)) return;
+    // 同 trackExercise：等建会话结束，不论成败都照发
+    await this.sessionStarted;
     try {
       await authenticatedFetch('/api/learning/session/initial-level', {
         method: 'POST',
@@ -217,6 +221,9 @@ export class TimeTracker {
    */
   public async trackExercise(exerciseData: ExerciseData) {
     if (this.disabled) return;
+    // 会话在后端建好之前提交的作答会被拒（会话不存在）：先等 startSession 结束。
+    // 不论成败都照发：响应丢了不等于会话没建成，真没建成时后端会拒绝
+    await this.sessionStarted;
     try {
       const response = await authenticatedFetch('/api/learning/exercise/record', {
         method: 'POST',

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { buildApiUrl } from "@/src/lib/apiClient";
+import { sendRecommendationFeedback } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
 import { 
@@ -91,6 +92,8 @@ const LearningDashboard = () => {
 
   const startRecommendedLearning = () => {
     if (!recommendation) return;
+    sendRecommendationFeedback(userId, recommendation.recommendationId, true,
+      `${recommendation.recommended_module}:${recommendation.word_id}`);
 
     updateSession({
       wordId: recommendation.word_id,
@@ -98,7 +101,10 @@ const LearningDashboard = () => {
       module: recommendation.recommended_module,
       entryModule: recommendation.recommended_module,
       vksLevel: undefined,
-      reviewMode: null
+      recommendationId: recommendation.recommendationId ?? null,
+      reviewMode: null,
+      // 用户主动开始：即使内容与原来相同也要刷新时间戳
+      lastUpdated: new Date().toISOString()
     });
 
     const moduleRoutes: Record<string, string> = {
@@ -325,7 +331,11 @@ const LearningDashboard = () => {
             {/* 快捷操作 */}
             <div className="grid grid-cols-2 gap-4 mb-4">
               <button
-                onClick={() => router.push('/today-review')}
+                onClick={() => {
+                  // 推荐显示着却去了别处：记为没有采纳
+                  sendRecommendationFeedback(userId, recommendation?.recommendationId, false, 'today-review');
+                  router.push('/today-review');
+                }}
                 className="glass-card flex flex-col items-center justify-center p-5 rounded-[24px] text-gray-700 hover:text-indigo-600 hover:bg-white/50 border border-white/40 shadow-sm relative overflow-hidden transition-all duration-300"
               >
                 <div className="bg-indigo-50 text-indigo-500 p-3 rounded-2xl mb-3">
@@ -339,7 +349,10 @@ const LearningDashboard = () => {
                 )}
               </button>
               <button
-                onClick={() => router.push('/word-learning-entrance')}
+                onClick={() => {
+                  sendRecommendationFeedback(userId, recommendation?.recommendationId, false, 'word-learning-entrance');
+                  router.push('/word-learning-entrance');
+                }}
                 className="glass-card flex flex-col items-center justify-center p-5 rounded-[24px] text-gray-700 hover:text-indigo-600 hover:bg-white/50 border border-white/40 shadow-sm transition-all duration-300"
               >
                 <div className="bg-purple-50 text-purple-500 p-3 rounded-2xl mb-3">

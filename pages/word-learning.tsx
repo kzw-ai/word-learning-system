@@ -10,7 +10,7 @@ import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import ReviewReminder from '@/components/ReviewReminder';
 
 export default function Component() {
-  const { session: learningSession, hydrated: sessionHydrated, updateSession: updateLearningSession } = useLearningSession();
+  const { session: learningSession, hydrated: sessionHydrated, restored: sessionRestored, updateSession: updateLearningSession } = useLearningSession();
   const { userId } = useLearningContext();
   const { word, loading, error } = useWordData({ initialWordId: learningSession.wordId ?? undefined });
   const { previous, next, goTo } = useLearningNavigation('word');
@@ -21,7 +21,9 @@ export default function Component() {
     moduleType: 'word',
     sessionType: 'learning',
     initialLevel: learningSession.vksLevel ?? undefined,
-    ready: sessionHydrated
+    recommendationId: learningSession.recommendationId ?? undefined,
+    // 等服务器状态恢复完再建会话：档位与推荐可能来自另一台设备
+    ready: sessionHydrated && sessionRestored
   });
   const { pageTracking, interactionTracking, trackEvent } = tracking;
 

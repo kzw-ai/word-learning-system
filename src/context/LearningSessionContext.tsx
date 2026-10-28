@@ -24,6 +24,11 @@ export interface LearningSessionState {
    * 步骤显示为「已跳过」。只存本地。
    */
   entryModule?: string | null;
+  /**
+   * 照哪条推荐开始学这个词（adaptive_recommendation.id）。学习会话带上它，后端据此
+   * 算推荐效果。换到另一个词却没给新值时清空，与 vksLevel 同一规则。
+   */
+  recommendationId?: number | null;
   lastUpdated?: string | null;
 }
 
@@ -35,6 +40,14 @@ interface LearningSessionContextValue {
    * 追踪器要等它变 true 再创建，否则会先带着空 vksLevel 建一次会话。
    */
   hydrated: boolean;
+  /**
+   * 服务器上的学习状态是否已恢复完（取回、失败或超时）。学习页的追踪器等它再建会话：
+   * 会话要绑定的 VKS 档位与推荐（recommendationId）可能来自另一台设备，
+   * 先建就会带着本地那份可能过时的值。
+   * 已知限制：服务器 3 秒仍未响应时按本地值建会话，之后到达的推荐归属不再改已建的会话
+   * （档位会由 setInitialLevel 补写）；只影响推荐效果的统计归属。
+   */
+  restored: boolean;
   updateSession(session: Partial<LearningSessionState>): void;
   clearSession(): void;
 }
@@ -49,6 +62,7 @@ const DEFAULT_SESSION: LearningSessionState = {
   reviewedWordIds: null,
   reviewDate: null,
   entryModule: null,
+  recommendationId: null,
   lastUpdated: null
 };
 
@@ -76,6 +90,7 @@ const loadSessionFromStorage = (userId: string): LearningSessionState => {
         reviewedWordIds: Array.isArray(parsed.reviewedWordIds) ? parsed.reviewedWordIds : null,
         reviewDate: parsed.reviewDate ?? null,
         entryModule: parsed.entryModule ?? null,
+        recommendationId: typeof parsed.recommendationId === 'number' ? parsed.recommendationId : null,
         lastUpdated: parsed.lastUpdated ?? null
       };
     }
@@ -105,7 +120,14 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
   // 否则老用户带着存储的会话回访时会触发 React 水合错误
   const [session, setSession] = useState<LearningSessionState>(DEFAULT_SESSION);
   const [hydrated, setHydrated] = useState(false);
+  // 记「为哪个身份恢复完」而不是一个布尔：身份切换的那次渲染里它立刻就不成立。
+  // 子组件（学习页追踪器）的 effect 先于这里的 effect 执行，用布尔的话，新身份
+  // 的追踪器会读到上一个身份留下的 true
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  const restored = Boolean(userId) && restoredFor === userId;
   const saveTimerRef = useRef<TimerRef>(null);
+  // 学习状态的 PUT 逐个发：已发出的旧请求晚到时不能覆盖之后的新状态
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const userIdRef = useRef(userId);
 
   // Keep userIdRef in sync
@@ -125,6 +147,15 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     const localSession = loadSessionFromStorage(userId);
     setSession(localSession);
     setHydrated(true);
+
+    // 服务器状态取回、失败或 3 秒仍无响应，都算恢复完：不能让追踪一直等下去
+    let finished = false;
+    const finishRestore = () => {
+      if (finished || userIdRef.current !== userId) return;
+      finished = true;
+      setRestoredFor(userId);
+    };
+    const restoreTimer = setTimeout(finishRestore, 3000);
 
     // Async: fetch from backend and use if newer
     fetchLearningState(userId)
@@ -158,6 +189,9 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
             // VKS 是对某个词的自评：服务器上是另一个词时不能沿用本地这个词的档位，
             // 否则新词的会话会把旧词的档位记成 initial_level（与 updateSession 的规则一致）
             vksLevel: serverState.vksLevel ?? (sameWord ? prev.vksLevel : null),
+            // 推荐归属随学习位置同步：服务器较新时以它为准（另一台设备可能已从今日复习
+            // 重新开始这个词，同一个词也不等于同一轮推荐）
+            recommendationId: serverState.recommendationId ?? null,
             reviewMode: sameWord ? prev.reviewMode : null,
             lastUpdated: serverState.lastUpdated ?? prev.lastUpdated
           };
@@ -168,7 +202,15 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
       })
       .catch(err => {
         console.warn('Failed to fetch learning state from server:', err);
+      })
+      .finally(() => {
+        clearTimeout(restoreTimer);
+        finishRestore();
       });
+    return () => {
+      clearTimeout(restoreTimer);
+      finished = true;
+    };
   }, [userId]);
 
   // Debounced save to backend
@@ -181,12 +223,13 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     const uid = userIdRef.current;
     if (!uid) return;
     saveTimerRef.current = setTimeout(() => {
-      saveLearningState(uid, {
+      saveChainRef.current = saveChainRef.current.then(() => saveLearningState(uid, {
         wordId: state.wordId,
         word: state.word,
         module: state.module,
-        vksLevel: state.vksLevel
-      }).then(() => {
+        vksLevel: state.vksLevel,
+        recommendationId: state.recommendationId ?? null
+      })).then(() => {
         console.log('📤 学习进度已同步到服务器');
       }).catch(err => {
         console.warn('Failed to save learning state to server:', err);
@@ -212,6 +255,22 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
       ) {
         defined.vksLevel = null;
       }
+      // 推荐也是针对某个词的：换词却没说是照哪条推荐时，不再算照原推荐在学
+      if (
+        defined.wordId !== undefined &&
+        defined.wordId !== prev.wordId &&
+        defined.recommendationId === undefined
+      ) {
+        defined.recommendationId = null;
+      }
+      // 什么都没变（页面加载时写回同一个词、同一个模块）就什么也不做：刷新时间戳会让
+      // 稍后返回的、另一台设备上更新的服务器状态被当成旧的丢掉，还多发一次同步
+      const unchanged = partial.lastUpdated === undefined && Object.entries(defined).every(
+        ([key, value]) => JSON.stringify(value) === JSON.stringify(prev[key as keyof LearningSessionState] ?? null)
+      );
+      if (unchanged) {
+        return prev;
+      }
       const next: LearningSessionState = {
         ...prev,
         ...defined,
@@ -231,12 +290,13 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     setSession(DEFAULT_SESSION);
     persistSessionToStorage(userId, DEFAULT_SESSION);
     // Also clear on server
-    saveLearningState(userId, {
+    saveChainRef.current = saveChainRef.current.then(() => saveLearningState(userId, {
       wordId: null,
       word: null,
       module: null,
-      vksLevel: null
-    }).catch(err => {
+      vksLevel: null,
+      recommendationId: null
+    })).catch(err => {
       console.warn('Failed to clear learning state on server:', err);
     });
   }, [userId]);
@@ -253,9 +313,10 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
   const value = useMemo<LearningSessionContextValue>(() => ({
     session,
     hydrated,
+    restored,
     updateSession,
     clearSession
-  }), [session, hydrated, updateSession, clearSession]);
+  }), [session, hydrated, restored, updateSession, clearSession]);
 
   return (
     <LearningSessionContext.Provider value={value}>
