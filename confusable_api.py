@@ -124,8 +124,11 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
             if pair_due is None:
                 return jsonify({'success': True, 'pair_id': rows[0][0] if rows else None})
             viewer_id, _ = get_current_user_from_request()
-            due = next((r[0] for r in rows if viewer_id and
-                        pair_due(viewer_id, r[0], r[1], r[2], len(parse_questions(r[3])))), None)
+            if not viewer_id:
+                return jsonify({'success': True, 'pair_id': None})
+            # 有辨析题、还没过关的词对优先；没有题的旧词对解锁后一直到期，排在后面才不会挡住新词对
+            rows = sorted(rows, key=lambda r: (not parse_questions(r[3]), r[0]))
+            due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], len(parse_questions(r[3])))), None)
             return jsonify({'success': True, 'pair_id': due})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
@@ -183,32 +186,61 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
     @app.route('/api/confusable/exercise/record', methods=['POST'])
     @require_authentication()
     def record_confusable_exercise(current_user_id=None, **kwargs):
-        """记录易混淆词辨析练习"""
+        """记录易混淆词辨析练习。
+
+        辨析题传 question_index（questions 里的下标）和 user_answer，由这里对照题目判分，
+        客户端给的 is_correct 不用；过关看每道题最近一次作答（见 app_phase.contrast_passed）。
+        不带题号的旧调用照旧记录客户端的 is_correct。
+        """
         try:
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             pair_id = data.get('pair_id')
-            is_correct = data.get('is_correct')
             response_time = data.get('response_time')
-            
-            if not pair_id or is_correct is None:
-                return jsonify({'success': False, 'error': '缺少必要参数'}), 400
-            
+            if not isinstance(pair_id, int) or isinstance(pair_id, bool):
+                return jsonify({'success': False, 'error': 'pair_id must be an integer'}), 400
+            if response_time is not None and not isinstance(response_time, (int, float)):
+                return jsonify({'success': False, 'error': 'response_time must be a number'}), 400
+            row = db.session.execute(text("SELECT questions FROM confusable_pairs WHERE id = :id"),
+                                     {'id': pair_id}).fetchone()
+            if row is None:
+                return jsonify({'success': False, 'error': 'Pair not found'}), 404
+
+            question_index = data.get('question_index')
+            user_answer = data.get('user_answer')
+            if question_index is not None:
+                questions = parse_questions(row[0])
+                if (not isinstance(question_index, int) or isinstance(question_index, bool)
+                        or not 0 <= question_index < len(questions)):
+                    return jsonify({'success': False, 'error': 'Invalid question_index'}), 400
+                question = questions[question_index]
+                if user_answer not in question.get('options', []):
+                    return jsonify({'success': False, 'error': 'user_answer is not one of the options'}), 400
+                is_correct = user_answer == question.get('correct_answer')
+            else:
+                is_correct = data.get('is_correct')
+                if not isinstance(is_correct, bool):
+                    return jsonify({'success': False, 'error': '缺少必要参数'}), 400
+                user_answer = None
+
             query = text("""
-                INSERT INTO confusable_exercise_records 
-                (user_id, pair_id, is_correct, response_time)
-                VALUES (:user_id, :pair_id, :is_correct, :response_time)
+                INSERT INTO confusable_exercise_records
+                (user_id, pair_id, is_correct, response_time, question_index, user_answer)
+                VALUES (:user_id, :pair_id, :is_correct, :response_time, :question_index, :user_answer)
             """)
-            
+
             db.session.execute(query, {
                 'user_id': current_user_id,
                 'pair_id': pair_id,
                 'is_correct': is_correct,
-                'response_time': response_time
+                'response_time': response_time,
+                'question_index': question_index,
+                'user_answer': user_answer,
             })
             db.session.commit()
             
             return jsonify({
                 'success': True,
+                'is_correct': is_correct,
                 'message': '练习记录已保存'
             })
             

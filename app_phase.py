@@ -4,7 +4,7 @@
 集成自适应推荐引擎、学习分析和复习调度功能
 """
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, g, jsonify, request, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
@@ -255,6 +255,9 @@ class ConfusableExerciseRecord(db.Model):
     is_correct = db.Column(db.Boolean, nullable=False)
     response_time = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # 辨析题的题号（confusable_pairs.questions 里的下标）与所选答案；由后端判分。旧记录为空
+    question_index = db.Column(db.Integer)
+    user_answer = db.Column(db.String(50))
 
 class LearningEvent(db.Model):
     __tablename__ = 'learning_event'
@@ -486,24 +489,35 @@ def remaining_review_types(user_id, word_id):
 
 def word_ready_for_contrast(user_id, word_id):
     """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。
-    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。"""
-    state = review_state(user_id, word_id)
-    return bool(state) and (state['reviews_done'] >= 1 or state['completed'])
+    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。
+    一次请求里同一个词只算一次（一个词可能属于好几对）。"""
+    cache = g.setdefault('contrast_ready', {})
+    key = (str(user_id), word_id)
+    if key not in cache:
+        state = review_state(user_id, word_id)
+        cache[key] = bool(state) and (state['reviews_done'] >= 1 or state['completed'])
+    return cache[key]
+
+
+def contrast_passed(user_id, pair_id, question_count):
+    """辨析题过关：每道题（按题号）最近一次作答都答对。重复提交同一题、只做部分题都不算过关。"""
+    latest = {}
+    rows = (db.session.query(ConfusableExerciseRecord.question_index, ConfusableExerciseRecord.is_correct)
+            .filter(ConfusableExerciseRecord.user_id == str(user_id), ConfusableExerciseRecord.pair_id == pair_id,
+                    ConfusableExerciseRecord.question_index.isnot(None))
+            .order_by(ConfusableExerciseRecord.id.desc()).all())
+    for index, ok in rows:
+        latest.setdefault(index, bool(ok))
+    return all(latest.get(i) for i in range(question_count))
 
 
 def confusable_pair_due(user_id, pair_id, word1_id, word2_id, question_count):
-    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关。
-    练过关 = 最近一轮辨析题（最近 question_count 条作答）全对；答错的下次练这两个词时再带出。
-    没有辨析题的旧词对没有作答可看，解锁后每次都带出（与以前一样，只是不再在刚学时出现）。
-    辨析题不计入论文表 4.2 的复习次数。"""
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关
+    （contrast_passed）；答错的下次练这两个词时再带出。没有辨析题的旧词对没有作答可看，解锁后都算到期，
+    但 for-word 接口会优先带出有题、还没过关的词对。辨析题不计入论文表 4.2 的复习次数。"""
     if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
         return False
-    if not question_count:
-        return True
-    recent = [ok for (ok,) in db.session.query(ConfusableExerciseRecord.is_correct)
-              .filter_by(user_id=str(user_id), pair_id=pair_id)
-              .order_by(ConfusableExerciseRecord.id.desc()).limit(question_count).all()]
-    return not (len(recent) == question_count and all(recent))
+    return not question_count or not contrast_passed(user_id, pair_id, question_count)
 
 
 def review_summary(state):
@@ -2428,18 +2442,30 @@ def ensure_user_progress_unique_index():
         conn.close()
 
 def ensure_confusable_pair_columns():
-    """为旧数据库补齐 confusable_pairs.questions（辨析题）。必须在第一次查询 ConfusablePair 之前执行"""
-    conn = sqlite3.connect(_db_path)
-    cursor = conn.cursor()
+    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions，
+    confusable_exercise_records.question_index / user_answer。必须在第一次查询这两个模型之前执行。
+    加列失败（如别的进程正持有写锁）时再看一次列是否已由别的进程加上，仍缺就报错。"""
+    wanted = {
+        'confusable_pairs': [('questions', 'TEXT')],
+        'confusable_exercise_records': [('question_index', 'INTEGER'), ('user_answer', 'VARCHAR(50)')],
+    }
+    conn = sqlite3.connect(_db_path, timeout=30)
     try:
-        cursor.execute("PRAGMA table_info(confusable_pairs)")
-        existing = {row[1] for row in cursor.fetchall()}
-        if existing and 'questions' not in existing:
-            cursor.execute("ALTER TABLE confusable_pairs ADD COLUMN questions TEXT")
-            conn.commit()
-            print("   ➕ 已为 confusable_pairs 补齐 questions 列")
-    except sqlite3.Error as e:
-        print(f"⚠️  confusable_pairs 列迁移失败: {e}")
+        for table, columns in wanted.items():
+            existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, ddl in columns:
+                if not existing or column in existing:
+                    continue
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                    conn.commit()
+                    print(f"   ➕ 已为 {table} 补齐 {column} 列")
+                except sqlite3.Error:
+                    if column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                        raise
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_confusable_records_user_pair "
+                     "ON confusable_exercise_records (user_id, pair_id, id)")
+        conn.commit()
     finally:
         conn.close()
 

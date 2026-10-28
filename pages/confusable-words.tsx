@@ -34,33 +34,50 @@ interface ContrastQuestion {
   correct_answer: string;
 }
 
+type SaveState = 'saving' | 'saved' | 'failed';
+
 /**
- * 辨析题：每题选一次，选完即记一条作答（不计入论文表 4.2 的复习次数）。
- * 后端按最近一轮是否全对决定之后还要不要带出这一对。
+ * 辨析题：每题选一次，选完即把题号和所选答案交给后端判分记录（不计入论文表 4.2 的复习次数）。
+ * 后端按每道题最近一次作答是否都对决定之后还要不要带出这一对；保存失败的题可以重试。
  */
 function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
   const questions = pair.questions ?? [];
   const [picked, setPicked] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState<Record<number, SaveState>>({});
   const shownAt = useRef(Date.now());
+  const elapsed = useRef<Record<number, number>>({});
 
   useEffect(() => {
     setPicked({});
+    setSaved({});
+    elapsed.current = {};
     shownAt.current = Date.now();
   }, [pair.id]);
 
   if (questions.length === 0) return null;
 
+  const save = async (index: number, option: string) => {
+    setSaved(prev => ({ ...prev, [index]: 'saving' }));
+    try {
+      const resp = await authenticatedPost('/api/confusable/exercise/record', {
+        pair_id: pair.id,
+        question_index: index,
+        user_answer: option,
+        response_time: elapsed.current[index],
+      });
+      const result = await resp.json().catch(() => null);
+      setSaved(prev => ({ ...prev, [index]: resp.ok && result?.success ? 'saved' : 'failed' }));
+    } catch {
+      setSaved(prev => ({ ...prev, [index]: 'failed' }));
+    }
+  };
+
   const choose = (index: number, option: string) => {
     if (picked[index]) return;
     setPicked(prev => ({ ...prev, [index]: option }));
-    authenticatedPost('/api/confusable/exercise/record', {
-      pair_id: pair.id,
-      is_correct: option === questions[index].correct_answer,
-      response_time: (Date.now() - shownAt.current) / 1000,
-    }).catch(() => {
-      // 记录失败不影响作答
-    });
+    elapsed.current[index] = (Date.now() - shownAt.current) / 1000;
     shownAt.current = Date.now();
+    void save(index, option);
   };
 
   const answered = Object.keys(picked).length;
@@ -103,6 +120,18 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
                   {choice === q.correct_answer ? 'Correct.' : `Not quite: the answer is ${q.correct_answer}.`}
                 </p>
               )}
+              {saved[i] === 'failed' && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <p className="text-sm text-amber-700">Your answer wasn&apos;t saved.</p>
+                  <button
+                    type="button"
+                    onClick={() => save(i, choice)}
+                    className="h-9 px-3 rounded-lg text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -134,7 +163,7 @@ export default function ConfusableWordsPage() {
   useEffect(() => {
     if (router.isReady) loadConfusablePairs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady]);
+  }, [router.isReady, router.query.pair]);
 
   useEffect(() => {
     if (!router.isReady || pairs.length === 0) return;
@@ -158,9 +187,16 @@ export default function ConfusableWordsPage() {
         const pairId = Number(router.query.pair);
         let list: ConfusablePair[] = data.pairs;
         if (pairId && !list.some(p => p.id === pairId)) {
-          const single = await (await fetch(buildApiUrl(`/api/confusable/pair/${pairId}`))).json();
-          if (single.success) list = [single.pair, ...list];
+          const resp = await fetch(buildApiUrl(`/api/confusable/pair/${pairId}`));
+          const single = await resp.json().catch(() => null);
+          if (!resp.ok || !single?.success) {
+            // 要学的是这一对：加载不到就报错，不能拿列表里别的词对顶替
+            setError('Could not load this pair of words.');
+            return;
+          }
+          list = [single.pair, ...list];
         }
+        setError(null);
         setPairs(list);
       } else {
         setError(data.error || 'Failed to load');
