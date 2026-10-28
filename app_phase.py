@@ -7,7 +7,7 @@
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import json
 import random
@@ -451,6 +451,7 @@ def home():
             "GET  /word/<id> - 词汇详情",
             "POST /api/learning/session/start - 开始学习会话",
             "POST /api/learning/session/end - 结束学习会话",
+            "POST /api/learning/session/initial-level - 补写会话的 VKS 初始档位",
             "POST /api/learning/exercise/record - 记录练习结果",
             "POST /api/learning/events/batch - 批量记录学习事件",
             "GET  /api/adaptive/recommendation/<user_id> - 获取个性化推荐",
@@ -602,6 +603,42 @@ def end_learning_session(current_user_id=None, **kwargs):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/learning/session/initial-level', methods=['POST'])
+@require_authentication(allow_url_param=True)
+def set_session_initial_level(current_user_id=None, **kwargs):
+    """给已建好的会话补上 VKS 初始档位。
+
+    追踪器在会话状态从 localStorage 读出时就建会话；本地没有这个词的档位、
+    服务器上有（换了设备）时，档位要等服务器状态返回才知道，会话已带着空档位建好。
+    只在 initial_level 仍为空时写：它是「开始学这个词时」的自评，不随之后的改动覆盖。
+    """
+    data = request.get_json(silent=True) or {}
+    level = data.get('initialLevel')
+    if level not in ('A', 'B', 'C', 'D', 'E'):
+        return jsonify({'success': False, 'error': 'initialLevel 须为 A-E'}), 400
+
+    session = LearningSession.query.filter_by(session_id=data.get('sessionId')).first()
+    if session is None:
+        return jsonify({'success': False, 'error': '会话不存在', 'code': 'SESSION_NOT_FOUND'}), 404
+    if session.user_id != current_user_id:
+        return jsonify({
+            'success': False,
+            'error': '无权修改其他用户的会话',
+            'code': 'PERMISSION_DENIED'
+        }), 403
+
+    try:
+        updated = LearningSession.query.filter(
+            LearningSession.session_id == session.session_id,
+            LearningSession.initial_level.is_(None),
+        ).update({'initial_level': level, 'updated_at': datetime.utcnow()}, synchronize_session=False)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({'success': True, 'updated': bool(updated)})
+
 
 @app.route('/api/learning/exercise/record', methods=['POST'])
 @require_authentication(allow_url_param=True)
@@ -1140,7 +1177,9 @@ def get_learning_state(user_id, current_user_id=None, **kwargs):
                 'word': profile.current_word,
                 'module': profile.current_module,
                 'vksLevel': profile.current_vks_level,
-                'lastUpdated': profile.updated_at.isoformat() if profile.updated_at else None
+                # updated_at 存的是不带时区的 UTC；不标时区的话浏览器按本地时间解析，
+                # 东八区会把服务器状态看早 8 小时，另一台设备 8 小时内的进度恢复不过来
+                'lastUpdated': profile.updated_at.replace(tzinfo=timezone.utc).isoformat() if profile.updated_at else None
             }
         })
     except Exception as exc:

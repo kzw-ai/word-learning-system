@@ -58,6 +58,14 @@ export const useTimeTracking = (config: TimeTrackingConfig): UseTimeTrackingRetu
     // 之后档位再变化也不重建追踪器（否则每变一次就多一条幽灵会话）。
   }, [config.userId, config.wordId, config.moduleType, config.sessionType, config.ready]);
 
+  // 追踪器建好之后档位才到（换设备时服务器状态晚于本地状态返回）：补写进当前会话。
+  // 追踪器本来就带着这个档位时 setInitialLevel 什么也不做
+  useEffect(() => {
+    if (trackerRef.current && config.initialLevel) {
+      trackerRef.current.setInitialLevel(config.initialLevel, config.wordId);
+    }
+  }, [config.initialLevel, config.wordId]);
+
   const trackEvent = useCallback((eventType: string, target?: string, data?: any) => {
     if (trackerRef.current) {
       trackerRef.current.trackEvent(eventType, target, data);

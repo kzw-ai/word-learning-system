@@ -155,7 +155,9 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
             wordId,
             word: serverState.word ?? prev.word,
             module: serverState.module ?? prev.module,
-            vksLevel: serverState.vksLevel ?? prev.vksLevel,
+            // VKS 是对某个词的自评：服务器上是另一个词时不能沿用本地这个词的档位，
+            // 否则新词的会话会把旧词的档位记成 initial_level（与 updateSession 的规则一致）
+            vksLevel: serverState.vksLevel ?? (sameWord ? prev.vksLevel : null),
             reviewMode: sameWord ? prev.reviewMode : null,
             lastUpdated: serverState.lastUpdated ?? prev.lastUpdated
           };
