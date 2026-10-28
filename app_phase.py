@@ -339,6 +339,172 @@ def accumulate_exercise_into_progress(user_id, word_id, question_type, is_correc
     return progress
 
 
+# ---- 论文表 4.2：复习内容与次数（第四章 4.1 节「自适应规则」）----
+# 搭配题、填词题、释义题分别计次；易混淆词辨析题不计。
+#   搭配题、填词题：第一次练习答对，按 VKS 档位复习 A/B 5 次、C 4 次、D 3 次、E 2 次；
+#                   答错，不论档位复习 6 次（学 1 次 + 复习 6 次 = 论文的「重复 7 次」）。
+#   释义题：第一次练习答错复习 6 次，答对不复习（表 4.3 备注）。
+#   两道搭配题算一个整体，都对才算对。复习时再答错，次数不变，但复习前先看对应的学习材料。
+REVIEW_QUESTION_TYPES = ('definition', 'collocation', 'fill_word')
+THESIS_BASE_REVIEWS = {'A': 5, 'B': 5, 'C': 4, 'D': 3, 'E': 2}
+# 没有 VKS 自评（如从看板推荐直接开始）时按最保守的档位
+DEFAULT_BASE_REVIEWS = 5
+REVIEWS_AFTER_WRONG_FIRST_PRACTICE = 6
+# 学习期的复习间隔（天）：论文用 2 周完成 2–6 次复习，未规定间隔；6 次复习正好 14 天
+LEARNING_PHASE_INTERVALS = (1, 2, 2, 3, 3, 3)
+# 复习前要看的学习材料：答错的题型对应的学习页
+REVIEW_MATERIAL_MODULE = {'definition': 'word', 'collocation': 'collocation', 'fill_word': 'sentence'}
+MODULE_ORDER = ('character', 'word', 'collocation', 'sentence', 'exercise')
+
+
+def review_target(question_type, all_correct, vks_level):
+    """某种题型第一次练习之后要复习几次（表 4.2）"""
+    if not all_correct:
+        return REVIEWS_AFTER_WRONG_FIRST_PRACTICE
+    if question_type == 'definition':
+        return 0
+    return THESIS_BASE_REVIEWS.get(vks_level, DEFAULT_BASE_REVIEWS)
+
+
+def question_requirements(word_id):
+    """这个词出得了哪些计次的题型，以及一节里每种要答满几道才算练过一次。
+
+    与出题接口的条件一致：有人工命题按命题；否则释义题总有，搭配题要有搭配素材，
+    填词题要有包含这个词的例句（第一条）。搭配题按论文两道算一个整体，
+    这个词不足两道时以实有的为准；其余题型一道。
+    """
+    # 没有单字记录的词出题接口直接不出题（见 get_word_exercises），一种题型也出不了
+    if Character.query.filter_by(word_id=word_id).first() is None:
+        return {}
+    authored = dict(db.session.query(ExerciseItem.question_type, func.count(ExerciseItem.id))
+                    .filter_by(word_id=word_id).group_by(ExerciseItem.question_type).all())
+    if authored:
+        counts = {t: n for t, n in authored.items() if t in REVIEW_QUESTION_TYPES}
+    else:
+        counts = {'definition': 1}
+        collocations = Collocation.query.filter_by(word_id=word_id).count()
+        if collocations:
+            counts['collocation'] = collocations
+        example = Example.query.filter_by(word_id=word_id).order_by(Example.id.asc()).first()
+        hanzi = get_word_hanzi(word_id)
+        if example and hanzi and hanzi in example.sentence:
+            counts['fill_word'] = 1
+    return {t: (min(2, n) if t == 'collocation' else 1) for t, n in counts.items()}
+
+
+def review_state(user_id, word_id):
+    """从学习会话与作答推出论文表 4.2 的复习进度；这个词还没有作答时返回 None。
+
+    不单独存目标次数，每次都由数据推出：
+    - 每种题型的「第一次练习」是第一节含这种题型作答的练习，按它的对错与 VKS 档位定次数。
+      第一节没答完、某种题型没答到时，它等到之后第一节答到它的练习再定，不会被当成不复习。
+    - VKS 档位取这个词最早带档位的学习会话（任何模块），晚到补写的档位也会被用上。
+    - 之后每节练习里，每种还有剩余次数的题型各减 1，不论对错；同一题提交多次只算第一次。
+      一节里没有任何还需复习的题型时不算一次复习。
+    - 每种出得了的题型都定过次数、且都复习完，才算达标。
+    已知限制：复习日程（next_review_suggested）只在提交作答时重排。往更早的会话补交作答、
+    之后才补写 VKS 档位时，这里推出的次数会变，已排的日程要等下一节练习才跟上；
+    前端不会往旧会话补交，补写档位只会把次数调低（没有档位时按最严格的 5 次）。
+    """
+    rows = (
+        db.session.query(LearningSession.id, ExerciseRecord.question_id,
+                         ExerciseRecord.question_type, ExerciseRecord.is_correct)
+        .join(ExerciseRecord, ExerciseRecord.session_id == LearningSession.session_id)
+        .filter(LearningSession.user_id == user_id, LearningSession.word_id == word_id)
+        .order_by(LearningSession.id, ExerciseRecord.id)
+        .all()
+    )
+    if not rows:
+        return None
+    sessions = {}  # 会话 id → {题目 id: (题型, 对错)}，dict 保持插入顺序即会话先后
+    for session_pk, question_id, question_type, is_correct in rows:
+        sessions.setdefault(session_pk, {}).setdefault(question_id, (question_type, bool(is_correct)))
+
+    level_row = (LearningSession.query
+                 .filter(LearningSession.user_id == user_id, LearningSession.word_id == word_id,
+                         LearningSession.initial_level.isnot(None))
+                 .order_by(LearningSession.id).first())
+    vks_level = level_row.initial_level if level_row else None
+    required = question_requirements(word_id)
+    available = set(required)
+
+    targets, remaining = {}, {}
+    reviews_done, after_completion, completed = 0, 0, False
+    for index, answers in enumerate(sessions.values()):
+        if completed:
+            after_completion += 1
+            continue
+        by_type = {}
+        for question_type, is_correct in answers.values():
+            by_type.setdefault(question_type, []).append(is_correct)
+        reviewed = False
+        for question_type in REVIEW_QUESTION_TYPES:
+            if question_type not in by_type:
+                continue
+            answers = by_type[question_type]
+            # 两道搭配题算一个整体：都答了才算练过；但只要错了一道就已经是「错」
+            finished = len(answers) >= required.get(question_type, 1)
+            if question_type not in targets:
+                if finished or not all(answers):
+                    # 这种题型的第一次练习
+                    targets[question_type] = review_target(question_type, finished and all(answers), vks_level)
+                    remaining[question_type] = targets[question_type]
+            elif remaining[question_type] > 0 and finished:
+                remaining[question_type] -= 1
+                reviewed = True
+        if index > 0 and reviewed:
+            reviews_done += 1
+        # 只看现在还出得了的题型：素材删掉的题型复习不了，剩下的次数不能挡住达标
+        completed = available <= set(targets) and not any(remaining.get(t, 0) for t in available)
+
+    last_answers = list(sessions.values())[-1].values()
+    return {
+        'vks_level': vks_level,
+        'targets': targets,
+        # 只留现在还出得了的题型
+        'remaining': {t: n for t, n in remaining.items() if t in available},
+        # 出得了、但还没做过第一次练习的题型
+        'pending': sorted(available - set(targets)),
+        'reviews_done': reviews_done,
+        'after_completion': after_completion,
+        'completed': completed,
+        'last_wrong_types': sorted({t for t, ok in last_answers if not ok}),
+    }
+
+
+def remaining_review_types(user_id, word_id):
+    """还在学习期的词，返回还要练的题型（还有复习次数的，加上还没做过第一次练习的）；
+    没有作答或已达标返回 None"""
+    state = review_state(user_id, word_id)
+    if state is None or state['completed']:
+        return None
+    types = {t for t, n in state['remaining'].items() if n > 0} | set(state['pending'])
+    return types or None
+
+
+def review_summary(state):
+    """给到期列表、推荐用的复习进度：还要复习几节、哪些题型"""
+    if state['completed']:
+        return {'reviews_remaining': 0, 'review_types': []}
+    # 还没做过第一次练习的题型次数未定，至少还要一节；不能显示成已掌握
+    return {
+        'reviews_remaining': max(list(state['remaining'].values()) + ([1] if state['pending'] else []), default=0),
+        'review_types': sorted({t for t, n in state['remaining'].items() if n > 0} | set(state['pending'])),
+    }
+
+
+def review_entry_module(user_id, word_id, state=None):
+    """复习从哪个模块开始：上一节练习答错的题型先看对应的学习材料，都对就直接练习。
+
+    这个词还没有作答时返回 None，由调用方沿用原来的规则。
+    """
+    state = state if state is not None else review_state(user_id, word_id)
+    if state is None:
+        return None
+    modules = [REVIEW_MATERIAL_MODULE[t] for t in state['last_wrong_types'] if t in REVIEW_MATERIAL_MODULE]
+    return min(modules, key=MODULE_ORDER.index) if modules else 'exercise'
+
+
 # 一节练习按多少正确率算「答对」进入下一个复习间隔。三四道题的一节里错一道就不算
 # （2/3 < 0.8），明天再复习；题多时允许偶尔失手。
 SESSION_PASS_ACCURACY = 0.8
@@ -428,13 +594,21 @@ def schedule_review_from_session(session, progress):
         .scalar()
     ) or 0
 
-    progress.next_review_suggested = spaced_repetition.engine.next_review_from(
-        progress.mastery_level or 0.0,
-        prior_reviews,
-        progress.consecutive_correct or 0,
-        progress.consecutive_incorrect or 0,
-        exercise_result,
-    )
+    # 学习期按论文表 4.2 的次数、以 LEARNING_PHASE_INTERVALS 的间隔复习；
+    # 各题型次数都复习完，转入 SM-2 的长间隔巩固
+    state = review_state(session.user_id, session.word_id)
+    if not state['completed']:
+        days = LEARNING_PHASE_INTERVALS[min(state['reviews_done'], len(LEARNING_PHASE_INTERVALS) - 1)]
+        progress.next_review_suggested = datetime.utcnow() + timedelta(days=days)
+    else:
+        # 巩固期从 SM-2 的第 3 次复习起算（首个间隔约一周），之后每节逐次拉长
+        progress.next_review_suggested = spaced_repetition.engine.next_review_from(
+            progress.mastery_level or 0.0,
+            2 + state['after_completion'],
+            progress.consecutive_correct or 0,
+            progress.consecutive_incorrect or 0,
+            exercise_result,
+        )
     progress.review_count = prior_reviews + 1
     progress.updated_at = datetime.utcnow()
     return True
@@ -847,7 +1021,7 @@ def record_batch_events(current_user_id=None, **kwargs):
 @app.route('/api/learning/word/<int:word_id>/exercises', methods=['GET'])
 def get_word_exercises(word_id):
     """为指定词汇生成练习题集"""
-    word = Word.query.get(word_id)
+    word = db.session.get(Word, word_id)
     if not word:
         return jsonify({'success': False, 'error': 'Word not found'}), 404
 
@@ -877,6 +1051,16 @@ def get_word_exercises(word_id):
             'error': 'No exercises available for this word'
         }), 404
 
+    # 学习期的复习只出还需复习的题型（论文表 4.2）。出题接口不要求登录，认得出身份
+    # （登录或访客 cookie）且这个词有未完成的复习计划时才筛选
+    review_types = None
+    try:
+        viewer_id, _ = get_current_user_from_request()
+        if viewer_id:
+            review_types = remaining_review_types(viewer_id, word.id)
+    except Exception as e:
+        print(f"⚠️  读取复习计划失败: {e}")
+
     # 优先使用论文课件里的人工命题：干扰项经过教学设计，
     # 填词题挖的也是词中一个字。查不到才回落到下面的程序生成逻辑。
     authored = (
@@ -884,6 +1068,8 @@ def get_word_exercises(word_id):
         .order_by(ExerciseItem.question_type.desc(), ExerciseItem.id.asc())
         .all()
     )
+    if review_types:
+        authored = [it for it in authored if it.question_type in review_types] or authored
     if authored:
         type_order = {'definition': 0, 'collocation': 1, 'fill_word': 2}
         sort_key = lambda it: (type_order.get(it.question_type, 9), it.id)
@@ -917,7 +1103,8 @@ def get_word_exercises(word_id):
                 'word': base_hanzi,
                 'definition': word.definition,
                 'questions': questions,
-                'source': 'authored'
+                'source': 'authored',
+                'reviewTypes': sorted(review_types) if review_types else None
             }
         })
 
@@ -974,10 +1161,11 @@ def get_word_exercises(word_id):
         'feedback': f"正确答案：{base_hanzi}。释义：{word.definition}"
     })
 
+    # 先生成全部候选，按复习题型筛选后再截到题数上限：边生成边截断时搭配多的词
+    # 永远轮不到填词题，复习要练填词也出不来。普通练习截出来的仍是原来的顺序与题目
     collocations = (
         Collocation.query.filter_by(word_id=word.id)
         .order_by(Collocation.id.asc())
-        .limit(question_limit)
         .all()
     )
     for index, collocation in enumerate(collocations, start=1):
@@ -992,48 +1180,47 @@ def get_word_exercises(word_id):
             'correctAnswer': base_hanzi,
             'feedback': f"原搭配：{collocation.collocation}；翻译：{collocation.translation}"
         })
-        if len(questions) >= question_limit:
-            break
 
-    if len(questions) < question_limit:
-        example = (
-            Example.query.filter_by(word_id=word.id)
-            .order_by(Example.id.asc())
-            .first()
+    example = (
+        Example.query.filter_by(word_id=word.id)
+        .order_by(Example.id.asc())
+        .first()
+    )
+    if example:
+        # 论文题型规格：填词题挖掉词中的「一个字」而非整词（对照 word 1 的原型题
+        # '不愿意发 ( ) 的事情终于出现了。' -> 答案 '生'）。挖整词会把「单字填空」
+        # 退化成「整词书写」，与 §6.3 的填词题习得分析不符。
+        word_chars = (
+            Character.query.filter_by(word_id=word.id)
+            .order_by(Character.id.asc())
+            .all()
         )
-        if example:
-            # 论文题型规格：填词题挖掉词中的「一个字」而非整词（对照 word 1 的原型题
-            # '不愿意发 ( ) 的事情终于出现了。' -> 答案 '生'）。挖整词会把「单字填空」
-            # 退化成「整词书写」，与 §6.3 的填词题习得分析不符。
-            word_chars = (
-                Character.query.filter_by(word_id=word.id)
-                .order_by(Character.id.asc())
-                .all()
-            )
-            if word_chars:
-                blanked_char = word_chars[-1].character
-                kept_prefix = ''.join(c.character for c in word_chars[:-1])
-            else:
-                blanked_char = base_hanzi
-                kept_prefix = ''
+        if word_chars:
+            blanked_char = word_chars[-1].character
+            kept_prefix = ''.join(c.character for c in word_chars[:-1])
+        else:
+            blanked_char = base_hanzi
+            kept_prefix = ''
 
-            sentence_placeholder = example.sentence.replace(
-                base_hanzi, f'{kept_prefix} ( ) ', 1
-            )
-            # 例句里找不到该词形时无法挖空，宁可不出这道题，也不要出一道
-            # 无处填写、学习者必然答错的题去污染正确率数据。
-            if sentence_placeholder != example.sentence:
-                questions.append({
-                    'id': f'sentence-{word.id}-1',
-                    'type': 'fill_word',
-                    'question': sentence_placeholder,
-                    'options': [],
-                    'correctAnswer': blanked_char,
-                    'feedback': f"例句：{example.sentence}；翻译：{example.translation}"
-                })
-            else:
-                print(f"⚠️  词 {word.id}（{base_hanzi}）的例句不含该词形，跳过填词题")
+        sentence_placeholder = example.sentence.replace(
+            base_hanzi, f'{kept_prefix} ( ) ', 1
+        )
+        # 例句里找不到该词形时无法挖空，宁可不出这道题，也不要出一道
+        # 无处填写、学习者必然答错的题去污染正确率数据。
+        if sentence_placeholder != example.sentence:
+            questions.append({
+                'id': f'sentence-{word.id}-1',
+                'type': 'fill_word',
+                'question': sentence_placeholder,
+                'options': [],
+                'correctAnswer': blanked_char,
+                'feedback': f"例句：{example.sentence}；翻译：{example.translation}"
+            })
+        else:
+            print(f"⚠️  词 {word.id}（{base_hanzi}）的例句不含该词形，跳过填词题")
 
+    if review_types:
+        questions = [q for q in questions if q['type'] in review_types] or questions
     questions = questions[:question_limit]
 
     if not questions:
@@ -1047,7 +1234,8 @@ def get_word_exercises(word_id):
             'definition': word.definition,
             'options': options,
             'questionCount': len(questions),
-            'questions': questions
+            'questions': questions,
+            'reviewTypes': sorted(review_types) if review_types else None
         }
     })
 
@@ -1323,9 +1511,19 @@ def get_adaptive_recommendation(user_id, current_user_id=None, **kwargs):
                 if hanzi:
                     recommendation['word'] = hanzi
 
+            # 推荐的是复习：按论文规则决定入口（上一节答错的题型先看学习材料），并带上复习进度。
+            # 复习入口优先于下面按 VKS 档位分配的入口：VKS 决定的是新学一个词从哪里开始
+            review_entry = None
+            if recommendation.get('type') in ('urgent_review', 'scheduled_review') and recommendation.get('word_id'):
+                state = review_state(user_id, recommendation['word_id'])
+                if state is not None:
+                    review_entry = review_entry_module(user_id, recommendation['word_id'], state)
+                    recommendation['recommended_module'] = review_entry
+                    recommendation.update(review_summary(state))
+
             # 根据 VKS 测试选项动态分配入口
             vks_level = context.get('vks_level') if context else None
-            if vks_level:
+            if vks_level and not review_entry:
                 vks_modules = {
                     'A': 'character',
                     'B': 'word',
@@ -1415,6 +1613,14 @@ def get_due_reviews(user_id, current_user_id=None, **kwargs):
             reviews = spaced_repetition.get_due_reviews(user_id, limit)
         else:
             reviews = get_simple_due_reviews(user_id, limit)
+
+        # 有复习计划的词按论文规则：上一节答错的题型先看对应学习材料，并带上还剩几次
+        for review in reviews:
+            state = review_state(user_id, review['word_id'])
+            if state is None:
+                continue
+            review['recommended_module'] = review_entry_module(user_id, review['word_id'], state)
+            review.update(review_summary(state))
         
         return jsonify({
             'success': True,
@@ -2141,6 +2347,19 @@ def ensure_learning_session_columns():
         conn.close()
 
 
+def ensure_review_indexes():
+    """复习进度每次都由会话与作答推出（见 review_state），给这两个查询补索引"""
+    conn = sqlite3.connect(_db_path)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_exercise_record_session ON exercise_record (session_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_learning_session_user_word ON learning_session (user_id, word_id)")
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"⚠️  创建复习查询索引失败: {e}")
+    finally:
+        conn.close()
+
+
 def ensure_learning_event_columns():
     """把老库里 learning_event 的 target 列重命名为 event_target。
 
@@ -2193,6 +2412,7 @@ def initialize_database():
             ensure_learning_session_columns()
             ensure_learning_event_columns()
             ensure_user_progress_unique_index()
+            ensure_review_indexes()
             # 注册/登录依赖的列和 user_session 表此前只在测试里建过，部署后
             # 注册登录必然 500。幂等执行；不设测试密码（见 migrate_auth_system）
             try:

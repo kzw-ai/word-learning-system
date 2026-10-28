@@ -427,7 +427,13 @@ def _stored(progress):
 
 
 class TestSessionReviewScheduling:
-    """一次复习 = 一节练习。日程按整节作答排，复习次数按会话数算。每个测试用自己的学习者"""
+    """一次复习 = 一节练习。日程按整节作答排，复习次数按会话数算。每个测试用自己的学习者。
+
+    用只有释义题的词：第一节释义全对就不用复习（论文表 4.2），词直接达标、进入 SM-2 巩固期，
+    这里测的正是巩固期按整节表现排日程。学习期的规则见 TestThesisReviewPlan
+    """
+
+    WORD = 7  # 测试库里的「刚才」：只有释义题
 
     @pytest.fixture(autouse=True)
     def _engine(self):
@@ -437,7 +443,7 @@ class TestSessionReviewScheduling:
 
     def _session(self, client, learner, session_id):
         resp = client.post('/api/learning/session/start', json={
-            'sessionId': session_id, 'wordId': 1,
+            'sessionId': session_id, 'wordId': self.WORD,
             'sessionType': 'learning', 'moduleType': 'exercise',
             'startTime': '2026-01-01T10:00:00',
         }, headers=guest_headers(learner))
@@ -456,7 +462,7 @@ class TestSessionReviewScheduling:
         import app_phase as mod
         from datetime import datetime
         with app.app_context():
-            row = mod.UserProgress.query.filter_by(user_id=learner, word_id=1).one()
+            row = mod.UserProgress.query.filter_by(user_id=learner, word_id=self.WORD).one()
             days = (row.next_review_suggested - datetime.now()).total_seconds() / 86400
             return {'count': row.review_count, 'days': days, 'attempts': row.total_attempts,
                     'correct': row.correct_attempts, 'mastery': row.mastery_level,
@@ -757,3 +763,237 @@ class TestRecommendationFeedback:
         # 推荐本身也归到了账号名下（访客身份已找不到它），换设备续学时建的会话仍能绑定它
         # 新 client：登录后的 client 带着账号 cookie，身份会认成账号
         assert self._feedback(app.test_client(), learner, rec_id, True).status_code == 404
+
+
+# ================================================
+# 论文表 4.2：复习内容与次数
+# ================================================
+
+class TestThesisReviewPlan:
+    """次数在第一节练习定下；之后每节练习算一次复习，只出还需复习的题型"""
+
+    @pytest.fixture(autouse=True)
+    def _engine(self):
+        import app_phase as mod
+        if mod.spaced_repetition is None:
+            pytest.skip('自适应引擎未加载')
+
+    def _questions(self, client, learner):
+        data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
+        return data['questions'], data.get('reviewTypes')
+
+    def _session(self, client, learner, session_id, level=None, wrong_types=(), answer_types=None):
+        body = {'sessionId': session_id, 'wordId': 1, 'sessionType': 'exercise',
+                'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}
+        if level:
+            body['initialLevel'] = level
+        client.post('/api/learning/session/start', json=body, headers=guest_headers(learner))
+        questions, _ = self._questions(client, learner)
+        wrong_once = set()
+        for q in questions:
+            if answer_types is not None and q['type'] not in answer_types:
+                continue
+            # 每个答错的题型只错第一道（两道搭配题错一道就算搭配题错）
+            ok = not (q['type'] in wrong_types and q['type'] not in wrong_once)
+            if not ok:
+                wrong_once.add(q['type'])
+            client.post('/api/learning/exercise/record', json={
+                'sessionId': session_id, 'questionId': q['id'], 'questionType': q['type'],
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': ok,
+                'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+            }, headers=guest_headers(learner))
+        return questions
+
+    def _plan(self, app, learner):
+        import app_phase as mod
+        from datetime import datetime
+        with app.app_context():
+            state = mod.review_state(learner, 1)
+            progress = mod.UserProgress.query.filter_by(user_id=learner, word_id=1).one()
+            days = (progress.next_review_suggested - datetime.utcnow()).total_seconds() / 86400
+            return state['targets'], state['remaining'], state['reviews_done'], days
+
+    def test_targets_follow_table_4_2(self, app, anon_client):
+        # C 档：释义对 → 不复习；搭配错一道 → 6 次；填词对 → C 档 4 次
+        learner = _learner('plantargets')
+        self._session(anon_client, learner, 's-plan-c1', level='C', wrong_types={'collocation'})
+        targets, remaining, done, days = self._plan(app, learner)
+        assert targets == {'definition': 0, 'collocation': 6, 'fill_word': 4}
+        assert remaining == targets and done == 0
+        assert 0.9 < days < 1.1, '第一节之后隔 1 天复习'
+
+    def test_wrong_definition_reviews_six_times_regardless_of_level(self, app, anon_client):
+        learner = _learner('plandefwrong')
+        self._session(anon_client, learner, 's-plan-e1', level='E', wrong_types={'definition'})
+        targets, _, _, _ = self._plan(app, learner)
+        assert targets == {'definition': 6, 'collocation': 2, 'fill_word': 2}
+
+    def test_no_vks_level_uses_the_strictest_base(self, app, anon_client):
+        learner = _learner('plannolevel')
+        self._session(anon_client, learner, 's-plan-n1')
+        targets, _, _, _ = self._plan(app, learner)
+        assert targets == {'definition': 0, 'collocation': 5, 'fill_word': 5}
+
+    def test_reviews_count_down_and_only_remaining_types_are_asked(self, app, anon_client):
+        learner = _learner('plancountdown')
+        self._session(anon_client, learner, 's-plan-d1', level='D', wrong_types={'fill_word'})
+        targets, _, _, _ = self._plan(app, learner)
+        assert targets == {'definition': 0, 'collocation': 3, 'fill_word': 6}
+
+        intervals = []
+        for n in range(1, 7):
+            questions, review_types = self._questions(anon_client, learner)
+            # 学习期只出还需复习的题型：释义题答对了，不再出
+            assert {q['type'] for q in questions} == set(review_types)
+            assert 'definition' not in review_types
+            self._session(anon_client, learner, f's-plan-d{n + 1}')
+            _, remaining, done, days = self._plan(app, learner)
+            intervals.append(round(days))
+            assert done == n
+        assert remaining == {'definition': 0, 'collocation': 0, 'fill_word': 0}
+        # 学习期间隔 2、2、3、3、3（第一节之后的 1 天见上一个测试）；6 次复习完转入 SM-2 巩固
+        assert intervals[:5] == [2, 2, 3, 3, 3]
+        assert intervals[5] >= 7, '达标后的首个巩固间隔约一周起'
+        _, review_types = self._questions(anon_client, learner)
+        assert review_types is None, '达标后恢复出全部题型'
+
+    def test_review_starts_with_material_for_last_wrong_type(self, app, anon_client):
+        import app_phase as mod
+        learner = _learner('planmaterial')
+        self._session(anon_client, learner, 's-plan-m1', level='B', wrong_types={'collocation'})
+        with app.app_context():
+            assert mod.review_entry_module(learner, 1) == 'collocation'
+            mod.UserProgress.query.filter_by(user_id=learner, word_id=1).update(
+                {'next_review_suggested': mod.datetime.utcnow() - mod.timedelta(hours=1)})
+            mod.db.session.commit()
+        due = anon_client.get(f'/api/review/user/{learner}/due', headers=guest_headers(learner)).get_json()['data']
+        item = next(r for r in due if r['word_id'] == 1)
+        assert item['recommended_module'] == 'collocation'
+        assert item['reviews_remaining'] == 6
+        assert item['review_types'] == ['collocation', 'fill_word']
+
+        # 下一节全对：复习直接从练习开始
+        self._session(anon_client, learner, 's-plan-m2')
+        with app.app_context():
+            assert mod.review_entry_module(learner, 1) == 'exercise'
+
+    def test_unfinished_first_session_does_not_drop_question_types(self, app, anon_client):
+        """第一节只答了释义题就离开：没答到的搭配、填词题不能当成「不复习」"""
+        import app_phase as mod
+        learner = _learner('planunfinished')
+        self._session(anon_client, learner, 's-plan-u1', level='B', answer_types={'definition'})
+        with app.app_context():
+            state = mod.review_state(learner, 1)
+        assert state['targets'] == {'definition': 0}
+        assert state['pending'] == ['collocation', 'fill_word']
+        assert not state['completed'], '还有题型没做过第一次练习，不能算达标'
+        _, review_types = self._questions(anon_client, learner)
+        assert set(review_types) == {'collocation', 'fill_word'}
+
+        # 下一节答到搭配、填词：它们这时才定次数（B 档全对各 5 次）
+        self._session(anon_client, learner, 's-plan-u2')
+        with app.app_context():
+            state = mod.review_state(learner, 1)
+        assert state['targets'] == {'definition': 0, 'collocation': 5, 'fill_word': 5}
+        assert state['remaining'] == {'definition': 0, 'collocation': 5, 'fill_word': 5}
+
+    def test_late_vks_level_updates_targets(self, app, anon_client):
+        """第一节练习时还没有档位，之后补写成 E：次数按 E 档重新推出"""
+        import app_phase as mod
+        learner = _learner('planlatevks')
+        self._session(anon_client, learner, 's-plan-l1')
+        assert self._plan(app, learner)[0]['collocation'] == 5
+        anon_client.post('/api/learning/session/initial-level', json={'sessionId': 's-plan-l1', 'initialLevel': 'E'},
+                         headers=guest_headers(learner))
+        assert self._plan(app, learner)[0] == {'definition': 0, 'collocation': 2, 'fill_word': 2}
+
+    def test_due_word_answered_perfectly_is_still_recommended(self, app, anon_client):
+        """第一次全对（掌握度 1.0）的词按表 4.2 仍要复习，到期后推荐里要有它，入口与进度按计划"""
+        import app_phase as mod
+        learner = _learner('planperfect')
+        self._session(anon_client, learner, 's-plan-p1', level='E')
+        with app.app_context():
+            mod.UserProgress.query.filter_by(user_id=learner, word_id=1).update(
+                {'next_review_suggested': mod.datetime.utcnow() - mod.timedelta(hours=1)})
+            mod.db.session.commit()
+        rec = anon_client.get(f'/api/adaptive/recommendation/{learner}', headers=guest_headers(learner)).get_json()['data']
+        assert rec['type'] in ('urgent_review', 'scheduled_review') and rec['word_id'] == 1, rec
+        assert rec['recommended_module'] == 'exercise'
+        assert rec['reviews_remaining'] == 2 and rec['review_types'] == ['collocation', 'fill_word']
+
+    def test_collocation_counts_only_when_both_are_answered(self, app, anon_client):
+        """两道搭配题算一个整体：只答一道（对）不算练过；只答一道但错了，已经是错"""
+        import app_phase as mod
+        learner = _learner('plancollocpair')
+        questions, _ = self._questions(anon_client, learner)
+        first_colloc = next(q for q in questions if q['type'] == 'collocation')
+        anon_client.post('/api/learning/session/start', json={
+            'sessionId': 's-plan-pair1', 'wordId': 1, 'sessionType': 'exercise', 'moduleType': 'exercise',
+            'initialLevel': 'E', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+        anon_client.post('/api/learning/exercise/record', json={
+            'sessionId': 's-plan-pair1', 'questionId': first_colloc['id'], 'questionType': 'collocation',
+            'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05'}, headers=guest_headers(learner))
+        with app.app_context():
+            state = mod.review_state(learner, 1)
+            summary = mod.review_summary(state)
+        assert 'collocation' not in state['targets'] and 'collocation' in state['pending']
+        assert summary['reviews_remaining'] >= 1, '次数未定的题型不能显示成已掌握'
+
+        # 复习时只答一道搭配题，也不算复习了一次搭配
+        learner2 = _learner('plancollocreview')
+        self._session(anon_client, learner2, 's-plan-pair2', level='E')
+        self._session(anon_client, learner2, 's-plan-pair3', answer_types={'fill_word'})
+        questions, _ = self._questions(anon_client, learner2)
+        colloc = next(q for q in questions if q['type'] == 'collocation')
+        anon_client.post('/api/learning/session/start', json={
+            'sessionId': 's-plan-pair4', 'wordId': 1, 'sessionType': 'exercise', 'moduleType': 'exercise',
+            'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner2))
+        anon_client.post('/api/learning/exercise/record', json={
+            'sessionId': 's-plan-pair4', 'questionId': colloc['id'], 'questionType': 'collocation',
+            'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05'}, headers=guest_headers(learner2))
+        with app.app_context():
+            state = mod.review_state(learner2, 1)
+        assert state['remaining'] == {'definition': 0, 'collocation': 2, 'fill_word': 1}
+
+    def test_generated_word_still_gets_fill_in_when_collocations_fill_the_limit(self, app, anon_client):
+        """没有人工命题、搭配很多的词：普通练习的 5 道题里轮不到填词，复习时要能出"""
+        import app_phase as mod
+        learner = _learner('plangenerated')
+        with app.app_context():
+            word = mod.Word(pinyin='cèshì', definition='test')
+            mod.db.session.add(word)
+            mod.db.session.flush()
+            for char, pinyin in (('测', 'cè'), ('试', 'shì')):
+                mod.db.session.add(mod.Character(character=char, pinyin=pinyin, definition='', audio='', word_id=word.id))
+            for i in range(4):
+                mod.db.session.add(mod.Collocation(collocation=f'测试搭配{i}', translation='t', audio='', word_id=word.id))
+            mod.db.session.add(mod.Example(sentence='他们在测试新系统。', pinyin='', translation='t', audio='', word_id=word.id))
+            mod.db.session.commit()
+            word_id = word.id
+            assert mod.question_requirements(word_id) == {'definition': 1, 'collocation': 2, 'fill_word': 1}
+        data = anon_client.get(f'/api/learning/word/{word_id}/exercises', headers=guest_headers(learner)).get_json()['data']
+        assert 'fill_word' not in {q['type'] for q in data['questions']}, '普通练习仍按原来的顺序截断'
+
+        anon_client.post('/api/learning/session/start', json={
+            'sessionId': 's-plan-gen1', 'wordId': word_id, 'sessionType': 'exercise', 'moduleType': 'exercise',
+            'initialLevel': 'D', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+        for q in data['questions']:
+            anon_client.post('/api/learning/exercise/record', json={
+                'sessionId': 's-plan-gen1', 'questionId': q['id'], 'questionType': q['type'],
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+                'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05'}, headers=guest_headers(learner))
+        review = anon_client.get(f'/api/learning/word/{word_id}/exercises', headers=guest_headers(learner)).get_json()['data']
+        assert 'fill_word' in {q['type'] for q in review['questions']}
+        assert set(review['reviewTypes']) == {'collocation', 'fill_word'}
+
+    def test_null_mastery_due_row_does_not_break_recommendation(self, app, anon_client):
+        import app_phase as mod
+        learner = _learner('plannullmastery')
+        with app.app_context():
+            mod.db.session.add(mod.UserProgress(user_id=learner, word_id=7, mastery_level=None,
+                                                next_review_suggested=mod.datetime.utcnow() - mod.timedelta(hours=1)))
+            mod.db.session.commit()
+        rec = anon_client.get(f'/api/adaptive/recommendation/{learner}', headers=guest_headers(learner)).get_json()['data']
+        assert rec['type'] != 'system_default', rec

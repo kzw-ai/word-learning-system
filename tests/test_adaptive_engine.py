@@ -212,14 +212,14 @@ class TestNextReviewTime:
         insert_progress(db_path, mastery_level=0.9, review_count=5, consecutive_correct=4)
         next_review = engine.calculate_next_review_time(
             'u1', 1, {'is_correct': False, 'response_time': 5.0})
-        delta = next_review - datetime.now()
+        delta = next_review - datetime.utcnow()  # 引擎按 UTC 给出下次复习时间
         assert timedelta(hours=23) < delta < timedelta(hours=25)
 
     def test_new_word_first_interval_short(self, engine, db_path):
         # 数据库无记录 → 新词，首次间隔应为最短档
         next_review = engine.calculate_next_review_time(
             'nobody', 1, {'is_correct': True, 'response_time': 5.0})
-        delta = next_review - datetime.now()
+        delta = next_review - datetime.utcnow()  # 引擎按 UTC 给出下次复习时间
         assert delta < timedelta(days=2)
 
     def test_mastered_word_gets_longer_interval_than_weak(self, engine, db_path):
@@ -237,7 +237,7 @@ class TestNextReviewTime:
                         mastery_level=1.0, review_count=20, consecutive_correct=20)
         next_review = engine.calculate_next_review_time(
             'max', 1, {'is_correct': True, 'response_time': 1.0, 'confidence': 5})
-        delta = next_review - datetime.now()
+        delta = next_review - datetime.utcnow()  # 引擎按 UTC 给出下次复习时间
         assert delta <= timedelta(days=366)
 
     def test_fast_response_extends_interval(self, engine, db_path):
