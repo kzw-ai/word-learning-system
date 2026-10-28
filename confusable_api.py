@@ -27,7 +27,7 @@ def parse_questions(raw):
 def register_confusable_apis(app, db, require_authentication, check_ownership, pair_due=None):
     """注册易混淆词相关的API端点。
 
-    pair_due(user_id, pair_id, word1_id, word2_id, question_count) 判断练习结束时要不要带出这一对的辨析
+    pair_due(user_id, pair_id, word1_id, word2_id, questions) 判断练习结束时要不要带出这一对的辨析
     （论文 2.2.4：两个词分别掌握到一定程度后再对比学习）；不传时只要有词对就带出。
     """
 
@@ -128,7 +128,7 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
                 return jsonify({'success': True, 'pair_id': None})
             # 有辨析题、还没过关的词对优先；没有题的旧词对解锁后一直到期，排在后面才不会挡住新词对
             rows = sorted(rows, key=lambda r: (not parse_questions(r[3]), r[0]))
-            due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], len(parse_questions(r[3])))), None)
+            due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], parse_questions(r[3]))), None)
             return jsonify({'success': True, 'pair_id': due})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
@@ -188,18 +188,26 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
     def record_confusable_exercise(current_user_id=None, **kwargs):
         """记录易混淆词辨析练习。
 
-        辨析题传 question_index（questions 里的下标）和 user_answer，由这里对照题目判分，
-        客户端给的 is_correct 不用；过关看每道题最近一次作答（见 app_phase.contrast_passed）。
-        不带题号的旧调用照旧记录客户端的 is_correct。
+        辨析题传 question_index（questions 里的下标）、question_stem（作答时看到的题干）、user_answer，
+        由这里对照题目判分，客户端给的 is_correct 不用；题干和现在的题对不上（页面过期、题目改过）时返回 409。
+        attempt_id 是客户端为这次作答生成的编号，重试沿用同一个，同一用户的同一编号只记一次。
+        过关看每道题最近一次作答（见 app_phase.contrast_passed）。不带题号的旧调用照旧记录客户端的 is_correct。
         """
         try:
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return jsonify({'success': False, 'error': 'JSON object expected'}), 400
+            is_int = lambda v: isinstance(v, int) and not isinstance(v, bool)
             pair_id = data.get('pair_id')
             response_time = data.get('response_time')
-            if not isinstance(pair_id, int) or isinstance(pair_id, bool):
+            attempt_id = data.get('attempt_id')
+            if not is_int(pair_id):
                 return jsonify({'success': False, 'error': 'pair_id must be an integer'}), 400
-            if response_time is not None and not isinstance(response_time, (int, float)):
-                return jsonify({'success': False, 'error': 'response_time must be a number'}), 400
+            if response_time is not None and not (isinstance(response_time, (int, float))
+                                                  and not isinstance(response_time, bool) and response_time >= 0):
+                return jsonify({'success': False, 'error': 'response_time must be a non-negative number'}), 400
+            if attempt_id is not None and not (isinstance(attempt_id, str) and 0 < len(attempt_id) <= 64):
+                return jsonify({'success': False, 'error': 'attempt_id must be a short string'}), 400
             row = db.session.execute(text("SELECT questions FROM confusable_pairs WHERE id = :id"),
                                      {'id': pair_id}).fetchone()
             if row is None:
@@ -207,12 +215,16 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
 
             question_index = data.get('question_index')
             user_answer = data.get('user_answer')
+            question_stem = None
             if question_index is not None:
                 questions = parse_questions(row[0])
-                if (not isinstance(question_index, int) or isinstance(question_index, bool)
-                        or not 0 <= question_index < len(questions)):
+                if not is_int(question_index) or not 0 <= question_index < len(questions):
                     return jsonify({'success': False, 'error': 'Invalid question_index'}), 400
                 question = questions[question_index]
+                question_stem = question.get('stem')
+                if data.get('question_stem') != question_stem:
+                    return jsonify({'success': False, 'error': 'This question has changed. Please reload.',
+                                    'code': 'QUESTION_CHANGED'}), 409
                 if user_answer not in question.get('options', []):
                     return jsonify({'success': False, 'error': 'user_answer is not one of the options'}), 400
                 is_correct = user_answer == question.get('correct_answer')
@@ -223,9 +235,10 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
                 user_answer = None
 
             query = text("""
-                INSERT INTO confusable_exercise_records
-                (user_id, pair_id, is_correct, response_time, question_index, user_answer)
-                VALUES (:user_id, :pair_id, :is_correct, :response_time, :question_index, :user_answer)
+                INSERT OR IGNORE INTO confusable_exercise_records
+                (user_id, pair_id, is_correct, response_time, question_index, question_stem, user_answer, attempt_id)
+                VALUES (:user_id, :pair_id, :is_correct, :response_time, :question_index, :question_stem,
+                        :user_answer, :attempt_id)
             """)
 
             db.session.execute(query, {
@@ -234,7 +247,9 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
                 'is_correct': is_correct,
                 'response_time': response_time,
                 'question_index': question_index,
+                'question_stem': question_stem,
                 'user_answer': user_answer,
+                'attempt_id': attempt_id,
             })
             db.session.commit()
             

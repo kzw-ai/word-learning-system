@@ -34,7 +34,13 @@ interface ContrastQuestion {
   correct_answer: string;
 }
 
-type SaveState = 'saving' | 'saved' | 'failed';
+type SaveState = 'saving' | 'saved' | 'failed' | 'stale';
+
+// 每次作答一个编号，重试沿用同一个，后端据此去重
+const newAttemptId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
 /**
  * 辨析题：每题选一次，选完即把题号和所选答案交给后端判分记录（不计入论文表 4.2 的复习次数）。
@@ -44,13 +50,18 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
   const questions = pair.questions ?? [];
   const [picked, setPicked] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<Record<number, SaveState>>({});
+  // 后端判的对错（以它为准；没返回之前先按本地答案显示）
+  const [judged, setJudged] = useState<Record<number, boolean>>({});
   const shownAt = useRef(Date.now());
   const elapsed = useRef<Record<number, number>>({});
+  const attempts = useRef<Record<number, string>>({});
 
   useEffect(() => {
     setPicked({});
     setSaved({});
+    setJudged({});
     elapsed.current = {};
+    attempts.current = {};
     shownAt.current = Date.now();
   }, [pair.id]);
 
@@ -62,11 +73,21 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
       const resp = await authenticatedPost('/api/confusable/exercise/record', {
         pair_id: pair.id,
         question_index: index,
+        question_stem: questions[index].stem,
         user_answer: option,
         response_time: elapsed.current[index],
+        attempt_id: attempts.current[index],
       });
       const result = await resp.json().catch(() => null);
-      setSaved(prev => ({ ...prev, [index]: resp.ok && result?.success ? 'saved' : 'failed' }));
+      if (resp.status === 409) {
+        setSaved(prev => ({ ...prev, [index]: 'stale' }));
+        return;
+      }
+      const ok = resp.ok && result?.success;
+      setSaved(prev => ({ ...prev, [index]: ok ? 'saved' : 'failed' }));
+      if (ok && typeof result.is_correct === 'boolean') {
+        setJudged(prev => ({ ...prev, [index]: result.is_correct }));
+      }
     } catch {
       setSaved(prev => ({ ...prev, [index]: 'failed' }));
     }
@@ -76,12 +97,14 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
     if (picked[index]) return;
     setPicked(prev => ({ ...prev, [index]: option }));
     elapsed.current[index] = (Date.now() - shownAt.current) / 1000;
+    attempts.current[index] = newAttemptId();
     shownAt.current = Date.now();
     void save(index, option);
   };
 
+  const isRight = (i: number) => judged[i] ?? picked[i] === questions[i].correct_answer;
   const answered = Object.keys(picked).length;
-  const correct = questions.filter((q, i) => picked[i] === q.correct_answer).length;
+  const correct = questions.filter((_, i) => picked[i] !== undefined && isRight(i)).length;
 
   return (
     <div className="glass-panel rounded-2xl p-4">
@@ -116,9 +139,12 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
                 })}
               </div>
               {choice && (
-                <p className={`text-sm mt-1.5 ${choice === q.correct_answer ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {choice === q.correct_answer ? 'Correct.' : `Not quite: the answer is ${q.correct_answer}.`}
+                <p className={`text-sm mt-1.5 ${isRight(i) ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {isRight(i) ? 'Correct.' : `Not quite: the answer is ${q.correct_answer}.`}
                 </p>
+              )}
+              {saved[i] === 'stale' && (
+                <p className="text-sm mt-1.5 text-amber-700">This question has been updated. Please reload the page.</p>
               )}
               {saved[i] === 'failed' && (
                 <div className="flex items-center gap-2 mt-1.5">
@@ -176,11 +202,17 @@ export default function ConfusableWordsPage() {
     }
   }, [router.isReady, router.query.pair, pairs]);
 
+  // 只让最新一次加载更新页面：地址里的词对变了时，先发出的请求后返回也不能覆盖
+  const loadSeq = useRef(0);
+
   const loadConfusablePairs = async () => {
+    const seq = ++loadSeq.current;
+    const stale = () => seq !== loadSeq.current;
     try {
       setLoading(true);
       const response = await fetch(buildApiUrl('/api/confusable/pairs?limit=20'));
       const data = await response.json();
+      if (stale()) return;
 
       if (data.success) {
         // 从练习带入的那一对不一定在列表的前 20 对里：单独取来放在最前面
@@ -189,6 +221,7 @@ export default function ConfusableWordsPage() {
         if (pairId && !list.some(p => p.id === pairId)) {
           const resp = await fetch(buildApiUrl(`/api/confusable/pair/${pairId}`));
           const single = await resp.json().catch(() => null);
+          if (stale()) return;
           if (!resp.ok || !single?.success) {
             // 要学的是这一对：加载不到就报错，不能拿列表里别的词对顶替
             setError('Could not load this pair of words.');
@@ -202,10 +235,11 @@ export default function ConfusableWordsPage() {
         setError(data.error || 'Failed to load');
       }
     } catch (err) {
+      if (stale()) return;
       setError('Network error. Please try again later.');
       console.error('加载易混淆词失败:', err);
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
   };
 

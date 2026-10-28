@@ -255,9 +255,13 @@ class ConfusableExerciseRecord(db.Model):
     is_correct = db.Column(db.Boolean, nullable=False)
     response_time = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    # 辨析题的题号（confusable_pairs.questions 里的下标）与所选答案；由后端判分。旧记录为空
+    # 辨析题的题号（confusable_pairs.questions 里的下标）、作答时的题干与所选答案，由后端判分。旧记录为空。
+    # 题干用来认出「这道题后来改过」：改过的题以前的作答不再算数
     question_index = db.Column(db.Integer)
+    question_stem = db.Column(db.Text)
     user_answer = db.Column(db.String(50))
+    # 客户端为每次作答生成的编号；重试沿用同一个，(user_id, attempt_id) 唯一，不会重复记录
+    attempt_id = db.Column(db.String(64))
 
 class LearningEvent(db.Model):
     __tablename__ = 'learning_event'
@@ -499,25 +503,28 @@ def word_ready_for_contrast(user_id, word_id):
     return cache[key]
 
 
-def contrast_passed(user_id, pair_id, question_count):
-    """辨析题过关：每道题（按题号）最近一次作答都答对。重复提交同一题、只做部分题都不算过关。"""
+def contrast_passed(user_id, pair_id, questions):
+    """辨析题过关：当前每道题最近一次作答都答对。只认作答时题干与现在相同的记录，并按现在的答案重新判分，
+    所以题目改过以后要重新作答；重复提交同一题、只做部分题都不算过关。"""
     latest = {}
-    rows = (db.session.query(ConfusableExerciseRecord.question_index, ConfusableExerciseRecord.is_correct)
+    rows = (db.session.query(ConfusableExerciseRecord.question_index, ConfusableExerciseRecord.question_stem,
+                             ConfusableExerciseRecord.user_answer)
             .filter(ConfusableExerciseRecord.user_id == str(user_id), ConfusableExerciseRecord.pair_id == pair_id,
                     ConfusableExerciseRecord.question_index.isnot(None))
             .order_by(ConfusableExerciseRecord.id.desc()).all())
-    for index, ok in rows:
-        latest.setdefault(index, bool(ok))
-    return all(latest.get(i) for i in range(question_count))
+    for index, stem, answer in rows:
+        if 0 <= index < len(questions) and stem == questions[index].get('stem'):
+            latest.setdefault(index, answer == questions[index].get('correct_answer'))
+    return all(latest.get(i) for i in range(len(questions)))
 
 
-def confusable_pair_due(user_id, pair_id, word1_id, word2_id, question_count):
+def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions):
     """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关
     （contrast_passed）；答错的下次练这两个词时再带出。没有辨析题的旧词对没有作答可看，解锁后都算到期，
     但 for-word 接口会优先带出有题、还没过关的词对。辨析题不计入论文表 4.2 的复习次数。"""
     if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
         return False
-    return not question_count or not contrast_passed(user_id, pair_id, question_count)
+    return not questions or not contrast_passed(user_id, pair_id, questions)
 
 
 def review_summary(state):
@@ -2443,11 +2450,12 @@ def ensure_user_progress_unique_index():
 
 def ensure_confusable_pair_columns():
     """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions，
-    confusable_exercise_records.question_index / user_answer。必须在第一次查询这两个模型之前执行。
+    confusable_exercise_records 的题号、题干、所选答案、作答编号。必须在第一次查询这两个模型之前执行。
     加列失败（如别的进程正持有写锁）时再看一次列是否已由别的进程加上，仍缺就报错。"""
     wanted = {
         'confusable_pairs': [('questions', 'TEXT')],
-        'confusable_exercise_records': [('question_index', 'INTEGER'), ('user_answer', 'VARCHAR(50)')],
+        'confusable_exercise_records': [('question_index', 'INTEGER'), ('question_stem', 'TEXT'),
+                                        ('user_answer', 'VARCHAR(50)'), ('attempt_id', 'VARCHAR(64)')],
     }
     conn = sqlite3.connect(_db_path, timeout=30)
     try:
@@ -2465,6 +2473,8 @@ def ensure_confusable_pair_columns():
                         raise
         conn.execute("CREATE INDEX IF NOT EXISTS ix_confusable_records_user_pair "
                      "ON confusable_exercise_records (user_id, pair_id, id)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_confusable_records_attempt "
+                     "ON confusable_exercise_records (user_id, attempt_id) WHERE attempt_id IS NOT NULL")
         conn.commit()
     finally:
         conn.close()

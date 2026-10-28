@@ -4,14 +4,14 @@
 素材文件放在 data/learning_materials/hsk4/<批>.json，格式见 学习资料制作/制作流程.md 第 7 步。
 这个目录不提交到仓库（素材里有教材例句，仓库是公开的），部署时单独复制到服务器的同一位置。
 
-只导入 status 为「作者已审核」的批次；应用启动时自动同步（同 parse_answer_decks），重复运行是幂等的：
-- 每个词的练习题来源记为「HSK4 <批> <词>」，这个来源就是批次对这个词的归属。
-- 词库里还没有的词：插入词、字、搭配、例句和练习题。
-- 归属这个批次的词（以前由它导入）：与素材同步——词的拼音和释义更新，字、搭配、例句整组替换，
+只导入 status 为「作者已审核」的批次；应用启动时自动同步（同 parse_answer_decks），重复运行是幂等的。
+批次插入的词和易混淆词对记在 hsk4_batch_owner 表里（归属），之后按归属同步：
+- 词库里还没有的词：插入词、字、搭配、例句和练习题（来源记为「HSK4 <批> <词>」），记下归属。
+- 归属这个批次的词：与素材同步——拼音、释义更新；字、搭配、例句有变化时整组替换；
   练习题按 (来源, 序号, 题型, 题干) 更新、新增、删除已撤下的。重新审核后的修改因此能生效。
 - 词库里已有、但不归属这个批次的词：整个跳过，不往旧词里混入新内容。
-- 易混淆词对：还没有就插入；已有且是批次导入的（有辨析题）按素材同步全部内容；
-  已有的旧词对（没有辨析题）只补上辨析题，讲解保持原样。
+- 易混淆词对：还没有就插入并记下归属；归属这个批次的按素材同步全部内容；
+  不归属任何批次的旧词对只在还没有辨析题时补上题，讲解保持原样。
 """
 
 from __future__ import annotations
@@ -38,10 +38,20 @@ def load_batches(include_unreviewed=False):
 
 
 def ensure_schema(conn):
-    """confusable_pairs 加 questions 列（辨析题，论文 3.2.4）。应用启动时已补过，这里给单独运行时兜底。"""
+    """归属表；confusable_pairs 加 questions 列（辨析题，论文 3.2.4）。应用启动时已补过列，这里给单独运行时兜底。"""
+    conn.execute('''CREATE TABLE IF NOT EXISTS hsk4_batch_owner (
+        kind TEXT NOT NULL, ref_id INTEGER NOT NULL, batch TEXT NOT NULL, PRIMARY KEY (kind, ref_id))''')
     columns = {row[1] for row in conn.execute('PRAGMA table_info(confusable_pairs)')}
     if columns and 'questions' not in columns:
         conn.execute('ALTER TABLE confusable_pairs ADD COLUMN questions TEXT')
+
+
+def owners(conn, kind):
+    return dict(conn.execute('SELECT ref_id, batch FROM hsk4_batch_owner WHERE kind = ?', (kind,)))
+
+
+def claim(conn, kind, ref_id, batch):
+    conn.execute('INSERT INTO hsk4_batch_owner (kind, ref_id, batch) VALUES (?, ?, ?)', (kind, ref_id, batch))
 
 
 def hanzi_map(conn):
@@ -52,9 +62,23 @@ def hanzi_map(conn):
     return {''.join(cs): word_id for word_id, cs in chars.items()}
 
 
+CONTENT = {
+    'character': ('characters', ('character', 'pinyin', 'definition')),
+    'collocation': ('collocations', ('collocation', 'translation')),
+    'example': ('examples', ('sentence', 'pinyin', 'translation')),
+}
+
+
 def write_content(conn, word_id, w):
-    """词的拼音、释义，以及字、搭配、例句整组写入（这几张表没有被别的表引用）"""
+    """词的拼音、释义，以及字、搭配、例句写入。字、搭配、例句和素材一致时不动，
+    有变化时整组替换（这几张表没有被别的表引用）。"""
     conn.execute('UPDATE word SET pinyin = ?, definition = ? WHERE id = ?', (w['pinyin'], w['definition'], word_id))
+    same = all(
+        conn.execute(f'SELECT {", ".join(cols)} FROM {table} WHERE word_id = ? ORDER BY id', (word_id,)).fetchall()
+        == [tuple(item[c] for c in cols) for item in w[key]]
+        for table, (key, cols) in CONTENT.items())
+    if same:
+        return
     for table in ('character', 'collocation', 'example'):
         conn.execute(f'DELETE FROM {table} WHERE word_id = ?', (word_id,))
     conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
@@ -91,27 +115,30 @@ def sync_exercises(conn, word_id, deck, exercises, now):
     return inserted, updated, len(stale)
 
 
-def sync_pair(conn, p, id1, id2):
+def sync_pair(conn, p, id1, id2, batch, pair_owners):
     """返回 'inserted' / 'updated' / None"""
     questions = json.dumps(p.get('questions', []), ensure_ascii=False)
     fields = (p['reason'], p['difference'], p['examples'], p['tips'], p['difficulty_level'], questions)
     row = conn.execute('''SELECT id, reason, difference, examples, tips, difficulty_level, questions FROM confusable_pairs
         WHERE (word1_id = ? AND word2_id = ?) OR (word1_id = ? AND word2_id = ?)''', (id1, id2, id2, id1)).fetchone()
     if row is None:
-        conn.execute('''INSERT INTO confusable_pairs
+        pair_id = conn.execute('''INSERT INTO confusable_pairs
             (word1_id, word2_id, reason, difference, examples, tips, difficulty_level, questions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (id1, id2, *fields))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (id1, id2, *fields)).lastrowid
+        claim(conn, 'pair', pair_id, batch)
+        pair_owners[pair_id] = batch
         return 'inserted'
     pair_id, old_questions = row[0], row[6]
-    if not old_questions or old_questions == '[]':
-        # 旧词对（不是批次导入的）：只补辨析题，讲解保持原样
-        if p.get('questions'):
-            conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
+    owner = pair_owners.get(pair_id)
+    if owner == batch:
+        if tuple(row[1:]) != fields:
+            conn.execute('''UPDATE confusable_pairs SET reason = ?, difference = ?, examples = ?, tips = ?,
+                difficulty_level = ?, questions = ? WHERE id = ?''', (*fields, pair_id))
             return 'updated'
         return None
-    if tuple(row[1:]) != fields:
-        conn.execute('''UPDATE confusable_pairs SET reason = ?, difference = ?, examples = ?, tips = ?,
-            difficulty_level = ?, questions = ? WHERE id = ?''', (*fields, pair_id))
+    if owner is None and (not old_questions or old_questions == '[]') and p.get('questions'):
+        # 不归属任何批次的旧词对：只补辨析题，讲解保持原样；补过以后不再改动
+        conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
         return 'updated'
     return None
 
@@ -119,31 +146,33 @@ def sync_pair(conn, p, id1, id2):
 def import_batch(conn, batch, now):
     """返回 [新增词, 跳过的已有词, 同步的已有词, 新增题, 更新题, 删除题, 新增词对, 更新词对]"""
     counts = [0] * 8
+    name = batch['batch']
     known = hanzi_map(conn)
-    prefix = f"HSK4 {batch['batch']} "
-    owned = {deck[len(prefix):]: word_id for deck, word_id in conn.execute(
-        'SELECT DISTINCT source_deck, word_id FROM exercise_item WHERE source_deck LIKE ?', (prefix + '%',))}
+    word_owners = owners(conn, 'word')
+    pair_owners = owners(conn, 'pair')
     for w in batch['words']:
         hanzi = w['hanzi']
-        if hanzi in owned:
-            word_id = owned[hanzi]
+        word_id = known.get(hanzi)
+        if word_id is not None and word_owners.get(word_id) == name:
             write_content(conn, word_id, w)
             counts[2] += 1
-        elif hanzi in known:
+        elif word_id is not None:
             counts[1] += 1
             continue
         else:
             word_id = conn.execute('INSERT INTO word (pinyin, definition) VALUES (?, ?)',
                                    (w['pinyin'], w['definition'])).lastrowid
             write_content(conn, word_id, w)
+            claim(conn, 'word', word_id, name)
+            word_owners[word_id] = name
+            known[hanzi] = word_id
             counts[0] += 1
-        known[hanzi] = word_id
-        for i, n in enumerate(sync_exercises(conn, word_id, prefix + hanzi, w['exercises'], now)):
+        for i, n in enumerate(sync_exercises(conn, word_id, f'HSK4 {name} {hanzi}', w['exercises'], now)):
             counts[3 + i] += n
     for p in batch.get('confusable_pairs', []):
         id1, id2 = known.get(p['word1']), known.get(p['word2'])
         if id1 and id2:
-            result = sync_pair(conn, p, id1, id2)
+            result = sync_pair(conn, p, id1, id2, name, pair_owners)
             counts[6] += result == 'inserted'
             counts[7] += result == 'updated'
     return counts
