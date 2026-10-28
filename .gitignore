@@ -20,3 +20,8 @@ build/
 代码整理完成报告.md
 pyrefly.toml
 docs/安全审计报告.md
+
+# 加工学习资料用的源数据：教材课文有版权、搭配知识库未声明许可，不提交。
+# 来源与获取方式见 data/source_materials/README.md
+data/source_materials/*
+!data/source_materials/README.md
