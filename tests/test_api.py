@@ -411,3 +411,170 @@ class TestSessionBoundWrites:
             'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
         }, headers=guest_headers())
         assert resp.status_code == 404
+
+
+# ================================================
+# 间隔重复调度：按整节练习的表现
+# ================================================
+
+def _learner(name):
+    return 'guest_' + (name + '0' * 20)[:20]
+
+
+def _stored(progress):
+    """库里存的值（去掉随当前时间变化的 days）"""
+    return {k: v for k, v in progress.items() if k != 'days'}
+
+
+class TestSessionReviewScheduling:
+    """一次复习 = 一节练习。日程按整节作答排，复习次数按会话数算。每个测试用自己的学习者"""
+
+    @pytest.fixture(autouse=True)
+    def _engine(self):
+        import app_phase as mod
+        if mod.spaced_repetition is None:
+            pytest.skip('自适应引擎未加载')
+
+    def _session(self, client, learner, session_id):
+        resp = client.post('/api/learning/session/start', json={
+            'sessionId': session_id, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'exercise',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers(learner))
+        assert resp.get_json()['success'] is True, resp.get_json()
+
+    def _answer(self, client, learner, session_id, question_id, correct):
+        resp = client.post('/api/learning/exercise/record', json={
+            'sessionId': session_id, 'questionId': question_id, 'questionType': 'definition',
+            'userAnswer': 'x', 'correctAnswer': 'x' if correct else 'y', 'isCorrect': correct,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+            'responseTimeSeconds': 5, 'hesitationCount': 0, 'confidenceLevel': 3,
+        }, headers=guest_headers(learner))
+        assert resp.get_json()['success'] is True, resp.get_json()
+
+    def _progress(self, app, learner):
+        import app_phase as mod
+        from datetime import datetime
+        with app.app_context():
+            row = mod.UserProgress.query.filter_by(user_id=learner, word_id=1).one()
+            days = (row.next_review_suggested - datetime.now()).total_seconds() / 86400
+            return {'count': row.review_count, 'days': days, 'attempts': row.total_attempts,
+                    'correct': row.correct_attempts, 'mastery': row.mastery_level,
+                    'next': row.next_review_suggested}
+
+    def _records(self, app, session_id):
+        import app_phase as mod
+        with app.app_context():
+            return mod.ExerciseRecord.query.filter_by(session_id=session_id).count()
+
+    def test_schedule_follows_whole_session(self, app, anon_client):
+        learner = _learner('sm2whole')
+        # 第一节全对：第 1 次复习
+        self._session(anon_client, learner, 's-whole-1')
+        for q in ('q1', 'q2', 'q3'):
+            self._answer(anon_client, learner, 's-whole-1', q, True)
+        assert self._progress(app, learner)['count'] == 1
+
+        # 第二节第一题对、后两题错：应按「错」排到一天后，而不是按第一题的「对」拉长间隔
+        self._session(anon_client, learner, 's-whole-2')
+        self._answer(anon_client, learner, 's-whole-2', 'q1', True)
+        assert self._progress(app, learner)['days'] > 2, '只答了第一题（对）时按第 2 次复习排，间隔应拉长'
+        self._answer(anon_client, learner, 's-whole-2', 'q2', False)
+        self._answer(anon_client, learner, 's-whole-2', 'q3', False)
+        progress = self._progress(app, learner)
+        assert progress['count'] == 2, '同一节里每题都重算，复习次数只算一次'
+        assert progress['days'] <= 1.01
+
+    def test_replay_changes_neither_progress_nor_schedule(self, app, anon_client):
+        learner = _learner('sm2replay')
+        self._session(anon_client, learner, 's-replay-1')
+        for q in ('q1', 'q2', 'q3'):
+            self._answer(anon_client, learner, 's-replay-1', q, True)
+        # 4 对 1 错 = 80%，算通过
+        self._session(anon_client, learner, 's-replay-2')
+        for q, ok in (('q1', True), ('q2', True), ('q3', True), ('q4', True), ('q5', False)):
+            self._answer(anon_client, learner, 's-replay-2', q, ok)
+        before = self._progress(app, learner)
+        assert before['days'] > 2
+
+        self._answer(anon_client, learner, 's-replay-2', 'q5', False)
+        assert _stored(self._progress(app, learner)) == _stored(before), '重放的作答不能改累计正确率与日程'
+        assert self._records(app, 's-replay-2') == 6, '原始作答照常保留'
+
+    def test_late_answer_to_older_session_does_not_rewind(self, app, anon_client):
+        learner = _learner('sm2older')
+        self._session(anon_client, learner, 's-older-1')
+        self._answer(anon_client, learner, 's-older-1', 'q1', True)
+        self._session(anon_client, learner, 's-older-2')
+        self._answer(anon_client, learner, 's-older-2', 'q1', True)
+        before = self._progress(app, learner)
+        assert before['count'] == 2
+
+        self._answer(anon_client, learner, 's-older-1', 'q2', False)
+        after = self._progress(app, learner)
+        assert after['count'] == 2
+        assert after['next'] == before['next']
+
+    def test_concurrent_answers_end_in_the_full_session_schedule(self, app):
+        from concurrent.futures import ThreadPoolExecutor
+        learner = _learner('sm2concurrent')
+        # 先完成一节：第二节若按单题的「对」排会是多日间隔，按整节的「错」才是一天
+        self._session(app.test_client(), learner, 's-conc-1')
+        self._answer(app.test_client(), learner, 's-conc-1', 'q1', True)
+        self._session(app.test_client(), learner, 's-conc-2')
+        answers = [('q1', True), ('q2', False), ('q3', True), ('q4', False), ('q5', True), ('q6', True)]
+        with ThreadPoolExecutor(max_workers=len(answers)) as pool:
+            list(pool.map(lambda a: self._answer(app.test_client(), learner, 's-conc-2', *a), answers))
+        progress = self._progress(app, learner)
+        assert progress['attempts'] == 1 + len(answers), '并发累加不能丢计数'
+        assert progress['count'] == 2
+        assert progress['days'] <= 1.01, '最后写入的日程必须基于整节 4/6 的作答'
+
+    def test_answer_is_kept_when_scheduling_fails(self, app, anon_client, monkeypatch):
+        import app_phase as mod
+        learner = _learner('sm2failure')
+        self._session(anon_client, learner, 's-fail-1')
+        self._answer(anon_client, learner, 's-fail-1', 'q1', True)
+        before = self._progress(app, learner)
+
+        def broken(*_args, **_kwargs):
+            raise RuntimeError('boom')
+        monkeypatch.setattr(mod, 'schedule_review_from_session', broken)
+        self._answer(anon_client, learner, 's-fail-1', 'q2', True)
+        assert self._records(app, 's-fail-1') == 2, '调度出错时作答仍要保存'
+        assert _stored(self._progress(app, learner)) == _stored(before), '这次的进度累加随调度失败一起撤回'
+
+    def test_second_writer_waits_for_the_first(self, app, monkeypatch):
+        """先到的请求在持锁期间停顿，后到的请求必须等它提交后再读写，不能读到旧进度"""
+        import threading
+        import time
+        import app_phase as mod
+        learner = _learner('sm2lockwait')
+        # 先完成一节：既建好进度行（之后的累加只改内存里的对象，不会在停顿前自己写库
+        # 拿到锁），也让第二节按单题的「对」排和按整节的「错」排间隔明显不同
+        self._session(app.test_client(), learner, 's-lock-0')
+        self._answer(app.test_client(), learner, 's-lock-0', 'q0', True)
+        self._session(app.test_client(), learner, 's-lock-1')
+
+        original = mod.schedule_review_from_session
+        first_inside = threading.Event()
+
+        def slow_first(session, progress):
+            if not first_inside.is_set():
+                first_inside.set()
+                # 持着写锁停顿，模拟慢请求。主线程若被耽搁超过这个窗口，两个请求就成了
+                # 先后执行，测试照样通过，只是没测到竞争
+                time.sleep(0.5)
+            return original(session, progress)
+        monkeypatch.setattr(mod, 'schedule_review_from_session', slow_first)
+
+        first = threading.Thread(target=self._answer, args=(app.test_client(), learner, 's-lock-1', 'q1', True))
+        first.start()
+        assert first_inside.wait(5)
+        self._answer(app.test_client(), learner, 's-lock-1', 'q2', False)
+        first.join()
+
+        progress = self._progress(app, learner)
+        assert progress['attempts'] == 3, '后到的请求读到了先到者提交前的进度，计数丢了'
+        assert progress['count'] == 2
+        assert progress['days'] <= 1.01, '最终日程必须基于整节两道题（1/2 未过）'

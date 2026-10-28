@@ -428,56 +428,65 @@ class AdaptiveRecommendationEngine:
             else:
                 mastery_level, review_count, consecutive_correct, consecutive_incorrect = result
             
-            # 计算质量因子（0-5）
-            quality = self.calculate_quality_factor(exercise_result)
-            
-            # 获取或计算ease factor
-            ease_factor = self.get_ease_factor(mastery_level, consecutive_correct)
-            
-            # 更新ease factor
-            ease_factor = ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
-            ease_factor = max(self.min_ease_factor, min(self.max_ease_factor, ease_factor))
-            
-            # 计算间隔
-            if quality < 3:  # 答错了
-                interval_days = 1  # 重新开始
-                consecutive_correct = 0
-                consecutive_incorrect += 1
-            else:  # 答对了
-                consecutive_correct += 1
-                consecutive_incorrect = 0
-                
-                if review_count == 0:
-                    interval_days = 1
-                elif review_count == 1:
-                    interval_days = 6
-                else:
-                    # 使用ease factor计算间隔
-                    previous_interval = self.get_previous_interval(review_count - 1)
-                    interval_days = int(previous_interval * ease_factor)
-                
-                # 基于掌握程度调整间隔
-                mastery_adjustment = 0.5 + mastery_level
-                interval_days = int(interval_days * mastery_adjustment)
-                
-                # 基于响应时间调整
-                response_time = exercise_result.get('response_time', 5.0)
-                if response_time < 3.0:  # 快速回答
-                    interval_days = int(interval_days * 1.2)
-                elif response_time > 10.0:  # 慢速回答
-                    interval_days = int(interval_days * 0.8)
-            
-            # 限制最大最小间隔
-            interval_days = max(1, min(365, interval_days))
-            
-            # 计算下次复习时间
-            next_review = datetime.now() + timedelta(days=interval_days)
-            
-            return next_review
+            return self.next_review_from(mastery_level, review_count, consecutive_correct,
+                                         consecutive_incorrect, exercise_result)
             
         finally:
             conn.close()
     
+    def next_review_from(self, mastery_level: float, review_count: int,
+                         consecutive_correct: int, consecutive_incorrect: int,
+                         exercise_result: Dict) -> datetime:
+        """由给定的进度与本次结果算下次复习时间，不读写数据库。
+
+        调用方已在自己的事务里持有进度行时用它，避免另开连接读到事务外的旧值。
+        """
+        # 计算质量因子（0-5）
+        quality = self.calculate_quality_factor(exercise_result)
+        
+        # 获取或计算ease factor
+        ease_factor = self.get_ease_factor(mastery_level, consecutive_correct)
+        
+        # 更新ease factor
+        ease_factor = ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+        ease_factor = max(self.min_ease_factor, min(self.max_ease_factor, ease_factor))
+        
+        # 计算间隔
+        if quality < 3:  # 答错了
+            interval_days = 1  # 重新开始
+            consecutive_correct = 0
+            consecutive_incorrect += 1
+        else:  # 答对了
+            consecutive_correct += 1
+            consecutive_incorrect = 0
+            
+            if review_count == 0:
+                interval_days = 1
+            elif review_count == 1:
+                interval_days = 6
+            else:
+                # 使用ease factor计算间隔
+                previous_interval = self.get_previous_interval(review_count - 1)
+                interval_days = int(previous_interval * ease_factor)
+            
+            # 基于掌握程度调整间隔
+            mastery_adjustment = 0.5 + mastery_level
+            interval_days = int(interval_days * mastery_adjustment)
+            
+            # 基于响应时间调整
+            response_time = exercise_result.get('response_time', 5.0)
+            if response_time < 3.0:  # 快速回答
+                interval_days = int(interval_days * 1.2)
+            elif response_time > 10.0:  # 慢速回答
+                interval_days = int(interval_days * 0.8)
+        
+        # 限制最大最小间隔
+        interval_days = max(1, min(365, interval_days))
+        
+        # 计算下次复习时间
+        next_review = datetime.now() + timedelta(days=interval_days)
+        return next_review
+
     def calculate_quality_factor(self, exercise_result: Dict) -> float:
         """计算答题质量因子（0-5）"""
         is_correct = exercise_result.get('is_correct', False)
