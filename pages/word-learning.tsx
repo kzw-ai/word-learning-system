@@ -58,7 +58,7 @@ export default function Component() {
     if (loading) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-gray-500 text-sm">
-          加载词汇数据中...
+          Loading the word…
         </div>
       );
     }
@@ -66,7 +66,7 @@ export default function Component() {
     if (error || !word) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-red-500 text-sm text-center">
-          无法加载词汇数据，请确认后端 API 是否已经运行。
+          Couldn't load the word. Please try again later.
         </div>
       );
     }
@@ -85,7 +85,7 @@ export default function Component() {
             </div>
           </div>
           {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
-          <RecapSection labels={["拆字"]}>
+          <RecapSection labels={["Characters"]}>
             <CharacterBreakdown word={word} />
           </RecapSection>
           <div className="h-6 w-full shrink-0"></div>
@@ -116,7 +116,7 @@ export default function Component() {
                 disabled={!previous}
                 onClick={() => handleNavigate('previous')}
               >
-                ← {previous ? previous.label : '上一步'}
+                ← {previous ? previous.label : 'Back'}
               </Button>
               <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Word</h1>
               <Button
@@ -125,7 +125,7 @@ export default function Component() {
                 disabled={!next}
                 onClick={() => handleNavigate('next')}
               >
-                {next ? next.label : '结束'} →
+                {next ? next.label : 'Finish'} →
               </Button>
             </div>
             <div className="mt-3">

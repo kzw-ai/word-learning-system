@@ -22,7 +22,7 @@ interface HandwritingInputProps {
 export default function HandwritingInput({
   onSubmit,
   onCancel,
-  placeholder = '请在此处手写或输入',
+  placeholder = 'Write or type here',
   width = 300,
   height = 150,
 }: HandwritingInputProps) {
@@ -70,7 +70,7 @@ export default function HandwritingInput({
       if (!isEmpty) {
         // 注意：绝不能把正确答案作为默认值预填，否则用户直接确认即判对，
         // 填空题将不再采集任何有效作答信号（is_correct 恒为 true）。
-        const userInput = prompt('请输入您刚才手写的内容：');
+        const userInput = prompt('Type what you just wrote:');
         if (userInput && userInput.trim()) {
           onSubmit(userInput.trim());
           handleClear();
@@ -133,7 +133,7 @@ export default function HandwritingInput({
  */
 export function InlineHandwritingInput({
   onSubmit,
-  placeholder = '手写或输入',
+  placeholder = 'Write or type',
 }: {
   onSubmit: (text: string) => void;
   placeholder?: string;

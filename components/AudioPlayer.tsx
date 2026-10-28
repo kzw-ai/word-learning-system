@@ -58,7 +58,7 @@ export default function AudioPlayer({
 
   const playWithWebSpeech = () => {
     if (!window.speechSynthesis) {
-      throw new Error('浏览器不支持语音合成');
+      throw new Error('Speech synthesis is not supported in this browser');
     }
 
     // 停止当前播放
@@ -85,7 +85,7 @@ export default function AudioPlayer({
       setIsPlaying(false);
       setIsLoading(false);
       setHasError(true);
-      const error = new Error(`语音合成失败: ${event.error}`);
+      const error = new Error(`Speech synthesis failed: ${event.error}`);
       onError?.(error);
       console.error('Speech synthesis error:', event);
     };
@@ -96,7 +96,7 @@ export default function AudioPlayer({
 
   const playWithAudioFile = () => {
     if (!audioUrl) {
-      throw new Error('音频URL未提供');
+      throw new Error('No audio URL provided');
     }
 
     if (!audioRef.current) {
@@ -120,7 +120,7 @@ export default function AudioPlayer({
         setIsPlaying(false);
         setIsLoading(false);
         setHasError(true);
-        const error = new Error('音频加载失败');
+        const error = new Error('Failed to load audio');
         onError?.(error);
       };
     }
@@ -184,7 +184,7 @@ export default function AudioPlayer({
         hover:text-blue-600
         ${isLoading ? 'opacity-50' : ''}
       `}
-      title={isPlaying ? '停止播放' : '播放音频'}
+      title={isPlaying ? 'Stop' : 'Play audio'}
     >
       {isLoading ? (
         <Loader2 size={iconSize} className="animate-spin" />

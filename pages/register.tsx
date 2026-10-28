@@ -25,17 +25,17 @@ const Register = () => {
 
     // 客户端验证
     if (formData.password !== formData.confirmPassword) {
-      setError('两次输入的密码不一致');
+      setError('The passwords don’t match');
       return;
     }
 
     if (formData.password.length < 6) {
-      setError('密码长度至少6个字符');
+      setError('Use at least 6 characters for the password');
       return;
     }
 
     if (!formData.username.trim()) {
-      setError('用户名不能为空');
+      setError('Please enter a username');
       return;
     }
 
@@ -64,10 +64,10 @@ const Register = () => {
           router.push('/login');
         }, 3000);
       } else {
-        setError(result.error || '注册失败');
+        setError(result.error || 'Sign-up failed');
       }
     } catch (err) {
-      setError('网络错误，请检查后端服务是否启动');
+      setError('Network error. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -86,15 +86,15 @@ const Register = () => {
             <div className="glass-panel rounded-3xl p-8 text-center w-full">
               <div className="text-6xl mb-4">🎉</div>
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 mb-2">
-                注册成功！
+                You’re signed up!
               </h2>
-              <p className="text-sm text-gray-600 mb-1">您的账户已创建成功</p>
-              <p className="text-sm text-gray-400 mb-6">即将跳转到登录页面...</p>
+              <p className="text-sm text-gray-600 mb-1">Your account is ready</p>
+              <p className="text-sm text-gray-400 mb-6">Taking you to sign in…</p>
               <Button
                 onClick={() => router.push('/login')}
                 className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
               >
-                立即登录
+                Sign in now
               </Button>
             </div>
           </div>
@@ -113,9 +113,9 @@ const Register = () => {
               <UserPlus size={26} className="text-white" strokeWidth={2.2} />
             </div>
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
-              用户注册
+              Sign up
             </h1>
-            <p className="text-sm text-gray-500 mt-1 font-medium">创建新账户，开启学习之旅</p>
+            <p className="text-sm text-gray-500 mt-1 font-medium">Create an account to keep your progress on any device</p>
           </div>
 
           {/* Form */}
@@ -129,7 +129,7 @@ const Register = () => {
             <div className="glass-panel rounded-2xl p-5 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="username" className="text-sm font-medium text-gray-700">
-                  用户名 <span className="text-red-400">*</span>
+                  Username <span className="text-red-400">*</span>
                 </Label>
                 <input
                   id="username"
@@ -137,14 +137,14 @@ const Register = () => {
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   className={inputClass}
-                  placeholder="输入用户名"
+                  placeholder="Username"
                   required
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                  邮箱（可选）
+                  Email (optional)
                 </Label>
                 <input
                   id="email"
@@ -152,13 +152,13 @@ const Register = () => {
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className={inputClass}
-                  placeholder="输入邮箱"
+                  placeholder="Email"
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  密码 <span className="text-red-400">*</span>
+                  Password <span className="text-red-400">*</span>
                 </Label>
                 <div className="relative">
                   <input
@@ -167,7 +167,7 @@ const Register = () => {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className={`${inputClass} pr-11`}
-                    placeholder="至少6个字符"
+                    placeholder="At least 6 characters"
                     required
                   />
                   <button
@@ -182,7 +182,7 @@ const Register = () => {
 
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
-                  确认密码 <span className="text-red-400">*</span>
+                  Confirm password <span className="text-red-400">*</span>
                 </Label>
                 <input
                   id="confirmPassword"
@@ -190,14 +190,14 @@ const Register = () => {
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                   className={inputClass}
-                  placeholder="再次输入密码"
+                  placeholder="Type the password again"
                   required
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="native_language" className="text-sm font-medium text-gray-700">
-                  母语
+                  Native language
                 </Label>
                 <select
                   id="native_language"
@@ -220,7 +220,7 @@ const Register = () => {
               disabled={loading}
               className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none transition-all duration-300"
             >
-              {loading ? '注册中...' : '注册'}
+              {loading ? 'Signing up…' : 'Sign up'}
             </Button>
 
             <div className="text-center">
@@ -229,7 +229,7 @@ const Register = () => {
                 onClick={() => router.push('/login')}
                 className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
               >
-                已有账户？立即登录
+                Already have an account? Sign in
               </button>
             </div>
           </form>
@@ -241,7 +241,7 @@ const Register = () => {
               onClick={() => router.push('/')}
               className="w-full h-11 rounded-2xl text-gray-600 bg-white/50 hover:bg-white/80 border border-white/60 transition-all"
             >
-              返回首页
+              Back to home
             </Button>
           </div>
         </div>

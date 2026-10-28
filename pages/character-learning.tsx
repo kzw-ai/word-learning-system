@@ -58,7 +58,7 @@ export default function Component() {
     if (loading) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-gray-500 text-sm">
-          加载字形数据中...
+          Loading characters…
         </div>
       );
     }
@@ -66,7 +66,7 @@ export default function Component() {
     if (error || !word) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-red-500 text-sm text-center">
-          无法加载字形信息，请检查 API 服务。
+          Couldn't load the characters. Please try again later.
         </div>
       );
     }
@@ -110,10 +110,10 @@ export default function Component() {
                 className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 onClick={() => handleNavigate("previous")}
               >
-                ← {previous ? previous.label : "上一步"}
+                ← {previous ? previous.label : "Back"}
               </Button>
               <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">
-                Character
+                Characters
               </h1>
               <Button
                 variant="ghost"
@@ -122,7 +122,7 @@ export default function Component() {
                 className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 onClick={() => handleNavigate("next")}
               >
-                {next ? next.label : "结束"} →
+                {next ? next.label : "Finish"} →
               </Button>
             </div>
             <div className="mt-3">

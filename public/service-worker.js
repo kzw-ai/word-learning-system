@@ -4,7 +4,8 @@
 // 老用户永远看不到新部署的页面，到期复习、练习题等接口数据也冻结在第一次请求时。
 // v2 改为：接口不缓存；页面网络优先、断网才用缓存；只有带内容哈希的
 // /_next/static/ 静态资源缓存优先。改名为 v2 后，activate 会删掉 v1 的旧缓存。
-const CACHE_NAME = 'word-learning-v2';
+// v3：界面改为英文，换掉缓存里的中文离线页与清单。
+const CACHE_NAME = 'word-learning-v3';
 const urlsToCache = [
   '/manifest.json',
   '/offline.html'
@@ -75,7 +76,7 @@ self.addEventListener('fetch', (event) => {
       caches.match(request).then((cached) => {
         if (cached) return cached;
         if (request.mode === 'navigate') return caches.match('/offline.html');
-        return new Response('网络错误', {
+        return new Response('Network error', {
           status: 408,
           statusText: 'Network Error',
           headers: { 'Content-Type': 'text/plain' }

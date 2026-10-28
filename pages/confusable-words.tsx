@@ -63,10 +63,10 @@ export default function ConfusableWordsPage() {
       if (data.success) {
         setPairs(data.pairs);
       } else {
-        setError(data.error || '加载失败');
+        setError(data.error || 'Failed to load');
       }
     } catch (err) {
-      setError('网络错误，请检查后端服务');
+      setError('Network error. Please try again later.');
       console.error('加载易混淆词失败:', err);
     } finally {
       setLoading(false);
@@ -93,7 +93,7 @@ export default function ConfusableWordsPage() {
     if (loading) {
       return (
         <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-          加载易混淆词数据中...
+          Loading easily confused words…
         </div>
       );
     }
@@ -106,7 +106,7 @@ export default function ConfusableWordsPage() {
             onClick={loadConfusablePairs}
             className="h-11 px-8 rounded-2xl border-none text-white font-bold text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
           >
-            重试
+            Retry
           </Button>
         </div>
       );
@@ -115,7 +115,7 @@ export default function ConfusableWordsPage() {
     if (!currentPair) {
       return (
         <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-          暂无易混淆词数据
+          No easily confused words yet
         </div>
       );
     }
@@ -171,7 +171,7 @@ export default function ConfusableWordsPage() {
 
         {/* 混淆原因 */}
         <div className="glass-panel rounded-2xl p-4 bg-amber-50/70">
-          <h4 className="text-sm font-semibold text-amber-800 mb-1.5">💡 为什么易混淆？</h4>
+          <h4 className="text-sm font-semibold text-amber-800 mb-1.5">💡 Why they get mixed up</h4>
           <p className="text-sm text-gray-700 leading-relaxed">{currentPair.reason}</p>
         </div>
 
@@ -181,7 +181,7 @@ export default function ConfusableWordsPage() {
             onClick={() => setShowAnswer(true)}
             className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
           >
-            <Search size={16} className="mr-2" /> 查看辨析详解
+            <Search size={16} className="mr-2" /> See the full comparison
           </Button>
         )}
 
@@ -189,7 +189,7 @@ export default function ConfusableWordsPage() {
         {showAnswer && (
           <>
             <div className="glass-panel rounded-2xl p-4">
-              <h4 className="text-sm font-semibold text-gray-800 mb-1.5">📖 详细区别</h4>
+              <h4 className="text-sm font-semibold text-gray-800 mb-1.5">📖 The difference</h4>
               <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
                 {currentPair.difference}
               </pre>
@@ -197,7 +197,7 @@ export default function ConfusableWordsPage() {
 
             {currentPair.examples && (
               <div className="glass-panel rounded-2xl p-4 bg-emerald-50/70">
-                <h4 className="text-sm font-semibold text-emerald-800 mb-1.5">📝 例句对比</h4>
+                <h4 className="text-sm font-semibold text-emerald-800 mb-1.5">📝 Example sentences</h4>
                 <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
                   {currentPair.examples}
                 </pre>
@@ -206,7 +206,7 @@ export default function ConfusableWordsPage() {
 
             {currentPair.tips && (
               <div className="glass-panel rounded-2xl p-4 bg-indigo-50/70">
-                <h4 className="text-sm font-semibold text-indigo-800 mb-1.5">💡 记忆技巧</h4>
+                <h4 className="text-sm font-semibold text-indigo-800 mb-1.5">💡 Memory tip</h4>
                 <p className="text-sm text-gray-700 leading-relaxed">{currentPair.tips}</p>
               </div>
             )}
@@ -215,7 +215,7 @@ export default function ConfusableWordsPage() {
 
         {/* 难度标识 */}
         <div className="text-center text-sm text-gray-400">
-          难度等级: {'⭐'.repeat(currentPair.difficulty_level)}
+          Difficulty: {'⭐'.repeat(currentPair.difficulty_level)}
         </div>
       </div>
     );
@@ -234,16 +234,16 @@ export default function ConfusableWordsPage() {
                 onClick={() => window.history.back()}
                 className="h-9 px-3 rounded-xl text-gray-600 bg-white/50 hover:bg-white/80 border border-white/60"
               >
-                <ArrowLeft size={16} className="mr-1" /> 返回
+                <ArrowLeft size={16} className="mr-1" /> Back
               </Button>
               <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
-                易混淆词辨析
+                Easily confused words
               </h1>
               <div className="w-[72px]" />
             </div>
             {!loading && !error && pairs.length > 0 && (
               <p className="text-sm text-center text-indigo-500 font-medium mt-2">
-                第 {currentIndex + 1} / {pairs.length} 组
+                Pair {currentIndex + 1} of {pairs.length}
               </p>
             )}
           </div>
@@ -259,7 +259,7 @@ export default function ConfusableWordsPage() {
                   onClick={() => router.push(afterWordRoute(session))}
                   className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
                 >
-                  {session.reviewMode ? '完成辨析 · 继续复习' : '完成辨析 · 查看学习分析'} <ArrowRight size={16} className="ml-1.5" />
+                  {session.reviewMode ? 'Done · continue reviewing' : 'Done · see my progress'} <ArrowRight size={16} className="ml-1.5" />
                 </Button>
               )}
               <div className="flex gap-3">
@@ -269,7 +269,7 @@ export default function ConfusableWordsPage() {
                   onClick={handlePrevious}
                   disabled={currentIndex === 0}
                 >
-                  <ArrowLeft size={16} className="mr-1.5" /> 上一组
+                  <ArrowLeft size={16} className="mr-1.5" /> Previous pair
                 </Button>
                 <Button
                   variant="ghost"
@@ -277,7 +277,7 @@ export default function ConfusableWordsPage() {
                   onClick={handleNext}
                   disabled={currentIndex === pairs.length - 1}
                 >
-                  下一组 <ArrowRight size={16} className="ml-1.5" />
+                  Next pair <ArrowRight size={16} className="ml-1.5" />
                 </Button>
               </div>
             </div>

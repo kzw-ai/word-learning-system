@@ -81,10 +81,10 @@ const LearningDashboard = () => {
       if (response.ok && result.success) {
         setRecommendation(result.data);
       } else {
-        setError(result.error || 'API服务未运行');
+        setError(result.error || 'The service is unavailable');
       }
     } catch (err) {
-      setError('无法连接到API服务');
+      setError('Couldn’t connect. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -124,25 +124,25 @@ const LearningDashboard = () => {
 
   const getModuleLabel = (module: string) => {
     const labels: Record<string, string> = {
-      character: '字学习',
-      word: '词学习',
-      collocation: '搭配学习',
-      sentence: '例句学习',
-      exercise: '练习',
-      urgent_review: '紧急复习',
-      scheduled_review: '计划复习',
-      new_learning: '新词学习'
+      character: 'Characters',
+      word: 'Word',
+      collocation: 'Collocations',
+      sentence: 'Sentences',
+      exercise: 'Practice',
+      urgent_review: 'Urgent review',
+      scheduled_review: 'Scheduled review',
+      new_learning: 'New word'
     };
     return labels[module] || module;
   };
 
   const getTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      urgent_review: '🚨 紧急复习',
-      scheduled_review: '📅 计划复习',
-      new_learning: '✨ 新词学习',
-      explore_learning: '🔍 探索学习',
-      system_default: '📚 系统推荐'
+      urgent_review: '🚨 Urgent review',
+      scheduled_review: '📅 Scheduled review',
+      new_learning: '✨ New word',
+      explore_learning: '🔍 Explore',
+      system_default: '📚 Suggested'
     };
     return labels[type] || type;
   };
@@ -158,7 +158,7 @@ const LearningDashboard = () => {
 
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
-    return `约 ${minutes} 分钟`;
+    return `about ${minutes} min`;
   };
 
   return (
@@ -169,7 +169,7 @@ const LearningDashboard = () => {
           <div className="px-5 mb-4 shrink-0">
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight flex items-center">
               <TrendingUp className="mr-2 text-indigo-500" size={24} />
-              学习看板 Dashboard
+              Dashboard
             </h1>
           </div>
 
@@ -178,7 +178,7 @@ const LearningDashboard = () => {
             {loading && !recommendation && (
               <div className="glass-card mb-4 rounded-3xl p-8 text-center shadow-lg border border-white/40">
                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto mb-3"></div>
-                <p className="text-base text-gray-500 font-medium tracking-wide">加载智能分析中...</p>
+                <p className="text-base text-gray-500 font-medium tracking-wide">Loading your progress…</p>
               </div>
             )}
 
@@ -195,11 +195,11 @@ const LearningDashboard = () => {
                 <div className="p-5 pb-4 bg-gradient-to-br from-white/40 to-white/10 border-b border-white/30 backdrop-blur-md relative z-10 flex items-center justify-between">
                   <h2 className="text-lg font-bold text-gray-800 flex items-center">
                     <Target className="mr-2 text-indigo-500" size={20} />
-                    智能推荐
+                    Suggested next
                   </h2>
                   <Badge className={`${getPriorityColor(recommendation.priority)} bg-opacity-90 shadow-sm border-none text-sm px-3 py-1`}>
-                    {recommendation.priority === 'high' ? '高' : 
-                     recommendation.priority === 'medium' ? '中' : '低'}优先级
+                    {recommendation.priority === 'high' ? 'High' : 
+                     recommendation.priority === 'medium' ? 'Medium' : 'Low'} priority
                   </Badge>
                 </div>
                 <div className="p-5 space-y-4 relative z-10">
@@ -218,14 +218,14 @@ const LearningDashboard = () => {
 
                   <div className="grid grid-cols-2 gap-3 mt-2">
                     <div className="bg-white/30 p-3.5 rounded-xl border border-white/40 shadow-sm">
-                      <div className="text-sm text-gray-500 mb-1 font-medium">推荐模块</div>
+                      <div className="text-sm text-gray-500 mb-1 font-medium">Start with</div>
                       <div className="text-base font-bold text-gray-800 flex items-center">
                         <BookOpen size={16} className="mr-1.5 text-indigo-400" />
                         {getModuleLabel(recommendation.recommended_module || recommendation.type)}
                       </div>
                     </div>
                     <div className="bg-white/30 p-3.5 rounded-xl border border-white/40 shadow-sm">
-                      <div className="text-sm text-gray-500 mb-1 font-medium">预计时间</div>
+                      <div className="text-sm text-gray-500 mb-1 font-medium">Time</div>
                       <div className="text-base font-bold text-gray-800 flex items-center">
                         <Clock size={16} className="mr-1.5 text-indigo-400" />
                         {formatTime(recommendation.estimated_time)}
@@ -235,7 +235,7 @@ const LearningDashboard = () => {
 
                   <div className="mt-2 pt-3 border-t border-white/30">
                     <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-gray-500 font-medium">推荐匹配度</span>
+                      <span className="text-gray-500 font-medium">Confidence</span>
                       <span className="font-bold text-indigo-700">{(recommendation.confidence * 100).toFixed(0)}%</span>
                     </div>
                     <Progress value={recommendation.confidence * 100} className="h-2 bg-white/50 [&>div]:bg-gradient-to-r [&>div]:from-indigo-400 [&>div]:to-purple-500" />
@@ -246,7 +246,7 @@ const LearningDashboard = () => {
                     className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg text-white py-5 text-base font-bold rounded-2xl mt-4 border-none transition-all duration-300"
                   >
                     <span className="relative z-10 flex items-center tracking-wider text-glow">
-                      立即开始
+                      Start now
                       <ChevronRight size={18} className="ml-1" />
                     </span>
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity duration-300"></div>
@@ -260,32 +260,32 @@ const LearningDashboard = () => {
               <div className="glass-card mb-4 rounded-[28px] p-5 border border-white/40 shadow-sm">
                 <div className="flex items-center mb-4">
                   <Award className="mr-2 text-indigo-500" size={20} />
-                  <h3 className="text-lg font-bold text-gray-800">今日学习</h3>
+                  <h3 className="text-lg font-bold text-gray-800">Today</h3>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-4 bg-white/40 rounded-2xl border border-white/50 shadow-sm">
                     <div className="text-3xl font-bold text-indigo-600">
                       {dashboardData.todayStats.wordsReviewed}
                     </div>
-                    <div className="text-sm text-gray-500 mt-1.5 font-medium">复习词汇</div>
+                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Words reviewed</div>
                   </div>
                   <div className="text-center p-4 bg-white/40 rounded-2xl border border-white/50 shadow-sm">
                     <div className="text-3xl font-bold text-emerald-600">
                       {dashboardData.todayStats.exercisesCompleted}
                     </div>
-                    <div className="text-sm text-gray-500 mt-1.5 font-medium">完成练习</div>
+                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Exercises</div>
                   </div>
                   <div className="text-center p-4 bg-white/40 rounded-2xl border border-white/50 shadow-sm">
                     <div className="text-3xl font-bold text-purple-600">
                       {dashboardData.todayStats.studyTimeMinutes}
                     </div>
-                    <div className="text-sm text-gray-500 mt-1.5 font-medium">学习分钟</div>
+                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Minutes</div>
                   </div>
                   <div className="text-center p-4 bg-white/40 rounded-2xl border border-white/50 shadow-sm">
                     <div className="text-3xl font-bold text-amber-600">
                       {(dashboardData.todayStats.averageAccuracy * 100).toFixed(0)}%
                     </div>
-                    <div className="text-sm text-gray-500 mt-1.5 font-medium">准确率</div>
+                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Accuracy</div>
                   </div>
                 </div>
               </div>
@@ -296,12 +296,12 @@ const LearningDashboard = () => {
               <div className="glass-card mb-4 rounded-[28px] p-5 border border-white/40 shadow-sm">
                 <div className="flex items-center mb-4">
                   <TrendingUp className="mr-2 text-indigo-500" size={20} />
-                  <h3 className="text-lg font-bold text-gray-800">整体进度</h3>
+                  <h3 className="text-lg font-bold text-gray-800">Overall</h3>
                 </div>
                 <div className="space-y-4">
                   <div>
                     <div className="flex justify-between items-end mb-2">
-                      <span className="text-base text-gray-500 font-medium">已学词汇</span>
+                      <span className="text-base text-gray-500 font-medium">Words learned</span>
                       <span className="text-lg font-bold text-gray-800">
                         {dashboardData.overallProgress.studiedWords} <span className="text-sm text-gray-400 font-normal">/ {dashboardData.overallProgress.totalWords}</span>
                       </span>
@@ -314,7 +314,7 @@ const LearningDashboard = () => {
                   
                   <div>
                     <div className="flex justify-between items-end mb-2">
-                      <span className="text-base text-gray-500 font-medium">平均掌握度</span>
+                      <span className="text-base text-gray-500 font-medium">Average mastery</span>
                       <span className="text-lg font-bold text-emerald-600">
                         {(dashboardData.overallProgress.averageMastery * 100).toFixed(1)}%
                       </span>
@@ -341,7 +341,7 @@ const LearningDashboard = () => {
                 <div className="bg-indigo-50 text-indigo-500 p-3 rounded-2xl mb-3">
                   <Clock size={24} />
                 </div>
-                <span className="text-base font-bold">今日复习</span>
+                <span className="text-base font-bold">Today’s review</span>
                 {dashboardData && dashboardData.dueReviews > 0 && (
                   <span className="absolute top-2.5 right-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white shadow-sm ring-2 ring-white/50">
                     {dashboardData.dueReviews > 99 ? '99+' : dashboardData.dueReviews}
@@ -358,7 +358,7 @@ const LearningDashboard = () => {
                 <div className="bg-purple-50 text-purple-500 p-3 rounded-2xl mb-3">
                   <BookOpen size={24} />
                 </div>
-                <span className="text-base font-bold">开始学习</span>
+                <span className="text-base font-bold">Start learning</span>
               </button>
             </div>
           </div>
@@ -370,7 +370,7 @@ const LearningDashboard = () => {
               onClick={() => router.push('/')}
               className="w-full h-11 rounded-[14px] text-gray-500 hover:text-indigo-600 hover:bg-white/40 text-sm font-medium transition-colors"
             >
-              返回主页
+              Back to home
             </Button>
           </div>
         </div>

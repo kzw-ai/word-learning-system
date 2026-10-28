@@ -103,7 +103,7 @@ const Exercise = () => {
       const normalizedQuestions: ExerciseQuestion[] = data.questions;
 
       if (!normalizedQuestions.length) {
-        throw new Error('未返回可用的练习题');
+        throw new Error('No exercises came back for this word');
       }
 
       setWordId(data.wordId);
@@ -126,7 +126,7 @@ const Exercise = () => {
       });
     } catch (err) {
       if (requestId !== loadRequestRef.current) return;
-      const message = err instanceof Error ? err.message : '加载练习题失败';
+      const message = err instanceof Error ? err.message : 'Failed to load the exercises';
       trackEvent('exercise_load_failed', 'exercise', {
         wordId: targetWordId,
         error: message
@@ -136,7 +136,7 @@ const Exercise = () => {
       // 学的是 A，练习记录却记在 B 头上。如实报错，让用户重试或离开。
       setExerciseQuestions([]);
       setCurrentQuestion(null);
-      setError(message || '加载练习题失败');
+      setError(message || 'Failed to load the exercises');
     } finally {
       if (requestId === loadRequestRef.current) {
         setLoading(false);
@@ -245,7 +245,7 @@ const Exercise = () => {
       return;
     }
 
-    trackButtonClick('submit-button', '提交答案', {
+    trackButtonClick('submit-button', 'CHECK', {
       questionId: currentQuestion.id
     });
 
@@ -299,7 +299,7 @@ const Exercise = () => {
   };
 
   const handleContinue = async () => {
-    trackButtonClick('continue-button', '继续', {
+    trackButtonClick('continue-button', 'CONTINUE', {
       questionIndex: questionIndex + 1,
       totalQuestions: exerciseQuestions.length
     });
@@ -352,28 +352,28 @@ const Exercise = () => {
   };
 
   const handleRetry = () => {
-    trackButtonClick('retry-button', '重新加载');
+    trackButtonClick('retry-button', 'Reload');
     // 用会话里的目标词：加载失败时本地 wordId 没有更新，可能还是初始值 1
     loadExercises(desiredWordId, desiredWordLabel);
   };
 
   const handleLeave = () => {
-    trackButtonClick('leave-button', '返回学习看板');
+    trackButtonClick('leave-button', 'Back to dashboard');
     router.push(afterWordRoute(learningSession));
   };
 
   const getQuestionTypeTitle = (type: ExerciseType) => {
     switch (type) {
       case 'definition':
-        return '词汇释义题';
+        return 'Meaning';
       case 'collocation':
-        return '词汇搭配题';
+        return 'Collocation';
       case 'choose_word':
-        return '易混淆词辨析题';
+        return 'Easily confused words';
       case 'fill_word':
-        return '词汇填词题';
+        return 'Fill in the character';
       default:
-        return '练习题';
+        return 'Practice';
     }
   };
 
@@ -381,7 +381,7 @@ const Exercise = () => {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50">
         <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex items-center justify-center">
-          <p className="text-base text-gray-600">加载练习题中...</p>
+          <p className="text-base text-gray-600">Loading the exercises…</p>
         </div>
       </div>
     );
@@ -393,8 +393,8 @@ const Exercise = () => {
         <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex flex-col items-center justify-center space-y-4 px-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-center">
         <p className="text-red-600">❌ {error}</p>
         <div className="flex gap-3">
-          <Button onClick={handleRetry}>重新加载</Button>
-          <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? '返回复习列表' : '返回学习看板'}</Button>
+          <Button onClick={handleRetry}>Reload</Button>
+          <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? 'Back to reviews' : 'Back to dashboard'}</Button>
         </div>
         </div>
       </div>
@@ -405,10 +405,10 @@ const Exercise = () => {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50">
         <div className="w-full max-w-[430px] h-[100dvh] modern-gradient-bg flex flex-col items-center justify-center space-y-3 px-5 text-center">
-          <p className="text-base text-gray-600">暂无可用练习题</p>
+          <p className="text-base text-gray-600">No exercises available</p>
           <div className="flex gap-3">
-            <Button onClick={handleRetry}>尝试重新获取</Button>
-            <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? '返回复习列表' : '返回学习看板'}</Button>
+            <Button onClick={handleRetry}>Try again</Button>
+            <Button variant="outline" onClick={handleLeave}>{learningSession.reviewMode ? 'Back to reviews' : 'Back to dashboard'}</Button>
           </div>
         </div>
       </div>
@@ -433,10 +433,10 @@ const Exercise = () => {
                   goTo(previous.key);
                 }}
               >
-                ← {previous ? previous.label : '上一步'}
+                ← {previous ? previous.label : 'Back'}
               </Button>
               <h1 className="text-xl font-extrabold text-gray-800 tracking-tight pt-1 leading-none">
-                {isTestMode ? 'Test' : (isReviewMode ? 'Review' : 'Exercise')}
+                {isTestMode ? 'Test' : (isReviewMode ? 'Review' : 'Practice')}
               </h1>
               <Button
                 variant="ghost"
@@ -455,7 +455,7 @@ const Exercise = () => {
                   goTo(next.key);
                 }}
               >
-                {learningSession.reviewMode ? '复习列表' : (next ? next.label : '结束')} →
+                {learningSession.reviewMode ? 'Reviews' : (next ? next.label : 'Finish')} →
               </Button>
             </div>
             <div className="mt-3">
@@ -479,7 +479,7 @@ const Exercise = () => {
                         'Type the missing character.'
                       }
                     </h2>
-                    <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`第 ${questionIndex + 1} 题，共 ${exerciseQuestions.length} 题`}>
+                    <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
                       {questionIndex + 1} / {exerciseQuestions.length}
                     </span>
                   </div>
@@ -511,8 +511,8 @@ const Exercise = () => {
                         }}
                         disabled={showFeedback}
                         autoComplete="off"
-                        aria-label="填写缺少的字"
-                        placeholder="在这里输入"
+                        aria-label="Type the missing character"
+                        placeholder="Type here"
                         data-fill-input
                         className={`w-full h-16 text-center text-3xl font-bold rounded-2xl border-2 outline-none transition-colors placeholder:text-base placeholder:font-normal placeholder:text-gray-400 ${
                           showFeedback
@@ -566,7 +566,7 @@ const Exercise = () => {
                               <span>{option}</span>
                             </span>
                             {showFeedback && (isCorrectOption || isSelected) && (
-                              <span className="text-lg font-bold" aria-label={isCorrectOption ? '正确答案' : '你的选择'}>
+                              <span className="text-lg font-bold" aria-label={isCorrectOption ? 'Correct answer' : 'Your answer'}>
                                 {isCorrectOption ? '✓' : '✗'}
                               </span>
                             )}

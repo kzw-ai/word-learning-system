@@ -26,10 +26,10 @@ export function WordHero({ word }: { word: WordData }) {
   );
 }
 
-function SectionTitle({ zh, en }: { zh: string; en: string }) {
+function SectionTitle({ en }: { en: string }) {
   return (
     <h3 className="text-sm font-bold text-indigo-700 tracking-wide mb-3">
-      {zh} <span className="font-semibold text-indigo-700/80">{en}</span>
+      <span className="font-semibold text-indigo-700/80">{en}</span>
     </h3>
   );
 }
@@ -38,9 +38,9 @@ export function CharacterBreakdown({ word }: { word: WordData }) {
   const characters = word.characters ?? [];
   return (
     <section>
-      <SectionTitle zh="拆字" en="Characters" />
+      <SectionTitle en="Characters" />
       {characters.length === 0 ? (
-        <p className="text-sm text-gray-600">暂无拆字数据。</p>
+        <p className="text-sm text-gray-600">No character breakdown yet.</p>
       ) : (
         <div className="space-y-3">
           {characters.map((item, index) => (
@@ -60,9 +60,9 @@ export function CharacterBreakdown({ word }: { word: WordData }) {
 export function DefinitionBlock({ word }: { word: WordData }) {
   return (
     <section>
-      <SectionTitle zh="词义" en="Meaning" />
+      <SectionTitle en="Meaning" />
       <div className={SECTION_CARD}>
-        <p className="text-lg text-gray-800 font-medium leading-relaxed">{word.definition || '暂无释义。'}</p>
+        <p className="text-lg text-gray-800 font-medium leading-relaxed">{word.definition || 'No definition yet.'}</p>
       </div>
     </section>
   );
@@ -72,9 +72,9 @@ export function CollocationList({ word }: { word: WordData }) {
   const collocations = word.collocations ?? [];
   return (
     <section>
-      <SectionTitle zh="搭配" en="Collocations" />
+      <SectionTitle en="Collocations" />
       {collocations.length === 0 ? (
-        <p className="text-sm text-gray-600">这个词暂时没有搭配。</p>
+        <p className="text-sm text-gray-600">No collocations for this word yet.</p>
       ) : (
         <div className={`${SECTION_CARD} space-y-4`}>
           {collocations.map((col, index) => (
@@ -103,9 +103,9 @@ export function ExampleList({ word, limit }: { word: WordData; limit?: number })
   const examples = (word.examples ?? []).slice(0, limit);
   return (
     <section>
-      <SectionTitle zh="例句" en="Examples" />
+      <SectionTitle en="Examples" />
       {examples.length === 0 ? (
-        <p className="text-sm text-gray-600">这个词暂时没有例句，可以直接继续。</p>
+        <p className="text-sm text-gray-600">No example sentences for this word yet — you can continue.</p>
       ) : (
         <div className={`${SECTION_CARD} space-y-6`}>
           {examples.map((ex, index) => (
@@ -134,7 +134,7 @@ export function RecapSection({ labels, children }: { labels: string[]; children:
   return (
     <details className="group glass-card rounded-2xl border border-white/40">
       <summary className="flex items-center justify-between cursor-pointer list-none px-5 h-12 text-sm font-semibold text-gray-700 select-none [&::-webkit-details-marker]:hidden">
-        <span>回顾：{labels.join(' · ')}</span>
+        <span>Recap: {labels.join(' · ')}</span>
         <ChevronDown size={18} className="transition-transform group-open:rotate-180" aria-hidden="true" />
       </summary>
       <div className="px-4 pb-5 space-y-5">{children}</div>

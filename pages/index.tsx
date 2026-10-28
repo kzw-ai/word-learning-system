@@ -5,16 +5,40 @@ import { BookOpen, GraduationCap, ArrowRight, Activity, BarChart2 } from 'lucide
 import { fetchJson } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
+import { Onboarding, onboardingSeen } from '@/components/Onboarding';
 
 const Home = () => {
   const router = useRouter();
   const { userId } = useLearningContext();
-  const { session, hydrated, updateSession } = useLearningSession();
+  const { session, hydrated, serverStateLoaded, updateSession } = useLearningSession();
   // null = 加载中，加载失败按 0 处理（不阻塞主流程）
   const [dueIds, setDueIds] = useState<number[] | null>(null);
+  // 到期列表是为哪个身份成功取回的（失败也会把 dueIds 置为空，不能据此判断是新用户；
+  // 记身份而不是布尔，切换身份后不会沿用上一个身份的结果）
+  const [dueLoadedFor, setDueLoadedFor] = useState<string | null>(null);
+  const dueLoaded = Boolean(userId) && dueLoadedFor === userId;
   // 今天已复习过的词不算到期，与复习列表的过滤口径一致
   const reviewed = reviewedToday(session);
   const dueCount = dueIds === null ? null : dueIds.filter(id => !reviewed.includes(id)).length;
+
+  // 新用户引导：既没看过引导、也还没有学习记录时自动弹出一次。要等服务器上的学习状态
+  // 和到期列表都成功取回：老用户换设备登录时本地是空的，学习位置要从服务器取回才知道
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [autoOpened, setAutoOpened] = useState(false);
+  const isNewLearner = serverStateLoaded && dueLoaded && !session.wordId && (dueIds?.length ?? 0) === 0;
+  useEffect(() => {
+    if (isNewLearner && !onboardingSeen()) {
+      setShowOnboarding(true);
+      setAutoOpened(true);
+    }
+  }, [isNewLearner]);
+  // 自动弹出后才发现有学习记录（服务器状态稍后才合并进来）：收起，不记为看过
+  useEffect(() => {
+    if (autoOpened && session.wordId) {
+      setShowOnboarding(false);
+      setAutoOpened(false);
+    }
+  }, [autoOpened, session.wordId]);
 
   // 回到首页即结束复习：中途离开复习（浏览器返回、看板「返回主页」等）后，
   // 之后再开始的普通学习不能还带着复习模式
@@ -29,10 +53,15 @@ const Home = () => {
     let cancelled = false;
     fetchJson<{ success: boolean; data: { word_id: number }[] }>(`/api/review/user/${userId}/due?limit=200`)
       .then(result => {
-        if (!cancelled) setDueIds(result.success && Array.isArray(result.data) ? result.data.map(r => r.word_id) : []);
+        if (cancelled) return;
+        const ok = result.success && Array.isArray(result.data);
+        setDueIds(ok ? result.data.map(r => r.word_id) : []);
+        setDueLoadedFor(ok ? userId : null);
       })
       .catch(() => {
-        if (!cancelled) setDueIds([]);
+        if (cancelled) return;
+        setDueIds([]);
+        setDueLoadedFor(null);
       });
     return () => {
       cancelled = true;
@@ -47,10 +76,10 @@ const Home = () => {
 
   const mainSubtitle =
     dueCount === null
-      ? '正在为你规划今日任务…'
+      ? 'Planning today’s session…'
       : hasDue
-        ? `${dueCount} 个词到期 · 先复习，再学新词`
-        : '今日无待复习 · 直接学习新词';
+        ? `${dueCount} ${dueCount === 1 ? 'word' : 'words'} due · review first, then a new word`
+        : 'Nothing due today · start a new word';
 
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
@@ -62,10 +91,10 @@ const Home = () => {
               <BookOpen className="text-white" size={28} />
             </div>
             <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 leading-tight mb-2 tracking-tight">
-              智能学习系统
+              Word Learning
             </h1>
             <p className="text-sm font-medium text-gray-500 tracking-wide uppercase">
-              自适应中级对外汉语
+              Adaptive Chinese vocabulary
             </p>
           </div>
 
@@ -80,7 +109,7 @@ const Home = () => {
                   <GraduationCap size={24} />
                 </div>
                 <div className="text-left">
-                  <p className="font-bold text-white text-lg">开始学习</p>
+                  <p className="font-bold text-white text-lg">Start learning</p>
                   <p className="text-sm text-indigo-100">{mainSubtitle}</p>
                 </div>
               </div>
@@ -89,21 +118,27 @@ const Home = () => {
               </div>
             </button>
 
-            {/* 学习路线说明：回答“到底怎么学” */}
-            <div className="glass-card rounded-2xl px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 mb-1.5 tracking-wide">学习路线</p>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                复习到期词汇 → VKS 自评新词 → 按水平进入
-                <span className="text-indigo-600 font-medium">字 / 词 / 搭配 / 例句</span>
-                → 练习巩固，系统按记忆曲线安排下次复习
+            {/* 学习路线说明：回答“到底怎么学”，点开是完整的新用户引导 */}
+            <button
+              type="button"
+              onClick={() => setShowOnboarding(true)}
+              className="glass-card rounded-2xl px-4 py-3 text-left w-full"
+            >
+              <p className="text-xs font-semibold text-gray-500 mb-1.5 tracking-wide">
+                How it works <span className="text-indigo-700">· see the guide</span>
               </p>
-            </div>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Review due words → rate a new word → start at your level:
+                <span className="text-indigo-600 font-medium"> characters / word / collocations / sentences </span>
+                → practice. Your next review is scheduled for you.
+              </p>
+            </button>
 
             {/* 数据入口：易混词辨析已融入主学习流程（练习后自动带出），
                 今日复习由主入口按记忆曲线安排，均不再单独设入口 */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 tracking-wide px-1">查看数据</p>
-              <div className="grid grid-cols-2 gap-2">
+              <p className="text-xs font-semibold text-gray-500 tracking-wide px-1">Your data</p>
+              <div className={`grid gap-2 ${process.env.NODE_ENV !== 'production' ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
                   onClick={() => router.push('/learning-dashboard')}
                   className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3"
@@ -112,23 +147,26 @@ const Home = () => {
                     <Activity size={18} />
                   </div>
                   <div className="text-left">
-                    <p className="text-sm font-semibold text-gray-700">我的数据</p>
-                    <p className="text-xs text-gray-500">进度与推荐</p>
+                    <p className="text-sm font-semibold text-gray-700">My progress</p>
+                    <p className="text-xs text-gray-500">Progress & suggestions</p>
                   </div>
                 </button>
 
-                <button
-                  onClick={() => router.push('/learning-stats')}
-                  className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3"
-                >
-                  <div className="bg-emerald-50 text-emerald-500 p-2 rounded-lg shrink-0">
-                    <BarChart2 size={18} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-gray-700">分析报告</p>
-                    <p className="text-xs text-gray-500">系统统计</p>
-                  </div>
-                </button>
+                {/* 全站统计（会话总数、引擎开关），面向开发者，不展示给学习者 */}
+                {process.env.NODE_ENV !== 'production' && (
+                  <button
+                    onClick={() => router.push('/learning-stats')}
+                    className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3"
+                  >
+                    <div className="bg-emerald-50 text-emerald-500 p-2 rounded-lg shrink-0">
+                      <BarChart2 size={18} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-semibold text-gray-700">System stats</p>
+                      <p className="text-xs text-gray-500">For developers</p>
+                    </div>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -139,7 +177,7 @@ const Home = () => {
                 onClick={() => router.push('/login')}
                 className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
               >
-                登录账户
+                Sign in
               </Button>
               {/* 端口探测页，面向开发者，不展示给学习者 */}
               {process.env.NODE_ENV !== 'production' && (
@@ -148,12 +186,20 @@ const Home = () => {
                   onClick={() => router.push('/system-status')}
                   className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
                 >
-                  诊断工具
+                  Diagnostics
                 </Button>
               )}
             </div>
           </div>
         </div>
+
+        <Onboarding
+          open={showOnboarding}
+          onClose={() => {
+            setShowOnboarding(false);
+            setAutoOpened(false);
+          }}
+        />
 
         {/* Decorative floating blur circles */}
         <div className="absolute -top-20 -right-20 w-48 h-48 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 pointer-events-none"></div>

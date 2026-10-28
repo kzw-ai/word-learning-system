@@ -57,7 +57,7 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center">
               <Clock size={18} className="mr-2 animate-pulse" />
-              <span className="font-semibold text-sm">复习提醒</span>
+              <span className="font-semibold text-sm">Review reminder</span>
             </div>
             <button 
               onClick={handleDismiss}
@@ -67,14 +67,14 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
             </button>
           </div>
           <p className="text-xs mb-2">
-            您有 <Badge className="bg-white text-red-600 mx-1">{dueCount}</Badge> 个词汇需要复习
+            You have <Badge className="bg-white text-red-600 mx-1">{dueCount}</Badge> {dueCount === 1 ? 'word' : 'words'} to review
           </p>
           <Button
             size="sm"
             onClick={handleGoToReview}
             className="w-full bg-white text-red-600 hover:bg-gray-100 text-xs"
           >
-            立即复习
+            Review now
           </Button>
         </div>
       </div>
@@ -88,7 +88,7 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
         <div className="flex items-center flex-1">
           <Clock size={14} className="mr-1 text-red-600" />
           <span className="text-xs text-red-800">
-            有 <span className="font-bold">{dueCount}</span> 个词汇待复习
+            <span className="font-bold">{dueCount}</span> {dueCount === 1 ? 'word' : 'words'} due
           </span>
         </div>
         <Button
@@ -96,7 +96,7 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
           onClick={handleGoToReview}
           className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 h-auto"
         >
-          去复习
+          Review
         </Button>
       </div>
     </div>

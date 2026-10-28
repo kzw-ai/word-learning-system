@@ -48,7 +48,7 @@ class AuthManager:
             if cursor.fetchone():
                 return {
                     'success': False,
-                    'message': '用户名已存在'
+                    'message': 'That username is taken'
                 }
             
             # 检查邮箱是否已存在
@@ -60,7 +60,7 @@ class AuthManager:
                 if cursor.fetchone():
                     return {
                         'success': False,
-                        'message': '邮箱已被注册'
+                        'message': 'That email is already registered'
                     }
             
             # 生成user_id
@@ -89,14 +89,14 @@ class AuthManager:
             return {
                 'success': True,
                 'user_id': user_id,
-                'message': '注册成功'
+                'message': 'Signed up'
             }
             
         except Exception as e:
             conn.rollback()
             return {
                 'success': False,
-                'message': f'注册失败: {str(e)}'
+                'message': f'Sign-up failed: {str(e)}'
             }
         finally:
             conn.close()
@@ -128,7 +128,7 @@ class AuthManager:
             if not user:
                 return {
                     'success': False,
-                    'message': '用户名或密码错误'
+                    'message': 'Wrong username or password'
                 }
             
             user_pk_id, user_id, username, password_hash, email = user
@@ -137,7 +137,7 @@ class AuthManager:
             if not check_password_hash(password_hash, password):
                 return {
                     'success': False,
-                    'message': '用户名或密码错误'
+                    'message': 'Wrong username or password'
                 }
             
             # 生成session token
@@ -171,14 +171,14 @@ class AuthManager:
                 'username': username,
                 'email': email,
                 'session_token': session_token,
-                'message': '登录成功'
+                'message': 'Signed in'
             }
             
         except Exception as e:
             conn.rollback()
             return {
                 'success': False,
-                'message': f'登录失败: {str(e)}'
+                'message': f'Sign-in failed: {str(e)}'
             }
         finally:
             conn.close()
@@ -207,14 +207,14 @@ class AuthManager:
             
             return {
                 'success': True,
-                'message': '登出成功'
+                'message': 'Signed out'
             }
             
         except Exception as e:
             conn.rollback()
             return {
                 'success': False,
-                'message': f'登出失败: {str(e)}'
+                'message': f'Sign-out failed: {str(e)}'
             }
         finally:
             conn.close()
@@ -244,7 +244,7 @@ class AuthManager:
             if not result:
                 return {
                     'valid': False,
-                    'message': 'Session不存在'
+                    'message': 'Session not found'
                 }
             
             user_id, expires_at, is_active = result
@@ -253,20 +253,20 @@ class AuthManager:
             if datetime.fromisoformat(expires_at) < datetime.now():
                 return {
                     'valid': False,
-                    'message': 'Session已过期'
+                    'message': 'Session expired'
                 }
             
             # 检查是否激活
             if not is_active:
                 return {
                     'valid': False,
-                    'message': 'Session已失效'
+                    'message': 'Session is no longer valid'
                 }
             
             return {
                 'valid': True,
                 'user_id': user_id,
-                'message': 'Session有效'
+                'message': 'Session is valid'
             }
             
         finally:
@@ -336,7 +336,7 @@ class AuthManager:
             if not result:
                 return {
                     'success': False,
-                    'message': '用户不存在'
+                    'message': 'User not found'
                 }
             
             password_hash = result[0]
@@ -345,7 +345,7 @@ class AuthManager:
             if not check_password_hash(password_hash, old_password):
                 return {
                     'success': False,
-                    'message': '旧密码错误'
+                    'message': 'The current password is wrong'
                 }
             
             # 生成新密码hash
@@ -369,14 +369,14 @@ class AuthManager:
             
             return {
                 'success': True,
-                'message': '密码修改成功，请重新登录'
+                'message': 'Password changed. Please sign in again.'
             }
             
         except Exception as e:
             conn.rollback()
             return {
                 'success': False,
-                'message': f'密码修改失败: {str(e)}'
+                'message': f'Password change failed: {str(e)}'
             }
         finally:
             conn.close()
@@ -435,7 +435,7 @@ def require_auth(f):
         if not session_token:
             return jsonify({
                 'success': False,
-                'error': '未登录',
+                'error': 'Not signed in',
                 'code': 'UNAUTHORIZED'
             }), 401
         

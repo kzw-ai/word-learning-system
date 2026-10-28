@@ -69,10 +69,10 @@ const TodayReview = () => {
         setReviews(result.data);
         setLoadedFor(requestUser);
       } else {
-        setError(result.error || 'API服务未运行');
+        setError(result.error || 'The service is unavailable');
       }
     } catch (err) {
-      setError('无法连接到API服务');
+      setError('Couldn’t connect. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -118,9 +118,9 @@ const TodayReview = () => {
   };
 
   const getPriorityBadge = (score: number) => {
-    if (score > 0.8) return <Badge variant="destructive" className="text-sm px-3 py-1">高优先级</Badge>;
-    if (score > 0.5) return <Badge className="bg-amber-500 hover:bg-amber-600 text-white border-0 shadow-sm text-sm px-3 py-1">中优先级</Badge>;
-    return <Badge variant="secondary" className="text-sm px-3 py-1">低优先级</Badge>;
+    if (score > 0.8) return <Badge variant="destructive" className="text-sm px-3 py-1">High priority</Badge>;
+    if (score > 0.5) return <Badge className="bg-amber-500 hover:bg-amber-600 text-white border-0 shadow-sm text-sm px-3 py-1">Medium priority</Badge>;
+    return <Badge variant="secondary" className="text-sm px-3 py-1">Low priority</Badge>;
   };
 
   const getMasteryColor = (level: number) => {
@@ -132,11 +132,11 @@ const TodayReview = () => {
 
   const getModuleLabel = (module: string) => {
     const labels: Record<string, string> = {
-      character: '字学习',
-      word: '词学习',
-      collocation: '搭配学习',
-      sentence: '例句学习',
-      exercise: '练习'
+      character: 'Characters',
+      word: 'Word',
+      collocation: 'Collocations',
+      sentence: 'Sentences',
+      exercise: 'Practice'
     };
     return labels[module] || labels.word;
   };

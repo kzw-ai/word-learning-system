@@ -107,7 +107,7 @@ const puppeteer = require('puppeteer-core');
     const pairText = await page.evaluate(() => document.body.innerText.slice(0, 120).replace(/\n/g, ' '));
     console.log('6. 辨析页内容:', pairText);
     await page.evaluate(() => {
-      [...document.querySelectorAll('button')].find((b) => b.innerText.includes('完成辨析'))?.click();
+      [...document.querySelectorAll('button')].find((b) => b.innerText.includes('Done ·'))?.click();
     });
     await new Promise((r) => setTimeout(r, 1500));
     console.log('7. 完成辨析后落在:', new URL(page.url()).pathname);

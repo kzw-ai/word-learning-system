@@ -3,7 +3,7 @@ import { Html, Head, Main, NextScript } from 'next/document';
 
 export default function Document() {
   return (
-    <Html lang="zh-CN">
+    <Html lang="en">
       <Head>
         {/* PWA Manifest */}
         <link rel="manifest" href="/manifest.json" />
@@ -16,11 +16,11 @@ export default function Document() {
         <meta name="theme-color" content="#ff6b35" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="词汇学习" />
+        <meta name="apple-mobile-web-app-title" content="Word Learning" />
         
         {/* PWA 描述 */}
-        <meta name="description" content="基于VKS量表的智能词汇学习系统，支持离线学习" />
-        <meta name="keywords" content="词汇学习,HSK,中文,VKS,智能学习,离线学习" />
+        <meta name="description" content="Adaptive Chinese vocabulary learning for intermediate learners, guided by the Vocabulary Knowledge Scale" />
+        <meta name="keywords" content="Chinese vocabulary,HSK,Mandarin,VKS,adaptive learning,spaced repetition" />
         
         {/* 视口设置 */}
         {/* 允许双指缩放（看清汉字笔画、无障碍）；viewport-fit=cover 才能让 iOS 上的
