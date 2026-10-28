@@ -47,10 +47,10 @@ const Login = () => {
         // 跳转到首页
         router.push('/');
       } else {
-        setError(result.error || '登录失败');
+        setError(result.error || 'Sign-in failed');
       }
     } catch (err) {
-      setError('网络错误，请检查后端服务是否启动');
+      setError('Network error. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -71,9 +71,9 @@ const Login = () => {
               <LogIn size={26} className="text-white" strokeWidth={2.2} />
             </div>
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
-              用户登录
+              Sign in
             </h1>
-            <p className="text-sm text-gray-500 mt-1 font-medium">登录您的账户开始学习</p>
+            <p className="text-sm text-gray-500 mt-1 font-medium">Sign in to continue learning</p>
           </div>
 
           {/* Form */}
@@ -87,7 +87,7 @@ const Login = () => {
             <div className="glass-panel rounded-2xl p-5 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="username" className="text-sm font-medium text-gray-700">
-                  用户名或邮箱
+                  Username or email
                 </Label>
                 <input
                   id="username"
@@ -95,14 +95,14 @@ const Login = () => {
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   className={inputClass}
-                  placeholder="输入用户名或邮箱"
+                  placeholder="Username or email"
                   required
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  密码
+                  Password
                 </Label>
                 <div className="relative">
                   <input
@@ -111,7 +111,7 @@ const Login = () => {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className={`${inputClass} pr-11`}
-                    placeholder="输入密码"
+                    placeholder="Password"
                     required
                   />
                   <button
@@ -133,7 +133,7 @@ const Login = () => {
                   className="mr-2.5 w-4 h-4 accent-indigo-600"
                 />
                 <Label htmlFor="remember" className="text-sm text-gray-600 cursor-pointer">
-                  记住我（7天内免登录）
+                  Keep me signed in for 7 days
                 </Label>
               </div>
             </div>
@@ -143,7 +143,7 @@ const Login = () => {
               disabled={loading}
               className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none transition-all duration-300"
             >
-              {loading ? '登录中...' : '登录'}
+              {loading ? 'Signing in…' : 'Sign in'}
             </Button>
 
             <div className="text-center">
@@ -152,17 +152,20 @@ const Login = () => {
                 onClick={() => router.push('/register')}
                 className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
               >
-                还没有账户？立即注册
+                No account yet? Sign up
               </button>
             </div>
 
-            <div className="glass-card rounded-2xl p-4 bg-indigo-50/60">
-              <p className="text-sm text-indigo-900 mb-1 font-semibold">💡 测试账号提示</p>
-              <p className="text-sm text-indigo-700">
-                所有现有测试用户默认密码：
-                <code className="bg-indigo-100 px-1.5 py-0.5 rounded-md ml-1">password123</code>
-              </p>
-            </div>
+            {/* 测试账号只在开发库里有密码（生产启动时不设测试密码，见 migrate_auth_system） */}
+            {process.env.NODE_ENV !== 'production' && (
+              <div className="glass-card rounded-2xl p-4 bg-indigo-50/60">
+                <p className="text-sm text-indigo-900 mb-1 font-semibold">💡 Test accounts</p>
+                <p className="text-sm text-indigo-700">
+                  Default password for the test users:
+                  <code className="bg-indigo-100 px-1.5 py-0.5 rounded-md ml-1">password123</code>
+                </p>
+              </div>
+            )}
           </form>
 
           {/* Bottom Action */}
@@ -172,7 +175,7 @@ const Login = () => {
               onClick={() => router.push('/')}
               className="w-full h-11 rounded-2xl text-gray-600 bg-white/50 hover:bg-white/80 border border-white/60 transition-all"
             >
-              返回首页
+              Back to home
             </Button>
           </div>
         </div>

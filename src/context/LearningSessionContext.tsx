@@ -48,6 +48,8 @@ interface LearningSessionContextValue {
    * （档位会由 setInitialLevel 补写）；只影响推荐效果的统计归属。
    */
   restored: boolean;
+  /** 服务器上的学习状态确实取回了（不含超时与请求失败）。判断「是不是新用户」要用它 */
+  serverStateLoaded: boolean;
   updateSession(session: Partial<LearningSessionState>): void;
   clearSession(): void;
 }
@@ -125,6 +127,8 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
   // 的追踪器会读到上一个身份留下的 true
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
   const restored = Boolean(userId) && restoredFor === userId;
+  const [serverStateFor, setServerStateFor] = useState<string | null>(null);
+  const serverStateLoaded = Boolean(userId) && serverStateFor === userId;
   const saveTimerRef = useRef<TimerRef>(null);
   // 学习状态的 PUT 逐个发：已发出的旧请求晚到时不能覆盖之后的新状态
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -160,6 +164,9 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     // Async: fetch from backend and use if newer
     fetchLearningState(userId)
       .then(serverState => {
+        if (userIdRef.current === userId) {
+          setServerStateFor(userId);
+        }
         if (!serverState || (!serverState.wordId && !serverState.module)) {
           return; // Server has no data, keep local
         }
@@ -314,9 +321,10 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
     session,
     hydrated,
     restored,
+    serverStateLoaded,
     updateSession,
     clearSession
-  }), [session, hydrated, restored, updateSession, clearSession]);
+  }), [session, hydrated, restored, serverStateLoaded, updateSession, clearSession]);
 
   return (
     <LearningSessionContext.Provider value={value}>

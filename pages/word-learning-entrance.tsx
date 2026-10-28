@@ -15,19 +15,19 @@ const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
 
 const moduleRouteMap: Record<string, { path: string; label: string }> = {
-  character: { path: '/character-learning', label: '字学习' },
-  word: { path: '/word-learning', label: '词学习' },
-  word_learning: { path: '/word-learning', label: '词学习' },
-  collocation: { path: '/collocation-learning', label: '搭配学习' },
-  collocation_learning: { path: '/collocation-learning', label: '搭配学习' },
-  sentence: { path: '/sentence-learning', label: '例句学习' },
-  sentence_learning: { path: '/sentence-learning', label: '例句学习' },
-  exercise: { path: '/exercise', label: '练习' },
-  review: { path: '/exercise', label: '复习' },
-  urgent_review: { path: '/exercise', label: '紧急复习' },
-  scheduled_review: { path: '/exercise', label: '计划复习' },
-  explore_learning: { path: '/word-learning', label: '探索学习' },
-  new_learning: { path: '/word-learning', label: '新词学习' },
+  character: { path: '/character-learning', label: 'Characters' },
+  word: { path: '/word-learning', label: 'Word' },
+  word_learning: { path: '/word-learning', label: 'Word' },
+  collocation: { path: '/collocation-learning', label: 'Collocations' },
+  collocation_learning: { path: '/collocation-learning', label: 'Collocations' },
+  sentence: { path: '/sentence-learning', label: 'Sentences' },
+  sentence_learning: { path: '/sentence-learning', label: 'Sentences' },
+  exercise: { path: '/exercise', label: 'Practice' },
+  review: { path: '/exercise', label: 'Review' },
+  urgent_review: { path: '/exercise', label: 'Urgent review' },
+  scheduled_review: { path: '/exercise', label: 'Scheduled review' },
+  explore_learning: { path: '/word-learning', label: 'Explore' },
+  new_learning: { path: '/word-learning', label: 'New word' },
 };
 
 interface RecommendationResolution {
@@ -162,11 +162,11 @@ export default function Component() {
   };
 
   const learningOptions = [
-    { value: 'A', module: 'character', text: 'I have never seen this word.', path: '/character-learning', label: '字学习' },
-    { value: 'B', module: 'word', text: "I don't know what it means.", path: '/word-learning', label: '词学习' },
-    { value: 'C', module: 'collocation', text: "I know what it means, but not which words go with it.", path: '/collocation-learning', label: '搭配学习' },
-    { value: 'D', module: 'sentence', text: "I know which words go with it, but I can't use it in a sentence yet.", path: '/sentence-learning', label: '例句学习' },
-    { value: 'E', module: 'exercise', text: 'I can use it in a sentence.', path: '/exercise', label: '练习' }
+    { value: 'A', module: 'character', text: 'I have never seen this word.', path: '/character-learning', label: 'Characters' },
+    { value: 'B', module: 'word', text: "I don't know what it means.", path: '/word-learning', label: 'Word' },
+    { value: 'C', module: 'collocation', text: "I know what it means, but not which words go with it.", path: '/collocation-learning', label: 'Collocations' },
+    { value: 'D', module: 'sentence', text: "I know which words go with it, but I can't use it in a sentence yet.", path: '/sentence-learning', label: 'Sentences' },
+    { value: 'E', module: 'exercise', text: 'I can use it in a sentence.', path: '/exercise', label: 'Practice' }
   ];
 
   const handleContinue = async () => {
@@ -179,13 +179,13 @@ export default function Component() {
       trackEvent('validation_error', 'continue-button', {
         error: 'no_option_selected'
       });
-      alert('请先选择一个选项');
+      alert('Please choose an answer first');
       return;
     }
 
     const selectedLearning = learningOptions.find(option => option.value === selectedOption);
     if (!selectedLearning) {
-      alert('无法识别当前选择，请重试');
+      alert('Something went wrong with your choice. Please try again.');
       return;
     }
 
@@ -199,7 +199,7 @@ export default function Component() {
     const resolvedWord = targetWord?.word ?? DEFAULT_WORD_NAME;
     const resolvedModule = resolveModuleRoute(selectedLearning.module, selectedLearning.path, selectedLearning.label);
     const recommendationId = targetWord?.recommendationId ?? null;
-    setRecommendationMessage(`推荐模块：${resolvedModule.label}（词汇：${resolvedWord}）`);
+    setRecommendationMessage(`Starting with ${resolvedModule.label} · ${resolvedWord}`);
 
     try {
       trackEvent('vks_test_complete', 'entrance', {
@@ -250,13 +250,13 @@ export default function Component() {
                   {displayName}
                   {isGuest && (
                     <>
-                      {' · 访客 · '}
+                      {' · Guest · '}
                       <button
                         type="button"
                         onClick={() => router.push('/register')}
                         className="text-indigo-600 underline underline-offset-2"
                       >
-                        注册后换设备也能继续
+                        Sign up to continue on other devices
                       </button>
                     </>
                   )}
@@ -264,9 +264,9 @@ export default function Component() {
               )}
               <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
                 <div className="flex justify-between items-center">
-                  <span>词汇量: {currentUser?.wordsStudied ?? 0}</span>
+                  <span>Words studied: {currentUser?.wordsStudied ?? 0}</span>
                   {learningSession.word && (
-                    <span className="text-indigo-600 font-semibold">{activeModuleLabel || '练习'} · {learningSession.word}</span>
+                    <span className="text-indigo-600 font-semibold">{activeModuleLabel || 'Practice'} · {learningSession.word}</span>
                   )}
                 </div>
                 {recommendationMessage && (
@@ -288,7 +288,7 @@ export default function Component() {
                   onClick={() => router.push('/today-review')}
                   className="flex-1 bg-white/60 text-rose-600 hover:bg-white/80 text-sm h-11 rounded-xl shadow-sm border border-white/50 font-semibold"
                 >
-                  今日复习
+                  Today’s review
                 </Button>
               </div>
             </div>

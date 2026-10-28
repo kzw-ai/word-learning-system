@@ -99,7 +99,7 @@ def require_authentication(allow_url_param=True):
             if not user_id:
                 return jsonify({
                     'success': False,
-                    'error': '需要用户认证',
+                    'error': 'Sign-in or guest identity required',
                     'code': 'AUTHENTICATION_REQUIRED'
                 }), 401
             
@@ -107,7 +107,7 @@ def require_authentication(allow_url_param=True):
             if not allow_url_param and not is_authenticated:
                 return jsonify({
                     'success': False,
-                    'error': '需要Session认证',
+                    'error': 'Sign-in required',
                     'code': 'SESSION_REQUIRED'
                 }), 401
             
@@ -137,7 +137,7 @@ def check_data_ownership(target_user_id=None):
             if not current_user_id:
                 return jsonify({
                     'success': False,
-                    'error': '需要用户认证',
+                    'error': 'Sign-in or guest identity required',
                     'code': 'AUTHENTICATION_REQUIRED'
                 }), 401
             
@@ -156,7 +156,7 @@ def check_data_ownership(target_user_id=None):
                 # 数据所有权检查失败
                 return jsonify({
                     'success': False,
-                    'error': '无权访问其他用户的数据',
+                    'error': 'You can only access your own data',
                     'code': 'PERMISSION_DENIED'
                 }), 403
             

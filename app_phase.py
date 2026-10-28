@@ -751,7 +751,7 @@ def start_learning_session(current_user_id=None, **kwargs):
         if request_user_id and request_user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权为其他用户创建会话',
+                'error': 'You can only create your own sessions',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -813,7 +813,7 @@ def end_learning_session(current_user_id=None, **kwargs):
         if session.user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权结束其他用户的会话',
+                'error': 'You can only end your own sessions',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -846,15 +846,15 @@ def set_session_initial_level(current_user_id=None, **kwargs):
     data = request.get_json(silent=True) or {}
     level = data.get('initialLevel')
     if level not in ('A', 'B', 'C', 'D', 'E'):
-        return jsonify({'success': False, 'error': 'initialLevel 须为 A-E'}), 400
+        return jsonify({'success': False, 'error': 'initialLevel must be A–E'}), 400
 
     session = LearningSession.query.filter_by(session_id=data.get('sessionId')).first()
     if session is None:
-        return jsonify({'success': False, 'error': '会话不存在', 'code': 'SESSION_NOT_FOUND'}), 404
+        return jsonify({'success': False, 'error': 'Session not found', 'code': 'SESSION_NOT_FOUND'}), 404
     if session.user_id != current_user_id:
         return jsonify({
             'success': False,
-            'error': '无权修改其他用户的会话',
+            'error': 'You can only change your own sessions',
             'code': 'PERMISSION_DENIED'
         }), 403
 
@@ -883,13 +883,13 @@ def record_exercise_result(current_user_id=None, **kwargs):
         if session is None:
             return jsonify({
                 'success': False,
-                'error': '会话不存在',
+                'error': 'Session not found',
                 'code': 'SESSION_NOT_FOUND'
             }), 404
         if session.user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权为其他用户的会话记录练习',
+                'error': 'You can only record answers in your own sessions',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -972,9 +972,9 @@ def record_batch_events(current_user_id=None, **kwargs):
         # 编一个不存在的 sessionId 也能写进孤立事件
         session = LearningSession.query.filter_by(session_id=session_id).first()
         if session is None:
-            return jsonify({'success': False, 'error': '会话不存在', 'code': 'SESSION_NOT_FOUND'}), 404
+            return jsonify({'success': False, 'error': 'Session not found', 'code': 'SESSION_NOT_FOUND'}), 404
         if session.user_id != current_user_id:
-            return jsonify({'success': False, 'error': '无权为其他用户的会话记录事件', 'code': 'PERMISSION_DENIED'}), 403
+            return jsonify({'success': False, 'error': 'You can only record events in your own sessions', 'code': 'PERMISSION_DENIED'}), 403
         
         if not events:
             return jsonify({'success': True, 'message': 'No events to record', 'count': 0})
@@ -1351,7 +1351,7 @@ def get_recent_sessions(user_id, current_user_id=None, **kwargs):
         if user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权访问其他用户的数据',
+                'error': 'You can only access your own data',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -1406,7 +1406,7 @@ def get_recent_sessions(user_id, current_user_id=None, **kwargs):
 def get_learning_state(user_id, current_user_id=None, **kwargs):
     """获取用户当前学习状态（用于跨设备恢复）"""
     if user_id != current_user_id:
-        return jsonify({'success': False, 'error': '无权访问其他用户的数据', 'code': 'PERMISSION_DENIED'}), 403
+        return jsonify({'success': False, 'error': 'You can only access your own data', 'code': 'PERMISSION_DENIED'}), 403
     try:
         profile = UserProfile.query.filter_by(user_id=user_id).first()
         if not profile:
@@ -1438,7 +1438,7 @@ def get_learning_state(user_id, current_user_id=None, **kwargs):
 def save_learning_state(user_id, current_user_id=None, **kwargs):
     """保存用户当前学习状态（跨设备持久化）"""
     if user_id != current_user_id:
-        return jsonify({'success': False, 'error': '无权修改其他用户的数据', 'code': 'PERMISSION_DENIED'}), 403
+        return jsonify({'success': False, 'error': 'You can only change your own data', 'code': 'PERMISSION_DENIED'}), 403
     try:
         data = request.get_json()
         if not data:
@@ -1489,7 +1489,7 @@ def get_adaptive_recommendation(user_id, current_user_id=None, **kwargs):
         if user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权访问其他用户的数据',
+                'error': 'You can only access your own data',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -1566,7 +1566,7 @@ def record_recommendation_feedback(current_user_id=None, **kwargs):
     if feedback_user_id and feedback_user_id != current_user_id:
         return jsonify({
             'success': False,
-            'error': '无权提交其他用户的反馈',
+            'error': 'You can only give feedback on your own recommendations',
             'code': 'PERMISSION_DENIED'
         }), 403
 
@@ -1574,9 +1574,9 @@ def record_recommendation_feedback(current_user_id=None, **kwargs):
     actual_choice = data.get('actualChoice')
     # type(...) is int：bool 是 int 的子类，isinstance 会放过 recommendationId: true
     if not isinstance(accepted, bool) or type(data.get('recommendationId')) is not int:
-        return jsonify({'success': False, 'error': '需要 recommendationId（整数）与 accepted（布尔）'}), 400
+        return jsonify({'success': False, 'error': 'recommendationId (integer) and accepted (boolean) are required'}), 400
     if actual_choice is not None and (not isinstance(actual_choice, str) or len(actual_choice) > 100):
-        return jsonify({'success': False, 'error': 'actualChoice 须为不超过 100 字的字符串'}), 400
+        return jsonify({'success': False, 'error': 'actualChoice must be a string of at most 100 characters'}), 400
 
     rec = db.session.get(AdaptiveRecommendation, data['recommendationId'])
     if rec is None or rec.user_id != current_user_id:
@@ -1603,7 +1603,7 @@ def get_due_reviews(user_id, current_user_id=None, **kwargs):
         if user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权访问其他用户的数据',
+                'error': 'You can only access your own data',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -1639,7 +1639,7 @@ def get_user_dashboard(user_id, current_user_id=None, **kwargs):
         if user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权访问其他用户的数据',
+                'error': 'You can only access your own data',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -1664,7 +1664,7 @@ def get_user_detailed_progress(user_id, current_user_id=None, **kwargs):
         if user_id != current_user_id:
             return jsonify({
                 'success': False,
-                'error': '无权访问其他用户的数据',
+                'error': 'You can only access your own data',
                 'code': 'PERMISSION_DENIED'
             }), 403
         
@@ -1792,7 +1792,7 @@ def get_simple_recommendation(user_id, context):
         'priority': 'medium',
         'word_id': word.id if word else 1,
         'word': hanzi or (word.pinyin if word else '发生'),
-        'reason': '继续学习新词汇',
+        'reason': 'Keep going with a new word',
         'recommended_module': vks_modules.get(vks_level, 'word'),
         'confidence': 0.5,
         'estimated_time': 300,
@@ -2048,7 +2048,7 @@ def register():
     """用户注册"""
     try:
         if not AuthManager:
-            return jsonify({'success': False, 'error': '认证系统未启用'}), 503
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
         
         auth_manager = AuthManager()
         data = request.get_json()
@@ -2059,11 +2059,11 @@ def register():
         
         # 验证必填字段
         if not username or not password:
-            return jsonify({'success': False, 'error': '用户名和密码不能为空'}), 400
+            return jsonify({'success': False, 'error': 'Please enter a username and password'}), 400
         
         # 验证密码强度
         if len(password) < 6:
-            return jsonify({'success': False, 'error': '密码长度至少6个字符'}), 400
+            return jsonify({'success': False, 'error': 'Use at least 6 characters for the password'}), 400
         
         # 注册用户
         result = auth_manager.register_user(
@@ -2101,7 +2101,7 @@ def login():
     """用户登录"""
     try:
         if not AuthManager:
-            return jsonify({'success': False, 'error': '认证系统未启用'}), 503
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
         
         auth_manager = AuthManager()
         data = request.get_json()
@@ -2110,7 +2110,7 @@ def login():
         remember_me = data.get('remember_me', False)
         
         if not username or not password:
-            return jsonify({'success': False, 'error': '用户名和密码不能为空'}), 400
+            return jsonify({'success': False, 'error': 'Please enter a username and password'}), 400
         
         # 执行登录
         result = auth_manager.login(username, password)
@@ -2151,14 +2151,14 @@ def logout():
     """用户登出"""
     try:
         if not AuthManager:
-            return jsonify({'success': False, 'error': '认证系统未启用'}), 503
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
         
         auth_manager = AuthManager()
         # 从header或cookie获取session token
         session_token = request.headers.get('X-Session-Token') or request.cookies.get('session_token')
         
         if not session_token:
-            return jsonify({'success': False, 'error': '未登录'}), 401
+            return jsonify({'success': False, 'error': 'Not signed in'}), 401
         
         # 执行登出
         result = auth_manager.logout(session_token)
@@ -2183,14 +2183,14 @@ def get_current_user():
     """获取当前登录用户信息"""
     try:
         if not AuthManager:
-            return jsonify({'success': False, 'error': '认证系统未启用'}), 503
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
         
         auth_manager = AuthManager()
         # 从header或cookie获取session token
         session_token = request.headers.get('X-Session-Token') or request.cookies.get('session_token')
         
         if not session_token:
-            return jsonify({'success': False, 'error': '未登录', 'code': 'NOT_AUTHENTICATED'}), 401
+            return jsonify({'success': False, 'error': 'Not signed in', 'code': 'NOT_AUTHENTICATED'}), 401
         
         # 验证session
         validation = auth_manager.validate_session(session_token)
@@ -2207,7 +2207,7 @@ def get_current_user():
                 'data': user_info
             })
         else:
-            return jsonify({'success': False, 'error': '用户不存在'}), 404
+            return jsonify({'success': False, 'error': 'User not found'}), 404
             
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

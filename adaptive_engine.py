@@ -115,7 +115,7 @@ class AdaptiveRecommendationEngine:
                     'priority': 'high',
                     'word_id': word_id,
                     'word': pinyin,
-                    'reason': f'掌握程度下降至 {mastery_level:.2f}，需要紧急复习',
+                    'reason': f'Your mastery dropped to {mastery_level:.0%} — review it now',
                     'recommended_module': self.determine_review_module(user_id, word_id),
                     'confidence': 0.9,
                     'estimated_time': 300,  # 5分钟
@@ -162,7 +162,7 @@ class AdaptiveRecommendationEngine:
                     'priority': 'medium' if priority_score > 0.5 else 'low',
                     'word_id': word_id,
                     'word': pinyin,
-                    'reason': f'计划复习时间已到，当前掌握程度 {mastery_level:.2f}',
+                    'reason': f'Time for a scheduled review (mastery {mastery_level:.0%})',
                     'recommended_module': self.determine_review_module(user_id, word_id),
                     'confidence': 0.8,
                     'estimated_time': 240,  # 4分钟
@@ -215,7 +215,7 @@ class AdaptiveRecommendationEngine:
                 'priority': 'medium',
                 'word_id': word_id,
                 'word': pinyin,
-                'reason': f'推荐学习新词汇，当前掌握程度 {mastery_level:.2f}',
+                'reason': 'A new word to learn',
                 'recommended_module': recommended_module,
                 'confidence': 0.7,
                 'estimated_time': self.estimate_learning_time(user_pattern, recommended_module),
@@ -546,7 +546,7 @@ class AdaptiveRecommendationEngine:
             'type': 'explore_learning',
             'priority': 'low',
             'word_id': None,
-            'reason': '继续探索新的学习内容',
+            'reason': 'Explore something new',
             'recommended_module': 'word',
             'confidence': 0.5,
             'estimated_time': 300,
@@ -559,7 +559,7 @@ class AdaptiveRecommendationEngine:
             'type': 'system_default',
             'priority': 'low',
             'word_id': 1,
-            'reason': '系统默认推荐',
+            'reason': 'Suggested for you',
             'recommended_module': 'word',
             'confidence': 0.3,
             'estimated_time': 300,
@@ -664,7 +664,7 @@ class SpacedRepetitionAlgorithm:
             return {
                 'success': True,
                 'next_review': next_review,
-                'message': f'下次复习时间: {next_review.strftime("%Y-%m-%d %H:%M")}'
+                'message': f'Next review: {next_review.strftime("%Y-%m-%d %H:%M")} UTC'
             }
             
         except Exception as e:

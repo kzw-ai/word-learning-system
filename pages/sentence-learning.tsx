@@ -55,7 +55,7 @@ export default function Component() {
     if (loading) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-gray-500 text-sm">
-          加载例句数据中...
+          Loading example sentences…
         </div>
       );
     }
@@ -63,7 +63,7 @@ export default function Component() {
     if (error || !word) {
       return (
         <div className="flex-1 p-3 flex flex-col justify-center items-center text-red-500 text-sm text-center">
-          暂时无法加载例句，请确认 API 服务是否可用。
+          Couldn't load the example sentences. Please try again later.
         </div>
       );
     }
@@ -79,7 +79,7 @@ export default function Component() {
             </div>
           </div>
           {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
-          <RecapSection labels={["词义", "搭配", "拆字"]}>
+          <RecapSection labels={["Meaning", "Collocations", "Characters"]}>
             <DefinitionBlock word={word} />
             <CollocationList word={word} />
             <CharacterBreakdown word={word} />
@@ -112,16 +112,16 @@ export default function Component() {
                 disabled={!previous}
                 onClick={() => handleNavigate('previous')}
               >
-                ← {previous?.label || '上一步'}
+                ← {previous?.label || 'Back'}
               </Button>
-              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Sentence</h1>
+              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Sentences</h1>
               <Button
                 className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
                 variant="ghost"
                 disabled={!next}
                 onClick={() => handleNavigate('next')}
               >
-                {next?.label || '结束'} →
+                {next?.label || 'Finish'} →
               </Button>
             </div>
             <div className="mt-3">

@@ -15,13 +15,13 @@ export const moduleRouteMap: Record<string, string> = {
 };
 
 export const moduleLabelMap: Record<string, string> = {
-  entrance: 'VKS 入口',
-  character: '字学习',
-  word: '词学习',
-  collocation: '搭配学习',
-  sentence: '例句学习',
-  exercise: '练习',
-  dashboard: '学习分析'
+  entrance: 'Self-check',
+  character: 'Characters',
+  word: 'Word',
+  collocation: 'Collocations',
+  sentence: 'Sentences',
+  exercise: 'Practice',
+  dashboard: 'Dashboard'
 };
 
 const normaliseModule = (value: string) => {

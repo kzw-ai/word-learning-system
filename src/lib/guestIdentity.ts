@@ -85,5 +85,5 @@ export const guestDisplayName = (id: string) => {
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   }
-  return `学习者 ${1000 + (hash % 9000)}`;
+  return `Learner ${1000 + (hash % 9000)}`;
 };

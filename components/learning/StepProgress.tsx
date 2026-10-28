@@ -1,12 +1,13 @@
 import React from 'react';
 import { Check } from 'lucide-react';
 
+// 五个标签要在 390px 宽的屏幕上排成一行：用短标签，各页标题仍用全称
 const STEPS = [
-  { key: 'character', label: '字' },
-  { key: 'word', label: '词' },
-  { key: 'collocation', label: '搭配' },
-  { key: 'sentence', label: '例句' },
-  { key: 'exercise', label: '练习' },
+  { key: 'character', label: 'Chars' },
+  { key: 'word', label: 'Word' },
+  { key: 'collocation', label: 'Phrases' },
+  { key: 'sentence', label: 'Sentence' },
+  { key: 'exercise', label: 'Practice' },
 ] as const;
 
 interface StepProgressProps {
@@ -30,16 +31,17 @@ export default function StepProgress({ current, entry }: StepProgressProps) {
   const startIndex = Math.min(entryIndex, Math.max(currentIndex, 0));
 
   return (
-    <ol className="flex items-center gap-1" aria-label="学习步骤">
+    <ol className="flex items-center gap-0.5" aria-label="Learning steps">
       {STEPS.map((step, index) => {
         const skipped = index < startIndex;
         const done = index >= startIndex && index < currentIndex;
         const active = index === currentIndex;
-        const state = active ? '当前' : done ? '已完成' : skipped ? '已跳过' : '未开始';
+        const state = active ? 'current' : done ? 'done' : skipped ? 'skipped' : 'not started';
         return (
           <li
             key={step.key}
-            className={index === 0 ? 'flex items-center shrink-0' : 'flex items-center gap-1 flex-1 min-w-0'}
+            // flex-auto：按标签实际宽度分配，剩下的给连接线。flex-1 会平均分，标签宽时溢出
+            className={index === 0 ? 'flex items-center shrink-0' : 'flex items-center gap-0.5 flex-auto'}
             aria-current={active ? 'step' : undefined}
           >
             {index > 0 && (
@@ -48,20 +50,21 @@ export default function StepProgress({ current, entry }: StepProgressProps) {
                 aria-hidden="true"
               />
             )}
+            {/* 已完成的步骤只留对勾：英文标签比中文宽，五个都带字在 390px 宽的屏幕上排不下 */}
             <span
-              className={`inline-flex items-center gap-0.5 rounded-full px-2 h-7 text-sm font-semibold whitespace-nowrap shrink-0 ${
+              className={`inline-flex items-center justify-center rounded-full h-7 text-sm font-semibold whitespace-nowrap shrink-0 ${
                 active
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'px-1.5 bg-indigo-600 text-white shadow-sm'
                   : done
-                    ? 'bg-indigo-100 text-indigo-700'
+                    ? 'w-7 bg-indigo-100 text-indigo-700'
                     : skipped
-                      ? 'text-gray-500 line-through decoration-gray-400'
-                      : 'bg-white/60 text-gray-600'
+                      ? 'px-1 text-gray-500 line-through decoration-gray-400'
+                      : 'px-1 bg-white/60 text-gray-600'
               }`}
-              aria-label={`${step.label}：${state}`}
+              aria-label={`${step.label}: ${state}`}
+              title={done ? step.label : undefined}
             >
-              {done && <Check size={12} strokeWidth={3} aria-hidden="true" />}
-              {step.label}
+              {done ? <Check size={14} strokeWidth={3} aria-hidden="true" /> : step.label}
             </span>
           </li>
         );

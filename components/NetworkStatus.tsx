@@ -51,12 +51,12 @@ export default function NetworkStatus() {
       {isOnline ? (
         <>
           <Wifi size={20} />
-          <span className="font-medium">网络已恢复</span>
+          <span className="font-medium">Back online</span>
         </>
       ) : (
         <>
           <WifiOff size={20} />
-          <span className="font-medium">您当前处于离线状态</span>
+          <span className="font-medium">You're offline</span>
         </>
       )}
     </div>
@@ -88,7 +88,7 @@ export function OfflineBanner() {
   return (
     <div className="fixed top-0 left-0 right-0 z-40 bg-yellow-500 text-white px-4 py-2 text-center text-sm font-medium">
       <WifiOff size={16} className="inline mr-2" />
-      您当前处于离线状态 - 部分功能可能不可用
+      You're offline — some features may not work
     </div>
   );
 }

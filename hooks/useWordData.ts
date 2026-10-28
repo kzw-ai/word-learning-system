@@ -13,7 +13,7 @@ const deriveHanzi = (characters: WordCharacter[]) => {
   if (characters && characters.length > 0) {
     return characters.map((item) => item.character).join('');
   }
-  return '词汇';
+  return 'Word';
 };
 
 const normaliseWord = (raw: WordResponse): WordData => ({

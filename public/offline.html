@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>离线模式 - 词汇学习系统</title>
+  <title>Offline · Word Learning</title>
   <style>
     * {
       margin: 0;
@@ -125,24 +125,24 @@
 <body>
   <div class="offline-container">
     <div class="offline-icon">📡</div>
-    <h1>您当前处于离线状态</h1>
-    <p>无法连接到服务器，请检查您的网络连接。部分已缓存的内容仍可访问。</p>
+    <h1>You’re offline</h1>
+    <p>We can’t reach the server. Please check your connection — pages you’ve already opened are still available.</p>
     
     <button class="retry-button" onclick="location.reload()">
-      🔄 重新连接
+      🔄 Reconnect
     </button>
 
     <div id="connectionStatus" class="connection-status offline">
-      🔴 网络连接已断开
+      🔴 No connection
     </div>
 
     <div class="tips">
-      <h3>💡 离线模式提示</h3>
+      <h3>💡 While you’re offline</h3>
       <ul>
-        <li>已访问过的页面可以离线查看</li>
-        <li>学习进度将在恢复连接后自动同步</li>
-        <li>某些功能需要网络连接才能使用</li>
-        <li>建议在有网络时预先加载学习内容</li>
+        <li>Pages you’ve already visited can still be opened</li>
+        <li>Your progress syncs when you’re back online</li>
+        <li>Some features need a connection</li>
+        <li>Open your lessons while online to have them offline</li>
       </ul>
     </div>
   </div>
@@ -153,14 +153,14 @@
       const statusDiv = document.getElementById('connectionStatus');
       if (navigator.onLine) {
         statusDiv.className = 'connection-status online';
-        statusDiv.innerHTML = '🟢 网络连接已恢复';
+        statusDiv.innerHTML = '🟢 Back online';
         // 3秒后自动刷新
         setTimeout(() => {
           location.reload();
         }, 3000);
       } else {
         statusDiv.className = 'connection-status offline';
-        statusDiv.innerHTML = '🔴 网络连接已断开';
+        statusDiv.innerHTML = '🔴 No connection';
       }
     }
 

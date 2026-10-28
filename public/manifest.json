@@ -1,7 +1,7 @@
 {
-  "name": "词汇学习系统",
-  "short_name": "词汇学习",
-  "description": "基于VKS量表的智能词汇学习系统",
+  "name": "Word Learning",
+  "short_name": "Word Learning",
+  "description": "Adaptive Chinese vocabulary learning for intermediate learners",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -22,7 +22,7 @@
     }
   ],
   "categories": ["education", "productivity"],
-  "lang": "zh-CN",
+  "lang": "en",
   "dir": "ltr",
   "scope": "/",
   "screenshots": [
