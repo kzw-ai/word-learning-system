@@ -141,30 +141,24 @@ npm install
 
 #### Option 1: One-click Start (Recommended)
 ```bash
-# Auto-generate test data and start API server
+# Starts the backend (port 5004) and the frontend dev server (port 3000)
 ./start_system.sh
-
-# In another terminal, start the frontend
-npm run dev
 ```
 
 #### Option 2: Manual Start
 ```bash
-# Start Phase 2 API server (port 5004)
-python app_phase.py
+# Backend (port 5004). ALLOW_USER_ID_PARAM=1 lets the dev-only user switcher
+# change test users — never set it in production
+ALLOW_USER_ID_PARAM=1 python3 app_phase.py
 
-# Start frontend dev server (port 3000)
+# Frontend dev server (port 3000)
 npm run dev
 ```
 
-#### Option 3: Docker Deployment
-```bash
-# Production deployment with Docker Compose
-docker-compose -f docker-compose.prod.yml up -d
-```
+Production runs on a VPS under PM2 behind Nginx; see `CLAUDE.md`.
 
 ### Access
-- **Local**: http://localhost:3000 (dev) or http://localhost:3002 (Docker)
+- **Local**: http://localhost:3000
 - **Live**: http://learnchinese.kzwbelieve.top
 
 ---
