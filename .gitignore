@@ -21,7 +21,13 @@ build/
 pyrefly.toml
 docs/安全审计报告.md
 
-# 加工学习资料用的源数据：教材课文有版权、搭配知识库未声明许可，不提交。
-# 来源与获取方式见 data/source_materials/README.md
-data/source_materials/*
-!data/source_materials/README.md
+# 学习资料制作：只提交说明文档和工具代码。源数据（教材课文有版权、搭配知识库未声明许可）、
+# 加工结果和审核文件（含教材原句）、登录令牌与 API Key 都不提交。来源与获取方式见 学习资料制作/README.md
+/学习资料制作/*
+!/学习资料制作/README.md
+!/学习资料制作/制作流程.md
+!/学习资料制作/工具/
+/学习资料制作/工具/deepseek_api_key.txt
+# 语料库网站内部接口的客户端，只留在本地（见 学习资料制作/README.md）
+/学习资料制作/工具/hsk_client.py
+/学习资料制作/工具/__pycache__/
