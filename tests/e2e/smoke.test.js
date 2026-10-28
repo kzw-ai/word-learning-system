@@ -22,7 +22,7 @@ const CHROME =
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 const ROUTES = [
-  '/', '/c', '/character-learning', '/collocation-learning', '/confusable-words',
+  '/', '/character-learning', '/collocation-learning', '/confusable-words',
   '/exercise', '/learning-dashboard',
   '/learning-stats', '/login', '/phase-demo', '/register', '/sentence-learning',
   '/system-status', '/time-tracking-demo', '/today-review', '/word-learning',

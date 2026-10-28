@@ -4,7 +4,7 @@
 import_learning_materials.py 只插入不更新，修好它的解析器并不能改正已经入库的
 数据，所以由这个脚本按同样的规则修一遍。后端每次启动时也会调用 clean_database。
 
-修复的四类问题：
+修复的六类问题：
 1. 种子脚本 setup_confusable_data.py 早期写入的词拼音没有声调（yinwei、suoyi……），
    辨析页直接显示成这样。这些是项目自己的种子数据，没有课件可推，按对照表改正。
 2. 课件里单字的拼音和词性释义挤在一行（'hòu NOUN climate'），整行被当成了释义：
@@ -12,6 +12,11 @@ import_learning_materials.py 只插入不更新，修好它的解析器并不能
 3. 仍缺拼音、或拼音不带声调的单字，从整词拼音按音节切出（切法唯一时才填）。
 4. 带空位的搭配（'简直' / 'X' / '相信（三级）'）只存了其中一行，丢了目标词。
    用修好的解析器从课件原文找出完整的那条替换（唯一匹配时才改）。
+5. 课件里有素材、库里却是空壳的词：导入脚本遇到已存在的词整个跳过，而辨析种子脚本
+   先插了只有两个字的「发现」，课件里「发现」的搭配和例句就从没进库。补入，不改已有行。
+6. 孤立的测试词（苹果、学校、老师、重复的发生……）：没有字、例句、搭配，也没有被
+   辨析词对、练习题、学习进度、学习会话引用。删除，连同指向它的推荐日志（旧引擎曾把
+   这些无素材的词推荐给测试用户；现在只推荐有例句的词）。其余任何一处有引用就保留。
 
 用法：
     python3 scripts/clean_materials.py --report     # 只看会改什么，不写库
@@ -103,7 +108,8 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
 
     # 4. 缺目标词的搭配：从课件原文找回完整的那条
     hanzi_by_word = {wid: ''.join(c for _, c in members) for wid, members in by_word.items()}
-    parsed = {w['hanzi']: [c['collocation'] for c in w['collocations']] for w in load_all_words()}
+    source_words = load_all_words()
+    parsed = {w['hanzi']: [c['collocation'] for c in w['collocations']] for w in source_words}
     for cid, wid, text in conn.execute('SELECT id, word_id, collocation FROM collocation'):
         head = hanzi_by_word.get(wid)
         if not head or head in text:
@@ -112,6 +118,51 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
         if len(candidates) == 1:
             fixes.append((f'搭配 {cid}（{head}）{text!r} -> {candidates[0]!r}',
                           'UPDATE collocation SET collocation = ? WHERE id = ?', (candidates[0], cid)))
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+    # 5. 空壳词补入课件素材
+    if 'example' in tables:
+        for source in source_words:
+            if not (source['collocations'] or source['examples']):
+                continue
+            for wid, hanzi in hanzi_by_word.items():
+                if hanzi != source['hanzi']:
+                    continue
+                has_material = conn.execute(
+                    'SELECT (SELECT COUNT(*) FROM example WHERE word_id = ?) + '
+                    '(SELECT COUNT(*) FROM collocation WHERE word_id = ?)', (wid, wid)
+                ).fetchone()[0]
+                if has_material:
+                    continue
+                for col in source['collocations']:
+                    fixes.append((f'词 {wid}（{hanzi}）补搭配 {col["collocation"]!r}',
+                                  'INSERT INTO collocation (collocation, translation, audio, word_id) VALUES (?, ?, ?, ?)',
+                                  (col['collocation'], col['translation'], '', wid)))
+                for ex in source['examples']:
+                    fixes.append((f'词 {wid}（{hanzi}）补例句 {ex["sentence"]!r}',
+                                  'INSERT INTO example (sentence, pinyin, translation, audio, word_id) VALUES (?, ?, ?, ?, ?)',
+                                  (ex['sentence'], ex['pinyin'], ex['translation'], '', wid)))
+
+    # 6. 孤立测试词。引用检查只针对库里存在的表；任何一处有引用都不删
+    references = [
+        ('character', 'word_id'), ('example', 'word_id'), ('collocation', 'word_id'),
+        ('confusable_pairs', 'word1_id'), ('confusable_pairs', 'word2_id'),
+        ('exercise_item', 'word_id'), ('user_progress', 'word_id'),
+        ('learning_session', 'word_id'),
+    ]
+    conditions = ' AND '.join(
+        f'NOT EXISTS (SELECT 1 FROM {table} WHERE {column} = w.id)'
+        for table, column in references if table in tables
+    )
+    for wid, pinyin in conn.execute(f'SELECT w.id, w.pinyin FROM word w WHERE {conditions}').fetchall():
+        if 'adaptive_recommendation' in tables:
+            stale = conn.execute('SELECT COUNT(*) FROM adaptive_recommendation WHERE target_word_id = ?',
+                                 (wid,)).fetchone()[0]
+            if stale:
+                fixes.append((f'删除指向孤立词 {wid} 的 {stale} 条推荐日志',
+                              'DELETE FROM adaptive_recommendation WHERE target_word_id = ?', (wid,)))
+        fixes.append((f'删除孤立词 {wid}（{pinyin}）', 'DELETE FROM word WHERE id = ?', (wid,)))
 
     return fixes
 

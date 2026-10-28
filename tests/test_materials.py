@@ -40,14 +40,26 @@ def make_db(path):
                                 definition TEXT, audio TEXT, word_id INTEGER);
         CREATE TABLE collocation (id INTEGER PRIMARY KEY, collocation TEXT, translation TEXT,
                                   audio TEXT, word_id INTEGER);
-        INSERT INTO word VALUES (1, 'qìhòu', 'climate'), (2, 'fāngmiàn', 'aspect'), (3, 'yinwei', 'because');
+        CREATE TABLE example (id INTEGER PRIMARY KEY, sentence TEXT, pinyin TEXT, translation TEXT,
+                              audio TEXT, word_id INTEGER);
+        CREATE TABLE confusable_pairs (id INTEGER PRIMARY KEY, word1_id INTEGER, word2_id INTEGER);
+        CREATE TABLE adaptive_recommendation (id INTEGER PRIMARY KEY, user_id TEXT, target_word_id INTEGER);
+        INSERT INTO word VALUES (1, 'qìhòu', 'climate'), (2, 'fāngmiàn', 'aspect'), (3, 'yinwei', 'because'),
+            -- 4：辨析种子插入的空壳「发现」，课件里有它的素材
+            (4, 'faxian', 'discover'),
+            -- 5：孤立测试词（只被旧推荐日志引用）；6：没有素材但在辨析词对里，必须保留
+            (5, '苹果', 'apple'), (6, '突然 tūrán', 'sudden');
+        INSERT INTO confusable_pairs VALUES (1, 6, 1);
+        INSERT INTO adaptive_recommendation VALUES (1, 'test_user_001', 5);
         INSERT INTO character VALUES
             (1, '气', 'qì', 'n. weather', NULL, 1),
             (2, '候', '', 'hòu NOUN climate', NULL, 1),
             (3, '方', '', 'n. side; party', NULL, 2),
             (4, '面', '', 'n. side', NULL, 2),
             (5, '因', 'yin', 'cause', NULL, 3),
-            (6, '为', 'wei', 'for', NULL, 3);
+            (6, '为', 'wei', 'for', NULL, 3),
+            (7, '发', 'fa', 'send out', NULL, 4),
+            (8, '现', 'xian', 'appear', NULL, 4);
     """)
     conn.commit()
     conn.close()
@@ -64,6 +76,27 @@ class TestCleanMaterials:
         assert rows[3].startswith('fāng | ') and rows[4].startswith('miàn | ')
         assert rows[5].startswith('yīn') and rows[6].startswith('wèi')
         assert conn.execute('SELECT pinyin FROM word WHERE id = 3').fetchone()[0] == 'yīnwèi'
+        conn.close()
+
+    def test_fills_shell_word_from_source(self, tmp_path):
+        db = str(tmp_path / 'm.db')
+        make_db(db)
+        clean_materials.clean_database(db)
+        conn = sqlite3.connect(db)
+        collocations = [r[0] for r in conn.execute('SELECT collocation FROM collocation WHERE word_id = 4')]
+        assert any('发现' in c for c in collocations)
+        assert conn.execute('SELECT COUNT(*) FROM example WHERE word_id = 4').fetchone()[0] > 0
+        conn.close()
+
+    def test_deletes_only_unreferenced_orphans(self, tmp_path):
+        db = str(tmp_path / 'm.db')
+        make_db(db)
+        clean_materials.clean_database(db)
+        conn = sqlite3.connect(db)
+        ids = {r[0] for r in conn.execute('SELECT id FROM word')}
+        assert 5 not in ids                       # 孤立测试词被删
+        assert conn.execute('SELECT COUNT(*) FROM adaptive_recommendation').fetchone()[0] == 0
+        assert 6 in ids                           # 辨析词对引用着，保留
         conn.close()
 
     def test_idempotent(self, tmp_path):

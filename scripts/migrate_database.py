@@ -433,7 +433,7 @@ if __name__ == '__main__':
         # 测试数据库
         if test_extended_database():
             print("\n🎉 数据库迁移和测试完全成功！")
-            print("📍 您现在可以使用 app_extended.py 启动新的API服务")
+            print("📍 您现在可以启动后端：python3 app_phase.py（生产环境由 PM2 管理）")
         else:
             print("\n⚠️  数据库迁移完成但测试失败，请检查")
     

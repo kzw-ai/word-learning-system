@@ -6,7 +6,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/1137043480/word-learning-system?style=social)](https://github.com/1137043480/word-learning-system)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-5A0FC8?logo=pwa)](http://learnchinese.kzwbelieve.top)
 
-**Version**: 2.2.0 · **Status**: Production · **Last Updated**: March 2026
+**Version**: 2.3.0 · **Status**: Production · **Last Updated**: October 2026
 
 > 🌐 **[Try it now → learnchinese.kzwbelieve.top](http://learnchinese.kzwbelieve.top)** — No installation required! Works on mobile & desktop.
 
@@ -32,7 +32,7 @@ An intelligent, adaptive vocabulary learning system for intermediate-level Chine
 ## 📸 Screenshots
 
 <details>
-<summary><b>Click to view all 9 screenshots 👇</b></summary>
+<summary><b>Click to view all 10 screenshots 👇</b></summary>
 
 <table>
   <tr>
@@ -40,40 +40,40 @@ An intelligent, adaptive vocabulary learning system for intermediate-level Chine
     <td align="center"><b>VKS Assessment</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/01-homepage.png?v=3" width="400" alt="Home Page - Mobile-first welcome interface with navigation to all learning modules"></td>
-    <td><img src="docs/screenshots/02-vks-entrance.png?v=3" width="400" alt="VKS Assessment - Vocabulary Knowledge Scale test to determine learning entry point"></td>
+    <td><img src="docs/screenshots/01-homepage.png?v=4" width="400" alt="Home Page - Mobile-first welcome interface with navigation to all learning modules"></td>
+    <td><img src="docs/screenshots/02-vks-entrance.png?v=4" width="400" alt="VKS Assessment - Vocabulary Knowledge Scale test to determine learning entry point"></td>
   </tr>
   <tr>
     <td align="center"><b>Character Learning</b></td>
     <td align="center"><b>Word Learning</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/03-character-learning.png?v=3" width="400" alt="Character Learning - Chinese character breakdown with pinyin, stroke order, and definitions"></td>
-    <td><img src="docs/screenshots/04-word-learning.png?v=3" width="400" alt="Word Learning - Deep dive into word meanings, collocations, and usage"></td>
+    <td><img src="docs/screenshots/03-character-learning.png?v=4" width="400" alt="Character Learning - Chinese character breakdown with pinyin, stroke order, and definitions"></td>
+    <td><img src="docs/screenshots/04-word-learning.png?v=4" width="400" alt="Word Learning - Deep dive into word meanings, collocations, and usage"></td>
   </tr>
   <tr>
     <td align="center"><b>Collocation Learning</b></td>
     <td align="center"><b>Sentence Learning</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/04b-collocation-learning.png?v=3" width="400" alt="Collocation Learning - Mastering native-like phrasing combinations"></td>
-    <td><img src="docs/screenshots/04c-sentence-learning.png?v=3" width="400" alt="Sentence Learning - Contextual reading and listening practice"></td>
+    <td><img src="docs/screenshots/04b-collocation-learning.png?v=4" width="400" alt="Collocation Learning - Mastering native-like phrasing combinations"></td>
+    <td><img src="docs/screenshots/04c-sentence-learning.png?v=4" width="400" alt="Sentence Learning - Contextual reading and listening practice"></td>
   </tr>
   <tr>
     <td align="center"><b>Vocabulary Exercise</b></td>
     <td align="center"><b>Learning Dashboard</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/07-exercise.png?v=3" width="400" alt="Vocabulary Exercise - Interactive quizzes with immediate feedback"></td>
-    <td><img src="docs/screenshots/05-dashboard.png?v=3" width="400" alt="Learning Dashboard - AI-powered smart recommendations with confidence scoring"></td>
+    <td><img src="docs/screenshots/07-exercise.png?v=4" width="400" alt="Vocabulary Exercise - Interactive quizzes with immediate feedback"></td>
+    <td><img src="docs/screenshots/05-dashboard.png?v=4" width="400" alt="Learning Dashboard - AI-powered smart recommendations with confidence scoring"></td>
   </tr>
   <tr>
     <td align="center"><b>Today's Review</b></td>
-    <td></td>
+    <td align="center"><b>Confusable Words</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/06-today-review.png?v=3" width="400" alt="Spaced Repetition Review - Daily personalized review tasks"></td>
-    <td></td>
+    <td><img src="docs/screenshots/06-today-review.png?v=4" width="400" alt="Spaced Repetition Review - Daily personalized review tasks"></td>
+    <td><img src="docs/screenshots/08-confusable.png?v=4" width="400" alt="Confusable Words - Side-by-side comparison of near-synonyms and how they differ"></td>
   </tr>
 </table>
 
@@ -83,12 +83,11 @@ An intelligent, adaptive vocabulary learning system for intermediate-level Chine
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 14, React, TypeScript, Tailwind CSS, shadcn/ui |
+| **Frontend** | Next.js 15, React, TypeScript, Tailwind CSS, shadcn/ui |
 | **Backend** | Flask, SQLAlchemy, SQLite |
 | **PWA** | Service Worker, Web App Manifest, offline caching |
 | **Algorithm** | Modified SuperMemo-2, Multi-factor recommendation engine |
-| **ML Models** | AdaBoost (Multinomial NB), Gaussian NB, XGBoost with voting ensemble |
-| **NLP Pipeline** | BCC corpus frequency analysis, dependency parsing, mutual information scoring |
+| **Research (thesis, not in this codebase)** | ML models (AdaBoost with Multinomial NB, Gaussian NB, XGBoost, voting ensemble) and the NLP pipeline (BCC corpus frequency, dependency parsing, mutual information) were used in the thesis study and to prepare the learning materials; the app itself runs the rule-based adaptive engine and SM-2 scheduling |
 | **Deployment** | Nginx, PM2, VPS with HTTPS |
 
 ---
@@ -142,30 +141,24 @@ npm install
 
 #### Option 1: One-click Start (Recommended)
 ```bash
-# Auto-generate test data and start API server
+# Starts the backend (port 5004) and the frontend dev server (port 3000)
 ./start_system.sh
-
-# In another terminal, start the frontend
-npm run dev
 ```
 
 #### Option 2: Manual Start
 ```bash
-# Start Phase 2 API server (port 5004)
-python app_phase.py
+# Backend (port 5004). ALLOW_USER_ID_PARAM=1 lets the dev-only user switcher
+# change test users — never set it in production
+ALLOW_USER_ID_PARAM=1 python3 app_phase.py
 
-# Start frontend dev server (port 3000)
+# Frontend dev server (port 3000)
 npm run dev
 ```
 
-#### Option 3: Docker Deployment
-```bash
-# Production deployment with Docker Compose
-docker-compose -f docker-compose.prod.yml up -d
-```
+Production runs on a VPS under PM2 behind Nginx; see `CLAUDE.md`.
 
 ### Access
-- **Local**: http://localhost:3000 (dev) or http://localhost:3002 (Docker)
+- **Local**: http://localhost:3000
 - **Live**: http://learnchinese.kzwbelieve.top
 
 ---
