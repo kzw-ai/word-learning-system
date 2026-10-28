@@ -244,6 +244,8 @@ class ConfusablePair(db.Model):
     examples = db.Column(db.Text)
     tips = db.Column(db.Text)
     difficulty_level = db.Column(db.Integer, default=1)
+    # 辨析题（论文 3.2.4）：JSON 数组 [{stem, options, correct_answer}]，由 scripts/import_hsk4_batches.py 导入
+    questions = db.Column(db.Text)
 
 class ConfusableExerciseRecord(db.Model):
     __tablename__ = 'confusable_exercise_records'
@@ -480,6 +482,28 @@ def remaining_review_types(user_id, word_id):
         return None
     types = {t for t, n in state['remaining'].items() if n > 0} | set(state['pending'])
     return types or None
+
+
+def word_ready_for_contrast(user_id, word_id):
+    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。
+    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。"""
+    state = review_state(user_id, word_id)
+    return bool(state) and (state['reviews_done'] >= 1 or state['completed'])
+
+
+def confusable_pair_due(user_id, pair_id, word1_id, word2_id, question_count):
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关。
+    练过关 = 最近一轮辨析题（最近 question_count 条作答）全对；答错的下次练这两个词时再带出。
+    没有辨析题的旧词对没有作答可看，解锁后每次都带出（与以前一样，只是不再在刚学时出现）。
+    辨析题不计入论文表 4.2 的复习次数。"""
+    if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
+        return False
+    if not question_count:
+        return True
+    recent = [ok for (ok,) in db.session.query(ConfusableExerciseRecord.is_correct)
+              .filter_by(user_id=str(user_id), pair_id=pair_id)
+              .order_by(ConfusableExerciseRecord.id.desc()).limit(question_count).all()]
+    return not (len(recent) == question_count and all(recent))
 
 
 def review_summary(state):
@@ -2403,6 +2427,23 @@ def ensure_user_progress_unique_index():
     finally:
         conn.close()
 
+def ensure_confusable_pair_columns():
+    """为旧数据库补齐 confusable_pairs.questions（辨析题）。必须在第一次查询 ConfusablePair 之前执行"""
+    conn = sqlite3.connect(_db_path)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(confusable_pairs)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if existing and 'questions' not in existing:
+            cursor.execute("ALTER TABLE confusable_pairs ADD COLUMN questions TEXT")
+            conn.commit()
+            print("   ➕ 已为 confusable_pairs 补齐 questions 列")
+    except sqlite3.Error as e:
+        print(f"⚠️  confusable_pairs 列迁移失败: {e}")
+    finally:
+        conn.close()
+
+
 def initialize_database():
     """初始化数据库和测试数据"""
     try:
@@ -2410,6 +2451,7 @@ def initialize_database():
             db.create_all()
             ensure_user_profile_columns()
             ensure_learning_session_columns()
+            ensure_confusable_pair_columns()
             ensure_learning_event_columns()
             ensure_user_progress_unique_index()
             ensure_review_indexes()
@@ -2508,6 +2550,17 @@ def initialize_database():
             except Exception as e:
                 print(f"⚠️  论文练习题同步失败: {str(e)}")
 
+            # 按论文 5.3 节流程批量制作的四级词学习资料（只导入作者已审核的批次），幂等
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import import_hsk4_batches  # pyrefly: ignore  # 运行时动态路径
+                added, _, items, pairs = import_hsk4_batches.import_into(_db_path)
+                if added or items or pairs:
+                    print(f"📝 四级词批次导入：新增词 {added}，练习题 {items}，易混淆词对 {pairs}")
+            except Exception as e:
+                print(f"⚠️  四级词批次导入失败: {str(e)}")
+
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:
                 print("📊 生成测试数据...")
@@ -2528,7 +2581,8 @@ def initialize_database():
 # 在module级别注册易混淆词API（gunicorn不走__main__）
 if register_confusable_apis:
     try:
-        register_confusable_apis(app, db, require_authentication, check_data_ownership)
+        register_confusable_apis(app, db, require_authentication, check_data_ownership,
+                                  pair_due=confusable_pair_due)
     except Exception as e:
         print(f"⚠️  易混淆词API模块级注册失败: {str(e)}")
 

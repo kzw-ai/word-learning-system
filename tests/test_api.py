@@ -997,3 +997,142 @@ class TestThesisReviewPlan:
             mod.db.session.commit()
         rec = anon_client.get(f'/api/adaptive/recommendation/{learner}', headers=guest_headers(learner)).get_json()['data']
         assert rec['type'] != 'system_default', rec
+
+
+# ================================================
+# 易混淆词辨析：解锁时机与辨析题（论文 2.2.4、3.2.4）
+# ================================================
+
+class TestConfusableContrast:
+    """两个词分别掌握到一定程度（学过并至少复习过一次）后才带出辨析；辨析题全对后不再带出"""
+
+    QUESTIONS = [
+        {'question_type': 'confusable', 'stem': '我 ( ) 我这次做到了。', 'options': ['考虑', '想'], 'correct_answer': '想'},
+        {'question_type': 'confusable', 'stem': '这房子可以 ( ) 。', 'options': ['想', '考虑'], 'correct_answer': '考虑'},
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _engine(self):
+        import app_phase as mod
+        if mod.spaced_repetition is None:
+            pytest.skip('自适应引擎未加载')
+
+    @pytest.fixture
+    def pair(self, app):
+        """在词 1 和一个新词之间建一对带辨析题的易混淆词，测完删掉"""
+        import json
+        import app_phase as mod
+        with app.app_context():
+            other = mod.Word(pinyin='xiǎng', definition='v. to think')
+            mod.db.session.add(other)
+            mod.db.session.flush()
+            row = mod.ConfusablePair(word1_id=1, word2_id=other.id, reason='r', difference='d', examples='e', tips='t',
+                                     difficulty_level=2, questions=json.dumps(self.QUESTIONS, ensure_ascii=False))
+            mod.db.session.add(row)
+            mod.db.session.commit()
+            ids = (row.id, other.id)
+        yield ids
+        with app.app_context():
+            mod.ConfusableExerciseRecord.query.filter_by(pair_id=ids[0]).delete()
+            mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, ids[0]))
+            mod.db.session.delete(mod.db.session.get(mod.Word, ids[1]))
+            mod.db.session.commit()
+
+    def _practise(self, client, learner, word_id, session_id):
+        """一节练习：词 1 按出题接口全部答对；没有素材的词答一道就算练过"""
+        client.post('/api/learning/session/start', json={
+            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise',
+            'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+        if word_id == 1:
+            data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
+            questions = [(q['id'], q['type']) for q in data['questions']]
+        else:
+            questions = [(f'definition-{word_id}', 'definition')]
+        for question_id, question_type in questions:
+            client.post('/api/learning/exercise/record', json={
+                'sessionId': session_id, 'questionId': question_id, 'questionType': question_type,
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+                'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+            }, headers=guest_headers(learner))
+
+    def _offered(self, client, learner):
+        return client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()['pair_id']
+
+    def _answer(self, client, learner, pair_id, correct):
+        client.post('/api/confusable/exercise/record', json={'pair_id': pair_id, 'is_correct': correct, 'response_time': 2.0},
+                    headers=guest_headers(learner))
+
+    def test_offered_only_after_both_words_were_reviewed(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastunlock')
+        assert self._offered(anon_client, learner) is None, '还没学过，不带出'
+        self._practise(anon_client, learner, 1, 's-contrast-1')
+        self._practise(anon_client, learner, other, 's-contrast-o1')
+        assert self._offered(anon_client, learner) is None, '词 1 刚学完第一次，还没复习过（论文：先分开学）'
+        self._practise(anon_client, learner, 1, 's-contrast-2')
+        assert self._offered(anon_client, learner) == pair_id
+        assert anon_client.get('/api/confusable/for-word/1').get_json()['pair_id'] is None, '认不出身份时不带出'
+
+    def test_passing_the_quiz_stops_offering_until_a_wrong_answer(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastpass')
+        for n, word in enumerate((1, other, 1)):
+            self._practise(anon_client, learner, word, f's-contrast-p{n}')
+        assert self._offered(anon_client, learner) == pair_id
+        self._answer(anon_client, learner, pair_id, True)
+        assert self._offered(anon_client, learner) == pair_id, '只答了一题，还没练过关'
+        self._answer(anon_client, learner, pair_id, True)
+        assert self._offered(anon_client, learner) is None, '一轮全对，不再带出'
+        self._answer(anon_client, learner, pair_id, False)
+        assert self._offered(anon_client, learner) == pair_id, '最近一轮有答错，下次再带出'
+
+    def test_pair_payload_includes_questions(self, client, pair):
+        pair_id, _ = pair
+        data = client.get(f'/api/confusable/pair/{pair_id}').get_json()
+        assert data['pair']['questions'] == self.QUESTIONS
+        listed = client.get('/api/confusable/pairs?limit=50').get_json()['pairs']
+        assert all(isinstance(p['questions'], list) for p in listed)
+
+
+class TestHsk4BatchImport:
+    """学习资料制作第 7 步的素材：只导入作者已审核的批次，重复导入不重复插入"""
+
+    def _batch(self, status):
+        word = {
+            'hanzi': '测验', 'pinyin': 'cèyàn', 'definition': 'v. to test',
+            'characters': [{'character': '测', 'pinyin': 'cè', 'definition': 'v. to measure'},
+                           {'character': '验', 'pinyin': 'yàn', 'definition': 'v. to examine'}],
+            'collocations': [{'collocation': '认真（三级） 测验', 'translation': 'test carefully'}],
+            'examples': [{'sentence': '老师明天测验。', 'pinyin': '老师/lǎoshī 明天/míngtiān 测验/cèyàn 。',
+                          'translation': 'The teacher will give a test tomorrow.'}],
+            'exercises': [
+                {'question_type': 'definition', 'stem': 'v. to test', 'options': ['测验', '老师', '明天', '书'], 'correct_answer': '测验'},
+                {'question_type': 'fill_word', 'stem': '老师明天测 ( ) 。', 'options': [], 'correct_answer': '验'},
+            ],
+        }
+        return {'batch': '测试批', 'status': status, 'words': [word], 'confusable_pairs': []}
+
+    def test_only_reviewed_batches_and_idempotent(self, app, tmp_path, monkeypatch):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        path = tmp_path / '测试批.json'
+        path.write_text(json.dumps(self._batch('待审核'), ensure_ascii=False), encoding='utf-8')
+        assert imp.import_into(db) == (0, 0, 0, 0), '待审核的批次不导入'
+        path.write_text(json.dumps(self._batch(imp.APPROVED), ensure_ascii=False), encoding='utf-8')
+        assert imp.import_into(db) == (1, 0, 2, 0)
+        assert imp.import_into(db) == (0, 0, 0, 0), '重复导入不重复插入'
+        conn = sqlite3.connect(db)
+        try:
+            word_id = conn.execute("SELECT word_id FROM character GROUP BY word_id "
+                                   "HAVING GROUP_CONCAT(character, '') = '测验'").fetchone()[0]
+            rows = conn.execute('SELECT question_type, source_deck FROM exercise_item WHERE word_id = ? ORDER BY source_slide',
+                                (word_id,)).fetchall()
+        finally:
+            conn.close()
+        assert rows == [('definition', 'HSK4 测试批'), ('fill_word', 'HSK4 测试批')]
+        data = app.test_client().get(f'/api/learning/word/{word_id}/exercises?limit=10').get_json()['data']
+        assert data['source'] == 'authored' and [q['type'] for q in data['questions']] == ['definition', 'fill_word']

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
 import AudioPlayer from '@/components/AudioPlayer';
 import { buildApiUrl } from '@/src/lib/apiClient';
+import { authenticatedPost } from '@/src/lib/authClient';
 import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
 
 interface ConfusableWord {
@@ -23,6 +24,97 @@ interface ConfusablePair {
   examples: string;
   tips: string;
   difficulty_level: number;
+  // 辨析题（论文 3.2.4）：句子来自学习材料里的例句，两个选项是这两个词
+  questions?: ContrastQuestion[];
+}
+
+interface ContrastQuestion {
+  stem: string;
+  options: string[];
+  correct_answer: string;
+}
+
+/**
+ * 辨析题：每题选一次，选完即记一条作答（不计入论文表 4.2 的复习次数）。
+ * 后端按最近一轮是否全对决定之后还要不要带出这一对。
+ */
+function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
+  const questions = pair.questions ?? [];
+  const [picked, setPicked] = useState<Record<number, string>>({});
+  const shownAt = useRef(Date.now());
+
+  useEffect(() => {
+    setPicked({});
+    shownAt.current = Date.now();
+  }, [pair.id]);
+
+  if (questions.length === 0) return null;
+
+  const choose = (index: number, option: string) => {
+    if (picked[index]) return;
+    setPicked(prev => ({ ...prev, [index]: option }));
+    authenticatedPost('/api/confusable/exercise/record', {
+      pair_id: pair.id,
+      is_correct: option === questions[index].correct_answer,
+      response_time: (Date.now() - shownAt.current) / 1000,
+    }).catch(() => {
+      // 记录失败不影响作答
+    });
+    shownAt.current = Date.now();
+  };
+
+  const answered = Object.keys(picked).length;
+  const correct = questions.filter((q, i) => picked[i] === q.correct_answer).length;
+
+  return (
+    <div className="glass-panel rounded-2xl p-4">
+      <h4 className="text-sm font-semibold text-gray-800 mb-1">✏️ Check yourself</h4>
+      <p className="text-sm text-gray-500 mb-3">Choose the word that fits each sentence.</p>
+      <div className="space-y-4">
+        {questions.map((q, i) => {
+          const choice = picked[i];
+          return (
+            <div key={i}>
+              <p className="text-base text-gray-800 leading-relaxed mb-2">{q.stem}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {q.options.map(option => {
+                  const state = !choice ? 'idle'
+                    : option === q.correct_answer ? 'right'
+                    : option === choice ? 'wrong' : 'idle';
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      disabled={!!choice}
+                      onClick={() => choose(i, option)}
+                      className={`h-11 rounded-xl border-2 text-lg font-bold transition-colors ${
+                        state === 'right' ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                        : state === 'wrong' ? 'border-red-400 bg-red-50 text-red-700'
+                        : 'border-indigo-100 bg-white/80 text-gray-800 hover:border-indigo-300'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+              {choice && (
+                <p className={`text-sm mt-1.5 ${choice === q.correct_answer ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {choice === q.correct_answer ? 'Correct.' : `Not quite: the answer is ${q.correct_answer}.`}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {answered === questions.length && (
+        <p className="text-sm font-semibold text-gray-700 mt-4">
+          {correct} / {questions.length} correct
+          {correct < questions.length ? '. This pair will come back next time you practise these words.' : '. Well done!'}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -40,8 +132,9 @@ export default function ConfusableWordsPage() {
   const fromExercise = router.query.from === 'exercise';
 
   useEffect(() => {
-    loadConfusablePairs();
-  }, []);
+    if (router.isReady) loadConfusablePairs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady]);
 
   useEffect(() => {
     if (!router.isReady || pairs.length === 0) return;
@@ -61,7 +154,14 @@ export default function ConfusableWordsPage() {
       const data = await response.json();
 
       if (data.success) {
-        setPairs(data.pairs);
+        // 从练习带入的那一对不一定在列表的前 20 对里：单独取来放在最前面
+        const pairId = Number(router.query.pair);
+        let list: ConfusablePair[] = data.pairs;
+        if (pairId && !list.some(p => p.id === pairId)) {
+          const single = await (await fetch(buildApiUrl(`/api/confusable/pair/${pairId}`))).json();
+          if (single.success) list = [single.pair, ...list];
+        }
+        setPairs(list);
       } else {
         setError(data.error || 'Failed to load');
       }
@@ -172,7 +272,7 @@ export default function ConfusableWordsPage() {
         {/* 混淆原因 */}
         <div className="glass-panel rounded-2xl p-4 bg-amber-50/70">
           <h4 className="text-sm font-semibold text-amber-800 mb-1.5">💡 Why they get mixed up</h4>
-          <p className="text-sm text-gray-700 leading-relaxed">{currentPair.reason}</p>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{currentPair.reason}</p>
         </div>
 
         {/* 显示答案按钮 */}
@@ -210,6 +310,8 @@ export default function ConfusableWordsPage() {
                 <p className="text-sm text-gray-700 leading-relaxed">{currentPair.tips}</p>
               </div>
             )}
+
+            <ContrastQuiz pair={currentPair} />
           </>
         )}
 

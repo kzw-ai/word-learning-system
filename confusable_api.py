@@ -4,16 +4,32 @@
 添加到 app_phase.py 中
 """
 
+import json
 import re
 
 from flask import jsonify, request
 from sqlalchemy import text
 
+from user_data_isolation import get_current_user_from_request
+
 # 无 character 行的词，pinyin 列里混写了汉字，形如 '突然 tūrán'
 HANZI_PREFIX = re.compile(r'^([\u4e00-\u9fff]+)\s+(.+)$')
 
-def register_confusable_apis(app, db, require_authentication, check_ownership):
-    """注册易混淆词相关的API端点"""
+def parse_questions(raw):
+    """confusable_pairs.questions（JSON）→ 辨析题列表；旧数据没有这一列的值时为空列表"""
+    try:
+        questions = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return questions if isinstance(questions, list) else []
+
+
+def register_confusable_apis(app, db, require_authentication, check_ownership, pair_due=None):
+    """注册易混淆词相关的API端点。
+
+    pair_due(user_id, pair_id, word1_id, word2_id, question_count) 判断练习结束时要不要带出这一对的辨析
+    （论文 2.2.4：两个词分别掌握到一定程度后再对比学习）；不传时只要有词对就带出。
+    """
 
     def word_display(word_id, raw_pinyin):
         """返回 (汉字, 拼音)。word 表没有汉字列，按 character 表顺序拼出；
@@ -54,7 +70,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
                     cp.difference,
                     cp.examples,
                     cp.tips,
-                    cp.difficulty_level
+                    cp.difficulty_level,
+                    cp.questions
                 FROM confusable_pairs cp
                 JOIN word w1 ON cp.word1_id = w1.id
                 JOIN word w2 ON cp.word2_id = w2.id
@@ -81,7 +98,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
                     'difference': row[8],
                     'examples': row[9],
                     'tips': row[10],
-                    'difficulty_level': row[11]
+                    'difficulty_level': row[11],
+                    'questions': parse_questions(row[12])
                 })
             
             return jsonify({
@@ -95,15 +113,20 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
 
     @app.route('/api/confusable/for-word/<int:word_id>', methods=['GET'])
     def get_confusable_for_word(word_id):
-        """查询某词是否有易混淆词对（用于学习流程中带出辨析环节）"""
+        """查询练习结束时要不要带出这个词的辨析环节：有易混淆词对，且这位学习者两个词都已
+        掌握到一定程度、这一对还没练过关（见 pair_due）。认不出身份时不带出。"""
         try:
-            query = text("""
-                SELECT id FROM confusable_pairs
+            rows = db.session.execute(text("""
+                SELECT id, word1_id, word2_id, questions FROM confusable_pairs
                 WHERE word1_id = :word_id OR word2_id = :word_id
-                LIMIT 1
-            """)
-            row = db.session.execute(query, {'word_id': word_id}).fetchone()
-            return jsonify({'success': True, 'pair_id': row[0] if row else None})
+                ORDER BY id
+            """), {'word_id': word_id}).fetchall()
+            if pair_due is None:
+                return jsonify({'success': True, 'pair_id': rows[0][0] if rows else None})
+            viewer_id, _ = get_current_user_from_request()
+            due = next((r[0] for r in rows if viewer_id and
+                        pair_due(viewer_id, r[0], r[1], r[2], len(parse_questions(r[3])))), None)
+            return jsonify({'success': True, 'pair_id': due})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -124,7 +147,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
                     cp.difference,
                     cp.examples,
                     cp.tips,
-                    cp.difficulty_level
+                    cp.difficulty_level,
+                    cp.questions
                 FROM confusable_pairs cp
                 JOIN word w1 ON cp.word1_id = w1.id
                 JOIN word w2 ON cp.word2_id = w2.id
@@ -144,7 +168,8 @@ def register_confusable_apis(app, db, require_authentication, check_ownership):
                 'difference': result[8],
                 'examples': result[9],
                 'tips': result[10],
-                'difficulty_level': result[11]
+                'difficulty_level': result[11],
+                'questions': parse_questions(result[12])
             }
             
             return jsonify({
