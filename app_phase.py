@@ -288,7 +288,9 @@ def get_or_create_user_progress(user_id, word_id):
     try:
         db.session.flush()  # 让同一事务内后续的 UPDATE 能看到这一行
     except IntegrityError:
-        # 并发请求下另一个事务已插入同一 (user_id, word_id)，回滚后取它的行
+        # 并发请求下另一个事务已插入同一 (user_id, word_id)，回滚后取它的行。
+        # 作答接口先 INSERT 作答再来这里，已持写锁，走不到这个分支；若走到，
+        # 回滚会连同未提交的作答一起撤掉，由调用方重新写入
         db.session.rollback()
         progress = UserProgress.query.filter_by(user_id=user_id, word_id=word_id).first()
     return progress
@@ -329,6 +331,76 @@ def accumulate_exercise_into_progress(user_id, word_id, question_type, is_correc
 
     progress.last_studied = datetime.utcnow()
     return progress
+
+
+# 一节练习按多少正确率算「答对」进入下一个复习间隔。三四道题的一节里错一道就不算
+# （2/3 < 0.8），明天再复习；题多时允许偶尔失手。
+SESSION_PASS_ACCURACY = 0.8
+
+
+def schedule_review_from_session(session, progress):
+    """按这节练习到目前为止的全部作答，重排这个词的下次复习。
+
+    一次「复习」= 一节练习，不是一道题。在调用方的事务里运行、只改 progress 对象，
+    由调用方提交：读到的作答与进度和写回的日程是同一时刻的。
+    同一道题提交多次（双击、重放）只算第一次。会话先后按自增 id 排：start_time
+    来自客户端，可能带时区偏移或相同。这个词已有更新的会话作答时不动：
+    往旧会话补交的作答不能覆盖新会话排的日程。
+    """
+    newer_answered = (
+        db.session.query(LearningSession.id)
+        .join(ExerciseRecord, ExerciseRecord.session_id == LearningSession.session_id)
+        .filter(
+            LearningSession.user_id == session.user_id,
+            LearningSession.word_id == session.word_id,
+            LearningSession.id > session.id,
+        )
+        .first()
+    )
+    if newer_answered:
+        return False
+
+    rows = (ExerciseRecord.query.filter_by(session_id=session.session_id)
+            .order_by(ExerciseRecord.id).all())
+    first_by_question = {}
+    for r in rows:
+        first_by_question.setdefault(r.question_id, r)
+    records = list(first_by_question.values())
+    if not records:
+        return False
+
+    def mean(values, default):
+        values = [v for v in values if v is not None]
+        return sum(values) / len(values) if values else default
+
+    accuracy = sum(1 for r in records if r.is_correct) / len(records)
+    exercise_result = {
+        'is_correct': accuracy >= SESSION_PASS_ACCURACY,
+        'response_time': mean([r.response_time_seconds for r in records], 5.0),
+        'confidence': mean([r.confidence_level for r in records], 3),
+        'hesitation_count': mean([r.hesitation_count for r in records], 0),
+    }
+    prior_reviews = (
+        db.session.query(func.count(func.distinct(LearningSession.session_id)))
+        .join(ExerciseRecord, ExerciseRecord.session_id == LearningSession.session_id)
+        .filter(
+            LearningSession.user_id == session.user_id,
+            LearningSession.word_id == session.word_id,
+            LearningSession.id < session.id,
+        )
+        .scalar()
+    ) or 0
+
+    progress.next_review_suggested = spaced_repetition.engine.next_review_from(
+        progress.mastery_level or 0.0,
+        prior_reviews,
+        progress.consecutive_correct or 0,
+        progress.consecutive_incorrect or 0,
+        exercise_result,
+    )
+    progress.review_count = prior_reviews + 1
+    progress.updated_at = datetime.utcnow()
+    return True
 
 
 # 全局推荐引擎实例
@@ -554,7 +626,7 @@ def record_exercise_result(current_user_id=None, **kwargs):
                 'code': 'PERMISSION_DENIED'
             }), 403
         
-        exercise = ExerciseRecord(
+        record_fields = dict(
             session_id=data['sessionId'],
             question_id=data['questionId'],
             question_type=data['questionType'],
@@ -570,51 +642,41 @@ def record_exercise_result(current_user_id=None, **kwargs):
             attempt_count=data.get('attemptCount', 1),
             is_first_attempt=data.get('isFirstAttempt', True)
         )
+        exercise = ExerciseRecord(**record_fields)
         
+        # 作答、进度累加、复习调度在同一个事务里，且第一条语句就是这条 INSERT：
+        # SQLite 从这里起持有写锁直到提交，同一用户的并发提交只能排队，后到的请求
+        # 读到的是先到者提交后的作答与进度，不会拿旧值覆盖新日程。
         db.session.add(exercise)
-        db.session.commit()
+        db.session.flush()
 
-        # 累加论文表 4.3 的特征列。必须先于 spaced_repetition：后者是纯 UPDATE，
-        # 没有 user_progress 行时会静默影响 0 行，SM-2 因此从未真正生效过。
-        progress = None
-        if session:
+        # 同一会话里这道题已经交过（双击、重放）：只留原始记录，不再累加进度、不重排日程
+        is_replay = ExerciseRecord.query.filter(
+            ExerciseRecord.session_id == data['sessionId'],
+            ExerciseRecord.question_id == data['questionId'],
+            ExerciseRecord.id < exercise.id,
+        ).first() is not None
+
+        if not is_replay:
             try:
+                # 累加论文表 4.3 的特征列
                 progress = accumulate_exercise_into_progress(
                     session.user_id,
                     session.word_id,
                     data['questionType'],
                     bool(data['isCorrect']),
                 )
-                db.session.commit()
+                if progress is not None and spaced_repetition:
+                    schedule_review_from_session(session, progress)
             except Exception as e:
                 db.session.rollback()
-                print(f"⚠️  用户进度累加失败: {str(e)}")
+                print(f"⚠️  用户进度或间隔重复更新失败: {str(e)}")
 
-        # 间隔重复调度：一次「复习」= 一节练习会话，不是一道题。
-        # 那条 UPDATE 写的是 review_count = review_count + 1，每题都调会让 review_count
-        # 随题数暴涨，间隔按 base_intervals 指数级抬升（实测 5 题就把新词排到两周后，
-        # 10 题排到一年后）。因此只在本会话的第一道题上调度一次。
-        if spaced_repetition and session:
-            try:
-                is_first_exercise_of_session = (
-                    ExerciseRecord.query.filter_by(session_id=data['sessionId']).count() == 1
-                )
-                if is_first_exercise_of_session:
-                    exercise_result = {
-                        'is_correct': data['isCorrect'],
-                        'response_time': data.get('responseTimeSeconds', 5.0),
-                        'confidence': data.get('confidenceLevel', 3),
-                        'hesitation_count': data.get('hesitationCount', 0),
-                        # 传真实的连对/连错，否则 adaptive_engine 会用默认值 0 覆盖掉，
-                        # 连对加成与连错惩罚永远不生效
-                        'consecutive_correct': (progress.consecutive_correct if progress else 0),
-                        'consecutive_incorrect': (progress.consecutive_incorrect if progress else 0),
-                    }
-                    spaced_repetition.update_user_progress_after_exercise(
-                        session.user_id, session.word_id, exercise_result
-                    )
-            except Exception as e:
-                print(f"⚠️  间隔重复算法更新失败: {str(e)}")
+        # 进度或调度出错（含 get_or_create_user_progress 的回滚）不能连累作答本身：
+        # 回滚撤掉了这次的进度改动，作答本身重新写入
+        if exercise not in db.session:
+            db.session.add(ExerciseRecord(**record_fields))
+        db.session.commit()
         
         return jsonify({
             'success': True,
