@@ -1,4 +1,5 @@
 import type { ExerciseSetResponse, RecentSessionSummary, UserProfileSummary, WordResponse, WordSummary } from './types';
+import { storedGuestId } from './guestIdentity';
 
 const getDefaultBase = () => {
   const envBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL;
@@ -90,8 +91,24 @@ export const fetchWordExercises = async (
 
   const query = searchParams.toString();
   const suffix = query ? `?${query}` : '';
+  // 带上身份：学习期的复习只出还需复习的题型，后端要认得出是谁。登录用户带 token，
+  // 访客带 X-Guest-Id（前后端不在同一主机时访客 cookie 不会跟着请求走）。
+  // 不走 authenticatedFetch 是因为 authClient 依赖本文件，反过来引用会形成循环依赖
+  const headers: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem('session_token');
+    } catch {
+      token = null;
+    }
+    if (token) headers['X-Session-Token'] = token;
+    const guestId = storedGuestId();
+    if (guestId) headers['X-Guest-Id'] = guestId;
+  }
   const result = await fetchJson<{ success: boolean; data: ExerciseSetResponse; error?: string }>(
-    `/api/learning/word/${wordId}/exercises${suffix}`
+    `/api/learning/word/${wordId}/exercises${suffix}`,
+    { credentials: 'include', headers }
   );
 
   if (!result.success || !result.data) {

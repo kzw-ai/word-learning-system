@@ -60,6 +60,13 @@ const writeGuestCookie = (id: string) => {
   document.cookie = `${GUEST_COOKIE}=${id}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
 };
 
+/** 本设备已有的访客 ID，没有返回 null（不生成）。前后端不在同一主机时 cookie 不会跟着请求走，
+ * 需要身份的请求用它带上 X-Guest-Id */
+export const storedGuestId = (): string | null => {
+  const id = safeGetItem(GUEST_STORAGE_KEY);
+  return isGuestId(id) ? id : isGuestId(cachedGuestId) ? cachedGuestId : null;
+};
+
 /** 取本设备的访客 ID，没有就生成；每次都重写 cookie，防止被单独清掉 */
 export const ensureGuestId = (): string => {
   let id = safeGetItem(GUEST_STORAGE_KEY);

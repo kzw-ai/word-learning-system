@@ -141,17 +141,20 @@ class AdaptiveRecommendationEngine:
                 JOIN word w ON up.word_id = w.id
                 WHERE up.user_id = ?
                 AND up.next_review_suggested <= datetime('now')
-                AND up.mastery_level < ?
                 ORDER BY up.next_review_suggested ASC, up.mastery_level ASC
                 LIMIT 1
-            """, (user_id, self.mastery_threshold))
+            """, (user_id,))
+            # 不再按掌握度过滤：到期与否由复习日程决定。论文表 4.2 要求第一次就全对的词
+            # 也按档位复习 2–5 次，此前掌握度 1.0 的词到期了也不会被推荐
             
             result = cursor.fetchone()
             if result:
                 word_id, mastery_level, next_review, pinyin, review_count = result
+                # 旧行的掌握度可能是 NULL，按 0 处理（不再按掌握度过滤后，这类行也会被选中）
+                mastery_level = mastery_level or 0
                 
                 # 计算复习优先级
-                days_overdue = (datetime.now() - datetime.fromisoformat(next_review)).days
+                days_overdue = (datetime.utcnow() - datetime.fromisoformat(next_review)).days
                 priority_score = (1 - mastery_level) * (1 + days_overdue * 0.1)
                 
                 return {
@@ -484,7 +487,9 @@ class AdaptiveRecommendationEngine:
         interval_days = max(1, min(365, interval_days))
         
         # 计算下次复习时间
-        next_review = datetime.now() + timedelta(days=interval_days)
+        # UTC：到期判断用的是 SQLite 的 datetime('now')（UTC）。此前用服务器本地时间，
+        # 服务器在 UTC-4，每个词都提前 4 小时到期
+        next_review = datetime.utcnow() + timedelta(days=interval_days)
         return next_review
 
     def calculate_quality_factor(self, exercise_result: Dict) -> float:
@@ -698,7 +703,7 @@ class SpacedRepetitionAlgorithm:
                 consecutive_incorrect = consecutive_incorrect or 0
                 
                 # 计算优先级
-                days_overdue = (datetime.now() - datetime.fromisoformat(next_review)).days
+                days_overdue = (datetime.utcnow() - datetime.fromisoformat(next_review)).days
                 priority = (1 - mastery_level) * (1 + days_overdue * 0.1) * (1 + consecutive_incorrect * 0.2)
                 
                 # word 表没有汉字列，按 character 表顺序拼出；拼不出时退回拼音

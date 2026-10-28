@@ -17,7 +17,18 @@ interface ReviewItem {
   review_count: number;
   priority_score: number;
   recommended_module: string;
+  /** 论文表 4.2 的复习计划：还要复习几次（各题型中最多的那个），0 表示已达标、进入长期巩固 */
+  reviews_remaining?: number;
+  /** 还需复习的题型 */
+  review_types?: string[];
 }
+
+const REVIEW_TYPE_LABELS: Record<string, string> = {
+  definition: 'meaning',
+  collocation: 'collocations',
+  // 不断行连字符：窄屏时不在 fill- / in 之间折行
+  fill_word: 'fill\u2011in'
+};
 
 const TodayReview = () => {
   const router = useRouter();
@@ -202,6 +213,13 @@ const TodayReview = () => {
                     <p className="text-sm text-gray-500 mt-1">
                       Reviewed {review.review_count ?? 0} {(review.review_count ?? 0) === 1 ? 'time' : 'times'}
                     </p>
+                    {review.reviews_remaining !== undefined && (
+                      <p className="text-sm text-indigo-700 mt-0.5">
+                        {review.reviews_remaining > 0
+                          ? `${review.reviews_remaining} more ${review.reviews_remaining === 1 ? 'review' : 'reviews'} · ${(review.review_types ?? []).map((t) => REVIEW_TYPE_LABELS[t] ?? t).join(', ')}`
+                          : 'Mastered · keeping it fresh'}
+                      </p>
+                    )}
                   </div>
                   {getPriorityBadge(review.priority_score)}
                 </div>

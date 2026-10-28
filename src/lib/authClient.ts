@@ -1,4 +1,5 @@
 import { buildApiUrl } from './apiClient';
+import { storedGuestId } from './guestIdentity';
 
 /**
  * 带认证的fetch函数
@@ -17,6 +18,12 @@ export async function authenticatedFetch(
 
   if (token) {
     headers['X-Session-Token'] = token;
+  } else {
+    // 访客：前后端不在同一主机时访客 cookie 不会跟着请求走，用请求头带上身份
+    const guestId = storedGuestId();
+    if (guestId) {
+      headers['X-Guest-Id'] = guestId;
+    }
   }
 
   return fetch(buildApiUrl(url), {
