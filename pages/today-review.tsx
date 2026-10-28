@@ -197,7 +197,7 @@ const TodayReview = () => {
                       )}
                     </h3>
                     <p className="text-sm text-gray-500 mt-1">
-                      Reviewed {review.review_count ?? 0} times
+                      Reviewed {review.review_count ?? 0} {(review.review_count ?? 0) === 1 ? 'time' : 'times'}
                     </p>
                   </div>
                   {getPriorityBadge(review.priority_score)}
@@ -225,7 +225,7 @@ const TodayReview = () => {
                   
                   {review.days_overdue > 0 && (
                     <p className="text-sm text-rose-500 font-medium mt-1">
-                      ⚠️ {review.days_overdue} days overdue
+                      ⚠️ {review.days_overdue} {review.days_overdue === 1 ? 'day' : 'days'} overdue
                     </p>
                   )}
                 </div>

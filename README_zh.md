@@ -1,8 +1,8 @@
 # 🎓 自适应对外汉语中级词汇学习系统
 
-**版本**: 2.0.0  
-**状态**: 第二阶段完成，系统可用  
-**完成时间**: 2025年9月29日  
+**版本**: 2.3.0  
+**状态**: 已上线（[learnchinese.kzwbelieve.top](https://learnchinese.kzwbelieve.top)）  
+**最后更新**: 2026年10月  
 
 基于硕士论文《自适应对外汉语中级词汇学习系统研究与设计》开发的智能词汇学习系统，实现了完整的自适应学习、科学复习和数据分析功能。
 
@@ -11,9 +11,9 @@
 ## 📊 项目概况
 
 ### 技术栈
-- **前端**: Next.js 14 + React + TypeScript + Tailwind CSS + shadcn/ui
+- **前端**: Next.js 15 + React + TypeScript + Tailwind CSS + shadcn/ui
 - **后端**: Flask + SQLAlchemy + SQLite
-- **开发环境**: conda zhipu (Python 3.11.9)
+- **开发环境**: Python 3.9+（生产服务器为 3.9）、Node.js 22
 
 ### 核心功能
 - ✅ **VKS测试适配**: 根据词汇知识量表自动选择学习起点
@@ -36,40 +36,40 @@
     <td align="center"><b>学习Dashboard</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/home-page.png?v=2" width="400" alt="首页 - 移动端优先的欢迎界面"></td>
-    <td><img src="docs/screenshots/learning-dashboard.png?v=2" width="400" alt="学习Dashboard - AI智能推荐"></td>
+    <td><img src="docs/screenshots/01-homepage.png?v=4" width="400" alt="首页 - 移动端优先的欢迎界面"></td>
+    <td><img src="docs/screenshots/05-dashboard.png?v=4" width="400" alt="学习Dashboard - AI智能推荐"></td>
   </tr>
   <tr>
     <td align="center"><b>VKS词汇测试</b></td>
     <td align="center"><b>字符学习</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/vks-assessment.png?v=2" width="400" alt="VKS测试 - 词汇知识量表评估"></td>
-    <td><img src="docs/screenshots/character-learning.png?v=2" width="400" alt="字符学习 - 汉字拆解与释义"></td>
+    <td><img src="docs/screenshots/02-vks-entrance.png?v=4" width="400" alt="VKS测试 - 词汇知识量表评估"></td>
+    <td><img src="docs/screenshots/03-character-learning.png?v=4" width="400" alt="字符学习 - 汉字拆解与释义"></td>
   </tr>
   <tr>
     <td align="center"><b>词汇学习</b></td>
     <td align="center"><b>搭配学习</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/word-learning.png?v=2" width="400" alt="词汇学习 - 深入理解词义与用法"></td>
-    <td><img src="docs/screenshots/collocation-learning.png?v=2" width="400" alt="搭配学习 - 掌握地道词组组合"></td>
+    <td><img src="docs/screenshots/04-word-learning.png?v=4" width="400" alt="词汇学习 - 深入理解词义与用法"></td>
+    <td><img src="docs/screenshots/04b-collocation-learning.png?v=4" width="400" alt="搭配学习 - 掌握地道词组组合"></td>
   </tr>
   <tr>
     <td align="center"><b>例句学习</b></td>
     <td align="center"><b>词汇练习</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/sentence-learning.png?v=2" width="400" alt="例句学习 - 真实语境阅读与听力"></td>
-    <td><img src="docs/screenshots/vocabulary-exercise.png?v=2" width="400" alt="词汇练习 - 带有即时反馈的互动测试"></td>
+    <td><img src="docs/screenshots/04c-sentence-learning.png?v=4" width="400" alt="例句学习 - 真实语境阅读与听力"></td>
+    <td><img src="docs/screenshots/07-exercise.png?v=4" width="400" alt="词汇练习 - 带有即时反馈的互动测试"></td>
   </tr>
   <tr>
     <td align="center"><b>间隔重复复习</b></td>
-    <td align="center"><b>学习统计分析</b></td>
+    <td align="center"><b>易混淆词辨析</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/today-review.png?v=2" width="400" alt="间隔重复复习 - 每日个性化复习任务"></td>
-    <td><img src="docs/screenshots/learning-stats.png?v=2" width="400" alt="学习统计分析 - 追踪学习进度与算法状态"></td>
+    <td><img src="docs/screenshots/06-today-review.png?v=4" width="400" alt="间隔重复复习 - 每日个性化复习任务"></td>
+    <td><img src="docs/screenshots/08-confusable.png?v=4" width="400" alt="易混淆词辨析 - 近义词对比与使用区别"></td>
   </tr>
 </table>
 
@@ -80,8 +80,8 @@
 # 激活conda环境
 conda activate zhipu
 
-# 安装后端依赖
-pip install flask flask-cors flask-sqlalchemy
+# 安装后端依赖（requirements-dev.txt 额外包含测试用的 pytest 与 numpy）
+pip install -r requirements-dev.txt
 
 # 安装前端依赖
 npm install
@@ -91,17 +91,15 @@ npm install
 
 #### 方法一：一键启动（推荐）
 ```bash
-# 自动生成测试数据并启动API服务
+# 同时启动后端（5004）与前端开发服务器（3000）
 ./start_system.sh
-
-# 在另一个终端启动前端
-npm run dev
 ```
 
 #### 方法二：分别启动
 ```bash
-# 启动第二阶段API服务（端口5004）
-python app_phase.py
+# 启动后端（端口5004）。ALLOW_USER_ID_PARAM=1 让右下角的 UserSwitcher 能切换
+# 测试用户，只用于本地开发——生产环境绝不能设置
+ALLOW_USER_ID_PARAM=1 python3 app_phase.py
 
 # 启动前端服务（端口3000）
 npm run dev
@@ -222,9 +220,9 @@ curl http://localhost:5004/api/users
 📂 后端文件
 ├── app_phase.py                  # 第二阶段API服务 ⭐
 ├── adaptive_engine.py             # 自适应推荐引擎
-├── simple_test_data.py           # 测试数据生成器
-├── generate_test_data.py         # 完整测试数据生成器
-└── models_extended.py            # 数据模型定义
+├── scripts/simple_test_data.py   # 测试数据生成器
+├── scripts/import_learning_materials.py  # 论文学习素材导入
+└── scripts/clean_materials.py    # 已入库素材的修复（后端启动时自动运行）
 
 📂 数据库
 ├── words_extended.db              # 扩展数据库（包含测试数据）⭐
@@ -285,7 +283,7 @@ sudo lsof -i :5004
 ### 2. 前端编译错误
 ```bash
 # 重新安装依赖
-npm install recharts lucide-react
+npm install
 
 # 重启开发服务器
 npm run dev
@@ -293,11 +291,11 @@ npm run dev
 
 ### 3. 数据库问题
 ```bash
-# 生成测试数据
-python simple_test_data.py
+# 导入论文学习素材（词库为空时）
+python3 scripts/import_learning_materials.py
 
-# 生成完整测试数据（50用户、2000会话、15000练习）
-python generate_test_data.py
+# 生成测试数据
+python3 scripts/simple_test_data.py
 
 # 检查数据库
 sqlite3 words_extended.db "SELECT COUNT(*) FROM user_profile;"
@@ -366,7 +364,7 @@ python import_learning_materials.py
 1. 首先访问 http://localhost:3000/system-status 检查系统状态
 2. 查看浏览器控制台和终端输出日志
 3. 按照本指南重新启动相关服务
-4. 查看 `测试文档.md` 了解详细的故障排除方法
+4. 查看 [测试文档](docs/core/测试文档.md) 了解详细的故障排除方法
 
 ---
 
@@ -378,9 +376,9 @@ python import_learning_materials.py
 
 ## 📚 相关文档
 
-- **[开发文档](./开发文档.md)** - 详细的技术架构、开发规范和API设计
-- **[测试文档](./测试文档.md)** - 完整的测试方案、测试报告和故障排除指南
-- **[待办事项](./待办事项.md)** - 需要完善的功能清单和开发计划
+- **[开发文档](docs/core/开发文档.md)** - 详细的技术架构、开发规范和API设计
+- **[测试文档](docs/core/测试文档.md)** - 完整的测试方案、测试报告和故障排除指南
+- **[待办事项](docs/core/待办事项.md)** - 需要完善的功能清单和开发计划
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "word-learning-system",
-  "version": "1.0.0",
+  "version": "2.3.0",
   "description": "A word learning system",
   "main": "index.js",
   "scripts": {
@@ -26,7 +26,6 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-signature-canvas": "^1.1.0-alpha.2",
-    "recharts": "^3.2.1",
     "shadcn-ui": "^0.9.5",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7"
