@@ -578,3 +578,55 @@ class TestSessionReviewScheduling:
         assert progress['attempts'] == 3, '后到的请求读到了先到者提交前的进度，计数丢了'
         assert progress['count'] == 2
         assert progress['days'] <= 1.01, '最终日程必须基于整节两道题（1/2 未过）'
+
+
+# ================================================
+# 会话 VKS 初始档位补写（换设备时服务器档位晚到）
+# ================================================
+
+class TestSessionInitialLevel:
+    LEARNER = _learner('vkslatelevel')
+
+    def _start(self, client, session_id, level=None):
+        body = {'sessionId': session_id, 'wordId': 1, 'sessionType': 'learning',
+                'moduleType': 'word', 'startTime': '2026-01-01T10:00:00'}
+        if level:
+            body['initialLevel'] = level
+        resp = client.post('/api/learning/session/start', json=body, headers=guest_headers(self.LEARNER))
+        assert resp.get_json()['success'] is True, resp.get_json()
+
+    def _set(self, client, session_id, level, learner=None):
+        return client.post('/api/learning/session/initial-level',
+                           json={'sessionId': session_id, 'initialLevel': level},
+                           headers=guest_headers(learner or self.LEARNER))
+
+    def _level(self, app, session_id):
+        import app_phase as mod
+        with app.app_context():
+            return mod.LearningSession.query.filter_by(session_id=session_id).one().initial_level
+
+    def test_fills_missing_level_once(self, app, anon_client):
+        self._start(anon_client, 's-vks-late')
+        resp = self._set(anon_client, 's-vks-late', 'C')
+        assert resp.get_json() == {'success': True, 'updated': True}
+        assert self._level(app, 's-vks-late') == 'C'
+
+        # 已有档位不覆盖：初始档位是开始学这个词时的自评
+        resp = self._set(anon_client, 's-vks-late', 'A')
+        assert resp.get_json() == {'success': True, 'updated': False}
+        assert self._level(app, 's-vks-late') == 'C'
+
+    def test_does_not_overwrite_level_given_at_start(self, app, anon_client):
+        self._start(anon_client, 's-vks-early', level='B')
+        assert self._set(anon_client, 's-vks-early', 'D').get_json()['updated'] is False
+        assert self._level(app, 's-vks-early') == 'B'
+
+    def test_rejects_invalid_level_unknown_and_foreign_sessions(self, app, anon_client):
+        self._start(anon_client, 's-vks-guard')
+        assert self._set(anon_client, 's-vks-guard', 'F').status_code == 400
+        assert self._set(anon_client, 's-vks-guard', None).status_code == 400
+        assert self._set(anon_client, 's-vks-missing', 'C').status_code == 404
+        assert self._set(anon_client, 's-vks-guard', 'C', learner=OTHER_GUEST).status_code == 403
+        assert anon_client.post('/api/learning/session/initial-level',
+                                json={'sessionId': 's-vks-guard', 'initialLevel': 'C'}).status_code == 401
+        assert self._level(app, 's-vks-guard') is None

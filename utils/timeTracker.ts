@@ -69,6 +69,8 @@ export class TimeTracker {
   private apiBaseUrl: string;
   private batchEventTimer: NodeJS.Timeout | null = null;
   private disabled: boolean = false; // 未登录时停用网络上报，避免 401
+  /** 会话是否已在后端建好；补写档位要等它，否则后端还查不到这个会话 */
+  private sessionStarted: Promise<boolean> = Promise.resolve(false);
 
   constructor(config: TimeTrackingConfig, apiBaseUrl: string = getApiBaseUrl()) {
     this.config = config;
@@ -107,7 +109,7 @@ export class TimeTracker {
     }
 
     // 开始学习会话
-    this.startSession();
+    this.sessionStarted = this.startSession();
 
     // 设置批量事件发送定时器
     this.batchEventTimer = setInterval(() => {
@@ -136,8 +138,8 @@ export class TimeTracker {
     }
   }
 
-  private async startSession() {
-    if (this.disabled) return;
+  private async startSession(): Promise<boolean> {
+    if (this.disabled) return false;
     try {
       const response = await authenticatedFetch('/api/learning/session/start', {
         method: 'POST',
@@ -160,11 +162,31 @@ export class TimeTracker {
           config: this.config,
           deviceType: this.getDeviceType()
         });
-      } else {
-        console.error('❌ Failed to start session:', result.error);
+        return true;
       }
+      console.error('❌ Failed to start session:', result.error);
     } catch (error) {
       console.error('❌ Failed to start session:', error);
+    }
+    return false;
+  }
+
+  /**
+   * 会话建好之后才得知 VKS 档位时（换设备：本地没有这个词的档位，服务器状态晚到），
+   * 把档位补写进当前会话。会话已带档位建立时什么也不做：初始档位不随之后的改动覆盖。
+   * wordId 是这个档位所属的词，与本会话的词不同时不写。
+   */
+  public async setInitialLevel(level: string, wordId: number) {
+    if (this.disabled || this.config.initialLevel || wordId !== this.config.wordId) return;
+    this.config = { ...this.config, initialLevel: level };
+    if (!(await this.sessionStarted)) return;
+    try {
+      await authenticatedFetch('/api/learning/session/initial-level', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: this.sessionId, initialLevel: level })
+      });
+    } catch (error) {
+      console.error('❌ Failed to set initial level:', error);
     }
   }
 

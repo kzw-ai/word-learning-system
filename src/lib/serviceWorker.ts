@@ -53,9 +53,17 @@ export function registerServiceWorker(config?: ServiceWorkerConfig) {
         config?.onError?.(error);
       });
 
-    // 监听 Service Worker 控制器变化
+    // 监听 Service Worker 控制器变化。只有「换版本」才需要刷新：首次安装时
+    // clients.claim() 也会把控制器从无变成有、触发 controllerchange，此前每个
+    // 新访客打开的第一页都会被立刻刷新一次，凭空多出一条 0 秒的学习会话。
+    // 首次接管之后这个标签页就有了控制器，之后的版本更新照常刷新
+    let hasController = Boolean(navigator.serviceWorker.controller);
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hasController) {
+        hasController = true;
+        return;
+      }
       if (refreshing) return;
       refreshing = true;
       console.log('🔄 Service Worker 控制器已更新，刷新页面...');
