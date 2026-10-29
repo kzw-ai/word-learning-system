@@ -56,6 +56,10 @@ HSK4_ENTRY = {
           'characters 只有一项，读音、释义按这个助词。',
 }
 
+# 单字多音词（呀 yā / ya）大模型会按读音把这个字列成几项。同样只加在单字词的任务里
+SINGLE_CHAR = ('这个词只有一个字：characters 只写一项，是这个字作为这个词、用于 senses 第一个义项时的读音和意思；'
+               '不要按不同读音分列多项。')
+
 
 def validate(answer, task):
     """检查语义判断的结构：义项编号唯一，每个例句、每条搭配都有回答且引用的义项存在，每个字都有释义。"""
@@ -148,6 +152,8 @@ def main(batch, model=None):
                 **{k: inputs[k] for k in INPUT_KEYS[1:]}}
         if word in HSK4_ENTRY:
             task['hsk4_entry'] = HSK4_ENTRY[word]
+        elif len(word) == 1:
+            task['single_char'] = SINGLE_CHAR
         common.write_json(outdir / f'{word}.任务.json', task)
     print(f'已生成 {len(words)} 个判断任务：{outdir}')
     if model:
