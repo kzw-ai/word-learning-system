@@ -109,7 +109,7 @@ class Generator:
         todo = {n: d for n, d in self.jobs.items() if not (AUDIO / n).exists()}
         chars = sum(billable(d) for d in todo.values())
         print(f'共 {len(self.jobs)} 个音频，要新生成 {len(todo)} 个，约 {chars} 个计费字符'
-              f'（免费档每月 50 万），约 {len(todo) * tts.MIN_INTERVAL / 60:.0f} 分钟', flush=True)
+              f'（免费档每月 50 万），请求间隔 {tts.MIN_INTERVAL} 秒', flush=True)
         for i, (name, doc) in enumerate(todo.items(), 1):
             tts.synthesize(doc, AUDIO / name)
             if i % 20 == 0 or i == len(todo):
