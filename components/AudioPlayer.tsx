@@ -95,7 +95,11 @@ export default function AudioPlayer({
     utterance.onerror = (event) => {
       // 我们自己取消的（又点了一次、换成另一段朗读、离开页面）不算失败
       if (!mountedRef.current || event.error === 'canceled' || event.error === 'interrupted') {
-        if (mountedRef.current) setIsPlaying(false);
+        if (mountedRef.current) {
+          // 还没开始就被取消（页面上另一个按钮开始朗读）时 onstart 不会来：在这里收起加载状态，按钮还能再点
+          setIsPlaying(false);
+          setIsLoading(false);
+        }
         return;
       }
       setIsPlaying(false);
@@ -115,6 +119,7 @@ export default function AudioPlayer({
       throw new Error('No audio URL provided');
     }
 
+    const attempt = attemptRef.current;
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl);
       
@@ -132,20 +137,21 @@ export default function AudioPlayer({
         onEnd?.();
       };
 
-      // 文件取不到（还没部署到服务器、早期的占位地址）：改用浏览器朗读，按钮不至于失灵
-      audioRef.current.onerror = () => {
-        audioRef.current = null;
-        fallBackToSpeech(attemptRef.current, new Error('Failed to load audio'));
-      };
     }
+    // 文件取不到（还没部署到服务器、早期的占位地址）：改用浏览器朗读，按钮不至于失灵。
+    // 每次播放重新绑定，记住这是哪一次播放、哪个元素：旧元素迟到的错误不能清掉新元素、再回退一次
+    const audio = audioRef.current;
+    audio.onerror = () => {
+      if (audioRef.current === audio) audioRef.current = null;
+      fallBackToSpeech(attempt, new Error('Failed to load audio'));
+    };
 
-    const attempt = attemptRef.current;
-    audioRef.current.play().catch((error) => {
+    audio.play().catch((error) => {
       if (!mountedRef.current || attempt !== attemptRef.current) return;
       // 用户主动打断播放（又点了一次）不算失败
       if (error?.name === 'AbortError') return;
       if (error?.name === 'NotSupportedError') {
-        audioRef.current = null;
+        if (audioRef.current === audio) audioRef.current = null;
         fallBackToSpeech(attempt, error);
         return;
       }
