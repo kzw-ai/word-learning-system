@@ -55,34 +55,41 @@ def auto_pinyin(sentence):
 
 PAIR_INSTRUCTIONS = """学习者常把这两个词用混：HSK 动态作文语料库里，该用 word1 的地方，学习者常写成 word2
 （corpus：该用 word1 的偏误共 word1_errors 处，其中 wrote_word2 处写成了 word2）。辨析要对准学习者实际的混淆点。
-请为易混淆词辨析编写内容，写给中级学习者（学过一至三级词），用中文；句子里除这两个词外只用一至三级常用词。
+请为易混淆词辨析编写内容，读者是母语不是中文的中级学习者（学过一至三级词），系统界面是英文：
+**讲解一律用简单、清楚的英文**（避免语法术语，非用不可时简单解释），中文只出现在例句、搭配和词本身里；
+中文句子里除这两个词外只用一至三级常用词。词第一次出现时写成「汉字 拼音」，如「考虑 kǎolǜ」。
 任务里给了两个词各自学习资料中的义项、例句、搭配；learner_errors 是改正后的原句（「正确的词{CC学习者写的词}」，
 其余括号是别的标注），只供你分析混淆点，不要照抄进任何学习内容。
-1. reason：一两句话，说明两个词为什么容易混（意思、用法上的相同点）。
-2. confusion_points：根据 learner_errors 归纳学习者实际在哪些用法上该用 word1 却写成了 word2，1–3 条，每条一句。
-3. difference：分条说明区别（词性、搭配对象、语义轻重、句式限制等），每条一行，要覆盖上面的混淆点。
-4. collocation_contrast：2–4 行搭配对比，如「考虑问题（✓） / 想问题（✓），想家（✓） / 考虑家（✗）」，尽量用任务里的搭配。
-5. english：一行英文对比，说明两个词对应的英文意思和区别。
-6. examples：4–6 行，每行以「✓ 」或「✗ 」开头。✓ 的句子必须是换成另一个词就不对或意思变了的（否则分不出两个词），
-   优先用任务里给的例句；✗ 的句子是换词后确实不能说的，句末括号里简述原因。
+1. reason：一两句英文，说明两个词为什么容易混（意思、用法上的相同点）。
+2. confusion_points：根据 learner_errors 归纳学习者实际在哪些用法上该用 word1 却写成了 word2，1–3 条，每条一句英文。
+3. difference：分条用英文说明区别，每条一行，要覆盖上面的混淆点；可以夹中文短语举例。
+4. collocation_contrast：2–4 行搭配对比，格式如「考虑问题 ✓ (think a problem over) / 想问题 ✓ (think about a problem)」，
+   说不通的标 ✗，尽量用任务里的搭配，每个搭配后括号里给英文意思。
+5. english：一行，两个词各自对应的英文意思，如「考虑 kǎolǜ = to consider, think over; 想 xiǎng = to think, want to, miss」。
+6. examples：4–6 行。✓ 行格式「✓ 中文句子。 (English translation)」，✓ 的句子必须是换成另一个词就不对或意思变了的
+   （否则分不出两个词），优先用任务里给的例句。✗ 行格式「✗ 错句。 → 正句。 (English translation) Short English reason.」，
    至少两句 ✗ 要对准 confusion_points，即该用 word1 却用了 word2 的句子；自己用一至三级词编写，不要照抄 learner_errors。
-7. tips：一句话的记忆提示。
+7. tips：一句英文的记忆提示。
 8. difficulty_level：1–3，1 表示最容易分清。
 9. quiz_checks：quiz_candidates 是辨析题候选，括号处挖掉了 answer。对每一题判断：
    other_fits——把另一个词放进括号，句子是否仍然正确通顺（是则这题有两个答案，不能用）；
-   usable——句子是否完整、易懂、适合作辨析题。
+   usable——句子是否完整、易懂、适合作辨析题；
+   explanation——一句简单的英文，说明为什么这里用 answer、另一个词为什么不行（学习者答完题后看）。
 只按下面的 JSON 格式回答，不要输出别的内容。"""
 
 PAIR_FORMAT = {
-    'reason': '两个词都表示"事情发生得快、出乎意料"，且都能作状语。',
-    'confusion_points': ['学习者在"很___"里也用「忽然」，但「忽然」不能被"很"修饰。'],
-    'difference': '「突然」是形容词，可以作状语、定语、谓语，可以被"很"修饰；\n「忽然」是副词，只能作状语。',
-    'collocation_contrast': ['很突然（✓） / 很忽然（✗）', '突然的变化（✓） / 忽然的变化（✗）'],
-    'english': '突然 = sudden / suddenly (adj. & adv.); 忽然 = suddenly (adv. only).',
-    'examples': ['✓ 这件事发生得很突然。', '✗ 这件事发生得很忽然。（忽然是副词，不能被"很"修饰）'],
-    'tips': '能说"很突然"，不能说"很忽然"。',
+    'reason': 'Both mean "suddenly", and both can come before a verb.',
+    'confusion_points': ['Learners use 忽然 after 很 ("very"), but 忽然 cannot follow 很.'],
+    'difference': '突然 tūrán can describe a thing (这件事很突然 "this was very sudden") or come before a verb;\n'
+                  '忽然 hūrán can only come before a verb.',
+    'collocation_contrast': ['很突然 ✓ (very sudden) / 很忽然 ✗', '突然的变化 ✓ (a sudden change) / 忽然的变化 ✗'],
+    'english': '突然 tūrán = sudden, suddenly; 忽然 hūrán = suddenly (only before a verb)',
+    'examples': ['✓ 这件事发生得很突然。 (This happened very suddenly.)',
+                 '✗ 这件事发生得很忽然。 → 这件事发生得很突然。 (This happened very suddenly.) 忽然 cannot follow 很.'],
+    'tips': 'If you can put 很 in front, use 突然.',
     'difficulty_level': 2,
-    'quiz_checks': {'q1': {'other_fits': False, 'usable': True}, 'q2': {'other_fits': True, 'usable': True}},
+    'quiz_checks': {'q1': {'other_fits': False, 'usable': True, 'explanation': 'After 很 you need 突然; 忽然 cannot follow 很.'},
+                    'q2': {'other_fits': True, 'usable': True, 'explanation': 'Both words work here.'}},
 }
 
 QUIZ_PER_WORD = 6
@@ -150,8 +157,9 @@ def validate_pair(answer, task):
     checks = answer.get('quiz_checks')
     for k in task['quiz_candidates']:
         c = checks.get(k) if isinstance(checks, dict) else None
-        if not (isinstance(c, dict) and isinstance(c.get('other_fits'), bool) and isinstance(c.get('usable'), bool)):
-            problems.append(f'quiz_checks 缺 {k} 或格式不对')
+        if not (isinstance(c, dict) and isinstance(c.get('other_fits'), bool) and isinstance(c.get('usable'), bool)
+                and isinstance(c.get('explanation'), str) and c['explanation'].strip()):
+            problems.append(f'quiz_checks 缺 {k}，或缺 other_fits、usable、explanation')
     return problems
 
 
