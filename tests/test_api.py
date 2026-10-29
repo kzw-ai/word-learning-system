@@ -28,6 +28,9 @@ def app(tmp_path_factory):
     """
     db_file = str(tmp_path_factory.mktemp('api-db') / 'words_extended.db')
     os.environ['WORDS_DB_PATH'] = db_file
+    # 启动时会导入 data/learning_materials 下作者审核过的批次和音频清单：测试库不要它们
+    os.environ['HSK4_BATCH_DIR'] = str(tmp_path_factory.mktemp('hsk4-batches'))
+    os.environ['AUDIO_MANIFEST'] = str(tmp_path_factory.mktemp('audio') / '论文词库.json')
 
     # 导入即触发 initialize_database()：建表 + 种子词汇/易混淆词 + 测试数据
     import app_phase as mod
@@ -42,7 +45,8 @@ def app(tmp_path_factory):
     assert migrate_auth_system(db_file)
 
     yield mod.app
-    del os.environ['WORDS_DB_PATH']
+    for key in ('WORDS_DB_PATH', 'HSK4_BATCH_DIR', 'AUDIO_MANIFEST'):
+        del os.environ[key]
 
 
 @pytest.fixture(scope='session')
