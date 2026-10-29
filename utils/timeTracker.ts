@@ -4,6 +4,7 @@
  */
 import { getApiBaseUrl } from '@/src/lib/apiClient';
 import { authenticatedFetch } from '@/src/lib/authClient';
+import { DEFAULT_IDLE_CAP_SECONDS, splitGap } from '@/utils/activeTime';
 
 export interface TimeTrackingConfig {
   userId: string;
@@ -23,6 +24,15 @@ export interface TimeTrackingConfig {
    * 追踪器——提前创建会先写出 initial_level 为 NULL 的幽灵会话。
    */
   ready?: boolean;
+  /**
+   * 两次操作之间最多算多少秒有效时长（见 utils/activeTime.ts），默认 DEFAULT_IDLE_CAP_SECONDS。
+   * 内容多的页面（辨析页的英文讲解）设大一些。
+   */
+  idleCapSeconds?: number;
+  /**
+   * 同一个词的页面上换了内容、要另记一个会话时改变它（辨析页：目标词相同的两对用词对 ID 区分）
+   */
+  sessionKey?: string | number;
 }
 
 export interface LearningEvent {
@@ -51,7 +61,7 @@ export class TimeTracker {
   private static readonly MAX_QUEUED_EVENTS = 500;
 
   /** 用于判定「用户仍在活动」的 DOM 事件 */
-  private static readonly ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+  private static readonly ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'wheel', 'touchstart'];
 
   // 监听器必须持有稳定引用才能被 removeEventListener 摘掉
   private readonly boundVisibilityChange = this.handleVisibilityChange.bind(this);
@@ -80,6 +90,8 @@ export class TimeTracker {
     this.sessionId = this.generateSessionId();
     this.startTime = new Date();
     this.lastActiveTime = new Date();
+    // 在后台建的（切走以后请求才返回）：回到前台才开始算有效时长
+    this.isActive = typeof document === 'undefined' || !document.hidden;
     // 未登录的访客也记录：后端凭访客 cookie 识别身份（见 src/lib/guestIdentity.ts）。
     // 此前没有 session_token 就整个停用，而注册登录又跑不通，结果线上一条学习数据都没有
     this.disabled = typeof window === 'undefined' || !config.userId;
@@ -260,9 +272,28 @@ export class TimeTracker {
     }
   }
 
+  /** 把上次操作到 now 的间隔记进有效时长（最多一个上限），超出的部分记一条 idle_gap 事件 */
+  private accrue(now: Date) {
+    const capMs = (this.config.idleCapSeconds ?? DEFAULT_IDLE_CAP_SECONDS) * 1000;
+    const { activeMs, idleMs } = splitGap(now.getTime() - this.lastActiveTime.getTime(), capMs);
+    this.activeTime += activeMs;
+    if (idleMs > 0) {
+      this.trackEvent('idle_gap', 'document', {
+        idleSeconds: Math.round(idleMs / 1000),
+        capSeconds: capMs / 1000,
+        lastActivityAt: this.lastActiveTime.toISOString(),
+      });
+    }
+    this.lastActiveTime = now;
+  }
+
   private handleVisibilityChange() {
+    // 会话已结束（结束请求还没回来、组件还没卸载）：有效时长已经交了，不再累计、不再记 idle_gap
+    if (this.ended) return;
     if (typeof document !== 'undefined') {
       if (document.hidden) {
+        // 切到后台之前、最后一次操作之后的那段也算上（此前直接丢掉）
+        if (this.isActive) this.accrue(new Date());
         this.isActive = false;
         this.trackEvent('page_blur', 'document');
       } else {
@@ -274,10 +305,8 @@ export class TimeTracker {
   }
 
   private handleUserActivity() {
-    if (this.isActive) {
-      const now = new Date();
-      this.activeTime += now.getTime() - this.lastActiveTime.getTime();
-      this.lastActiveTime = now;
+    if (this.isActive && !this.ended) {
+      this.accrue(new Date());
     }
   }
 
@@ -296,6 +325,8 @@ export class TimeTracker {
     this.ended = true;
 
     const endTime = new Date();
+    // 最后一次操作到结束的那段（离开页面时不一定有操作）
+    if (this.isActive) this.accrue(endTime);
     const totalDuration = Math.round((endTime.getTime() - this.startTime.getTime()) / 1000);
     const activeDuration = Math.round(this.activeTime / 1000);
 

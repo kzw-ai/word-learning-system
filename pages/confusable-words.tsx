@@ -6,6 +6,11 @@ import AudioPlayer from '@/components/AudioPlayer';
 import { buildApiUrl } from '@/src/lib/apiClient';
 import { authenticatedPost } from '@/src/lib/authClient';
 import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
+import { useLearningContext } from '@/src/context/LearningContext';
+import useTimeTracking from '@/hooks/useTimeTracking';
+
+// 辨析页的英文讲解比学习页长（150–250 个词），两次操作之间最多算 180 秒有效时长（见 utils/activeTime.ts）
+const CONTRAST_IDLE_CAP_SECONDS = 180;
 
 interface ConfusableWord {
   id: number;
@@ -193,6 +198,7 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
 export default function ConfusableWordsPage() {
   const router = useRouter();
   const { session } = useLearningSession();
+  const { userId } = useLearningContext();
   const [pairs, setPairs] = useState<ConfusablePair[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -205,19 +211,9 @@ export default function ConfusableWordsPage() {
 
   useEffect(() => {
     if (router.isReady) loadConfusablePairs();
+    // revisit 也在里面：同一对改成 revisit=1 时重新加载，讲解随之展开
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady, router.query.pair]);
-
-  useEffect(() => {
-    if (!router.isReady || pairs.length === 0) return;
-    const pairId = Number(router.query.pair);
-    if (!pairId) return;
-    const idx = pairs.findIndex(p => p.id === pairId);
-    if (idx >= 0) {
-      setCurrentIndex(idx);
-      setShowAnswer(revisit);
-    }
-  }, [router.isReady, router.query.pair, pairs, revisit]);
+  }, [router.isReady, router.query.pair, router.query.revisit]);
 
   // 只让最新一次加载更新页面：地址里的词对变了时，先发出的请求后返回也不能覆盖
   const loadSeq = useRef(0);
@@ -247,7 +243,11 @@ export default function ConfusableWordsPage() {
           list = [single.pair, ...list];
         }
         setError(null);
+        // 列表和定位一起设（同一次渲染）：先渲染列表首项的话，停留时长会给没看的那一对记一个会话
+        const idx = pairId ? list.findIndex(p => p.id === pairId) : -1;
         setPairs(list);
+        setCurrentIndex(Math.max(idx, 0));
+        setShowAnswer(idx >= 0 && revisit);
       } else {
         setError(data.error || 'Failed to load');
       }
@@ -261,6 +261,28 @@ export default function ConfusableWordsPage() {
   };
 
   const currentPair = pairs[currentIndex];
+
+  // 停留时长：每对按目标词（word1）记一个学习会话，模块记作 contrast；不计入论文表 4.2 的复习
+  // （复习进度只看练习作答）。换到另一对时结束上一个会话，目标词相同的两对也分开记（sessionKey）
+  const { trackEvent } = useTimeTracking({
+    userId,
+    wordId: currentPair?.word1.id ?? 0,
+    sessionKey: currentPair?.id,
+    moduleType: 'contrast',
+    sessionType: session.reviewMode ? 'review' : 'learning',
+    idleCapSeconds: CONTRAST_IDLE_CAP_SECONDS,
+    // 加载另一对的过程中、加载出错时，页面上已经不是这一对：结束它的会话
+    ready: !!currentPair && !loading && !error,
+  });
+
+  useEffect(() => {
+    if (currentPair) trackEvent('contrast_pair', String(currentPair.id), { revisit });
+  }, [currentPair, trackEvent, revisit]);
+
+  const showComparison = () => {
+    setShowAnswer(true);
+    if (currentPair) trackEvent('contrast_expand', String(currentPair.id));
+  };
 
   const handleNext = () => {
     if (currentIndex < pairs.length - 1) {
@@ -365,7 +387,7 @@ export default function ConfusableWordsPage() {
         {/* 显示答案按钮 */}
         {!showAnswer && (
           <Button
-            onClick={() => setShowAnswer(true)}
+            onClick={showComparison}
             className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
           >
             <Search size={16} className="mr-2" /> See the full comparison
