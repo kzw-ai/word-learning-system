@@ -29,6 +29,10 @@ export interface TimeTrackingConfig {
    * 内容多的页面（辨析页的英文讲解）设大一些。
    */
   idleCapSeconds?: number;
+  /**
+   * 同一个词的页面上换了内容、要另记一个会话时改变它（辨析页：目标词相同的两对用词对 ID 区分）
+   */
+  sessionKey?: string | number;
 }
 
 export interface LearningEvent {
@@ -86,6 +90,8 @@ export class TimeTracker {
     this.sessionId = this.generateSessionId();
     this.startTime = new Date();
     this.lastActiveTime = new Date();
+    // 在后台建的（切走以后请求才返回）：回到前台才开始算有效时长
+    this.isActive = typeof document === 'undefined' || !document.hidden;
     // 未登录的访客也记录：后端凭访客 cookie 识别身份（见 src/lib/guestIdentity.ts）。
     // 此前没有 session_token 就整个停用，而注册登录又跑不通，结果线上一条学习数据都没有
     this.disabled = typeof window === 'undefined' || !config.userId;
@@ -282,6 +288,8 @@ export class TimeTracker {
   }
 
   private handleVisibilityChange() {
+    // 会话已结束（结束请求还没回来、组件还没卸载）：有效时长已经交了，不再累计、不再记 idle_gap
+    if (this.ended) return;
     if (typeof document !== 'undefined') {
       if (document.hidden) {
         // 切到后台之前、最后一次操作之后的那段也算上（此前直接丢掉）
@@ -297,7 +305,7 @@ export class TimeTracker {
   }
 
   private handleUserActivity() {
-    if (this.isActive) {
+    if (this.isActive && !this.ended) {
       this.accrue(new Date());
     }
   }

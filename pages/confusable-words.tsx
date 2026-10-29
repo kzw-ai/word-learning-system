@@ -214,17 +214,6 @@ export default function ConfusableWordsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, router.query.pair]);
 
-  useEffect(() => {
-    if (!router.isReady || pairs.length === 0) return;
-    const pairId = Number(router.query.pair);
-    if (!pairId) return;
-    const idx = pairs.findIndex(p => p.id === pairId);
-    if (idx >= 0) {
-      setCurrentIndex(idx);
-      setShowAnswer(revisit);
-    }
-  }, [router.isReady, router.query.pair, pairs, revisit]);
-
   // 只让最新一次加载更新页面：地址里的词对变了时，先发出的请求后返回也不能覆盖
   const loadSeq = useRef(0);
 
@@ -253,7 +242,11 @@ export default function ConfusableWordsPage() {
           list = [single.pair, ...list];
         }
         setError(null);
+        // 列表和定位一起设（同一次渲染）：先渲染列表首项的话，停留时长会给没看的那一对记一个会话
+        const idx = pairId ? list.findIndex(p => p.id === pairId) : -1;
         setPairs(list);
+        setCurrentIndex(Math.max(idx, 0));
+        setShowAnswer(idx >= 0 && revisit);
       } else {
         setError(data.error || 'Failed to load');
       }
@@ -269,10 +262,11 @@ export default function ConfusableWordsPage() {
   const currentPair = pairs[currentIndex];
 
   // 停留时长：每对按目标词（word1）记一个学习会话，模块记作 contrast；不计入论文表 4.2 的复习
-  // （复习进度只看练习作答）。换到另一对时结束上一个会话
+  // （复习进度只看练习作答）。换到另一对时结束上一个会话，目标词相同的两对也分开记（sessionKey）
   const { trackEvent } = useTimeTracking({
     userId,
     wordId: currentPair?.word1.id ?? 0,
+    sessionKey: currentPair?.id,
     moduleType: 'contrast',
     sessionType: session.reviewMode ? 'review' : 'learning',
     idleCapSeconds: CONTRAST_IDLE_CAP_SECONDS,
