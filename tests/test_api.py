@@ -116,40 +116,68 @@ class TestCoreEndpoints:
 # ================================================
 
 class TestConfusableApi:
-    def test_pairs_list(self, client):
+    @pytest.fixture
+    def pair(self, app):
+        """一对测试词对，测完删掉（库里不再写入手写的种子词对）"""
+        import app_phase as mod
+        with app.app_context():
+            w1 = mod.Word(pinyin='tūrán', definition='adj./adv. sudden; suddenly')
+            w2 = mod.Word(pinyin='hūrán', definition='adv. suddenly')
+            mod.db.session.add_all([w1, w2])
+            mod.db.session.flush()
+            row = mod.ConfusablePair(word1_id=w1.id, word2_id=w2.id, reason='r', difference='d', examples='e',
+                                     tips='t', difficulty_level=1)
+            mod.db.session.add(row)
+            mod.db.session.commit()
+            ids = (row.id, w1.id, w2.id)
+        yield ids[0]
+        with app.app_context():
+            mod.ConfusableExerciseRecord.query.filter_by(pair_id=ids[0]).delete()
+            mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, ids[0]))
+            for word_id in ids[1:]:
+                mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
+            mod.db.session.commit()
+
+    def test_no_handwritten_seed_pairs(self, client):
+        """辨析词对只来自学习资料流水线：新库里没有词对"""
+        assert client.get('/api/confusable/pairs?limit=50').get_json()['total'] == 0
+
+    def test_pairs_list(self, client, pair):
         data = client.get('/api/confusable/pairs?limit=20').get_json()
         assert data['success'] is True
-        assert data['total'] == 5
-        pair = data['pairs'][0]
+        assert data['total'] == 1
+        listed = data['pairs'][0]
+        assert listed['id'] == pair
         for key in ('id', 'word1', 'word2', 'reason', 'difference', 'difficulty_level'):
-            assert key in pair
-        assert 'pinyin' in pair['word1'] and 'definition' in pair['word1']
+            assert key in listed
+        assert 'pinyin' in listed['word1'] and 'definition' in listed['word1']
 
-    def test_pairs_difficulty_filter(self, client):
+    def test_pairs_difficulty_filter(self, client, pair):
         data = client.get('/api/confusable/pairs?difficulty=1').get_json()
         assert data['success'] is True
-        assert all(p['difficulty_level'] == 1 for p in data['pairs'])
+        assert data['pairs'] and all(p['difficulty_level'] == 1 for p in data['pairs'])
+        assert client.get('/api/confusable/pairs?difficulty=2').get_json()['pairs'] == []
 
-    def test_single_pair(self, client):
-        data = client.get('/api/confusable/pair/1').get_json()
+    def test_single_pair(self, client, pair):
+        data = client.get(f'/api/confusable/pair/{pair}').get_json()
         assert data['success'] is True
-        assert data['pair']['id'] == 1
+        assert data['pair']['id'] == pair
 
     def test_single_pair_not_found(self, client):
         resp = client.get('/api/confusable/pair/9999')
         assert resp.status_code == 404
 
-    def test_record_requires_auth(self, anon_client):
+    def test_record_requires_auth(self, anon_client, pair):
         resp = anon_client.post('/api/confusable/exercise/record', json={
-            'pair_id': 1, 'is_correct': True, 'response_time': 3.0,
+            'pair_id': pair, 'is_correct': True, 'response_time': 3.0,
         })
         assert resp.status_code == 401
 
-    def test_record_with_session_token(self, client, auth_session):
+    def test_record_with_session_token(self, client, auth_session, pair):
         user_id, token = auth_session
         resp = client.post(
             '/api/confusable/exercise/record',
-            json={'pair_id': 1, 'is_correct': True, 'response_time': 3.0},
+            json={'pair_id': pair, 'is_correct': True, 'response_time': 3.0},
             headers={'X-Session-Token': token},
         )
         assert resp.status_code == 200
@@ -1004,7 +1032,7 @@ class TestThesisReviewPlan:
 # ================================================
 
 class TestConfusableContrast:
-    """两个词分别掌握到一定程度（学过并至少复习过一次）后才带出辨析；辨析题全对后不再带出"""
+    """两个词分别掌握到一定程度后才带出辨析（目标词学习期复习完，易混淆词学过并复习过一次）；辨析题全对后不再带出"""
 
     QUESTIONS = [
         {'question_type': 'confusable', 'stem': '我 ( ) 我这次做到了。', 'options': ['考虑', '想'], 'correct_answer': '想'},
@@ -1038,11 +1066,11 @@ class TestConfusableContrast:
             mod.db.session.delete(mod.db.session.get(mod.Word, ids[1]))
             mod.db.session.commit()
 
-    def _practise(self, client, learner, word_id, session_id):
-        """一节练习：词 1 按出题接口全部答对；没有素材的词答一道就算练过"""
+    def _practise(self, client, learner, word_id, session_id, correct=True):
+        """一节练习：词 1 按出题接口全部作答（VKS 选 E，答对时表 4.2 复习 2 次达标）；没有素材的词答一道就算练过"""
         client.post('/api/learning/session/start', json={
-            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise',
-            'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise', 'moduleType': 'exercise',
+            'initialLevel': 'E', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
         if word_id == 1:
             data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
             questions = [(q['id'], q['type']) for q in data['questions']]
@@ -1051,9 +1079,14 @@ class TestConfusableContrast:
         for question_id, question_type in questions:
             client.post('/api/learning/exercise/record', json={
                 'sessionId': session_id, 'questionId': question_id, 'questionType': question_type,
-                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': correct,
                 'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
             }, headers=guest_headers(learner))
+
+    def _unlock(self, client, learner, prefix, *others):
+        """目标词（词 1）学习期复习完：学 1 次 + 复习 2 次；其他词学过并复习过一次"""
+        for n, word in enumerate((1, 1, 1) + tuple(w for w in others for _ in range(2))):
+            self._practise(client, learner, word, f'{prefix}{n}')
 
     def _offered(self, client, learner):
         return client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()['pair_id']
@@ -1074,16 +1107,77 @@ class TestConfusableContrast:
         assert self._offered(anon_client, learner) is None, '还没学过，不带出'
         self._practise(anon_client, learner, 1, 's-contrast-1')
         self._practise(anon_client, learner, other, 's-contrast-o1')
-        assert self._offered(anon_client, learner) is None, '词 1 刚学完第一次，还没复习过（论文：先分开学）'
+        assert self._offered(anon_client, learner) is None, '刚学完第一次（论文：先分开学）'
         self._practise(anon_client, learner, 1, 's-contrast-2')
-        assert self._offered(anon_client, learner) == pair_id
+        self._practise(anon_client, learner, other, 's-contrast-o2')
+        assert self._offered(anon_client, learner) is None, '目标词只复习了 1 次，学习期（E 档 2 次）还没复习完'
+        self._practise(anon_client, learner, 1, 's-contrast-3')
+        assert self._offered(anon_client, learner) == pair_id, '目标词复习完、易混淆词复习过一次'
         assert anon_client.get('/api/confusable/for-word/1').get_json()['pair_id'] is None, '认不出身份时不带出'
+
+    def test_confusable_word_needs_one_review(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, other = pair
+        with app.app_context():
+            # 有了字才出得了释义题；第一次答错要复习 6 次，学过一次时还没复习完
+            char = mod.Character(character='想', pinyin='xiǎng', definition='to think', audio='', word_id=other)
+            mod.db.session.add(char)
+            mod.db.session.commit()
+            char_id = char.id
+        try:
+            learner = _learner('contrastconfusable')
+            for n in range(3):
+                self._practise(anon_client, learner, 1, f's-contrast-t{n}')
+            self._practise(anon_client, learner, other, 's-contrast-t3', correct=False)
+            assert self._offered(anon_client, learner) is None, '目标词复习完了，易混淆词只学过一次'
+            self._practise(anon_client, learner, other, 's-contrast-t4')
+            assert self._offered(anon_client, learner) == pair_id
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.Character, char_id))
+                mod.db.session.commit()
+
+    def test_confusable_word_done_on_first_practice_still_needs_a_review(self, anon_client, pair):
+        # 没有素材的词第一次练习就达标（没有要复习的题型），但还没复习过
+        pair_id, other = pair
+        learner = _learner('contrastnoreview')
+        for n in range(3):
+            self._practise(anon_client, learner, 1, f's-contrast-n{n}')
+        self._practise(anon_client, learner, other, 's-contrast-n3')
+        assert self._offered(anon_client, learner) is None, '易混淆词达标了，但一次都没复习'
+        self._practise(anon_client, learner, other, 's-contrast-n4')
+        assert self._offered(anon_client, learner) == pair_id, '达标以后又练过一次，算复习过'
+
+    def test_hsk4_confusable_must_finish_its_learning_phase(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, other = pair
+        with app.app_context():
+            mod.db.session.get(mod.ConfusablePair, pair_id).word2_level = 4
+            # 有了字才出得了释义题；第一次答错要复习 6 次
+            char = mod.Character(character='想', pinyin='xiǎng', definition='to think', audio='', word_id=other)
+            mod.db.session.add(char)
+            mod.db.session.commit()
+            char_id = char.id
+        try:
+            learner = _learner('contrasthsk4')
+            for n in range(3):
+                self._practise(anon_client, learner, 1, f's-contrast-h{n}')
+            self._practise(anon_client, learner, other, 's-contrast-h3', correct=False)
+            for n in range(4, 9):
+                self._practise(anon_client, learner, other, f's-contrast-h{n}')
+            assert self._offered(anon_client, learner) is None, '四级的易混淆词复习了 5 次，还差 1 次'
+            self._practise(anon_client, learner, other, 's-contrast-h9')
+            assert self._offered(anon_client, learner) == pair_id, '两个四级词都学习期复习完'
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.Character, char_id))
+                mod.db.session.get(mod.ConfusablePair, pair_id).word2_level = None
+                mod.db.session.commit()
 
     def test_passing_the_quiz_stops_offering_until_a_wrong_answer(self, anon_client, pair):
         pair_id, other = pair
         learner = _learner('contrastpass')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-p{n}')
+        self._unlock(anon_client, learner, 's-contrast-p', other)
         assert self._offered(anon_client, learner) == pair_id
         self._answer(anon_client, learner, pair_id, 0, True)
         self._answer(anon_client, learner, pair_id, 0, True)
@@ -1092,6 +1186,15 @@ class TestConfusableContrast:
         assert self._offered(anon_client, learner) is None, '每道题最近一次都对，不再带出'
         self._answer(anon_client, learner, pair_id, 1, False)
         assert self._offered(anon_client, learner) == pair_id, '有题最近一次答错，下次再带出'
+
+    def test_reports_whether_the_pair_was_attempted(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastattempted')
+        self._unlock(anon_client, learner, 's-contrast-a', other)
+        get = lambda: anon_client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()
+        assert get() == {'success': True, 'pair_id': pair_id, 'attempted': False}
+        self._answer(anon_client, learner, pair_id, 0, False)
+        assert get() == {'success': True, 'pair_id': pair_id, 'attempted': True}, '做过没全对：再带出时直接展开讲解'
 
     def test_server_judges_answers_and_validates_input(self, app, anon_client, pair):
         import app_phase as mod
@@ -1125,8 +1228,7 @@ class TestConfusableContrast:
         import app_phase as mod
         pair_id, other = pair
         learner = _learner('contrastpaused')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-z{n}')
+        self._unlock(anon_client, learner, 's-contrast-z', other)
         monkeypatch.setattr(mod, 'CONTRAST_SCHEMA_READY', False)
         assert self._offered(anon_client, learner) is None
         assert self._answer(anon_client, learner, pair_id, 0, True).status_code == 503
@@ -1136,8 +1238,7 @@ class TestConfusableContrast:
         import app_phase as mod
         pair_id, other = pair
         learner = _learner('contrastchanged')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-c{n}')
+        self._unlock(anon_client, learner, 's-contrast-c', other)
         self._answer(anon_client, learner, pair_id, 0, True)
         self._answer(anon_client, learner, pair_id, 1, True)
         assert self._offered(anon_client, learner) is None
@@ -1172,8 +1273,7 @@ class TestConfusableContrast:
         assert old_id < pair_id
         try:
             learner = _learner('contrastorder')
-            for n, word in enumerate((1, other, third_id, 1)):
-                self._practise(anon_client, learner, word, f's-contrast-r{n}')
+            self._unlock(anon_client, learner, 's-contrast-r', other, third_id)
             assert self._offered(anon_client, learner) == pair_id, '有题、没过关的优先'
             self._answer(anon_client, learner, pair_id, 0, True)
             self._answer(anon_client, learner, pair_id, 1, True)
@@ -1261,7 +1361,7 @@ class TestHsk4BatchImport:
         q = [{'question_type': 'confusable', 'stem': '我 ( ) 。', 'options': ['甲乙', '丙丁'], 'correct_answer': '甲乙'}]
         old_pair = {'word1': '甲乙', 'word2': '丙丁', 'reason': 'new', 'difference': 'd', 'examples': 'e', 'tips': 't',
                     'difficulty_level': 2, 'questions': q}
-        new_pair = dict(old_pair, word1='揣摩', word2='推敲', reason='batch')
+        new_pair = dict(old_pair, word1='揣摩', word2='推敲', reason='batch', word2_level=4)
         words = [self._word('揣摩', '揣摩'), self._word('推敲', '推敲')]
         write = lambda: path.write_text(json.dumps({'batch': '辨析批', 'status': imp.APPROVED, 'words': words,
                                                     'confusable_pairs': [old_pair, new_pair]}, ensure_ascii=False),
@@ -1302,9 +1402,50 @@ class TestHsk4BatchImport:
             reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
             assert (reason, json.loads(questions)) == ('old', [])
             known = imp.hanzi_map(conn)
-            assert conn.execute('SELECT reason FROM confusable_pairs WHERE word1_id = ?', (known['揣摩'],)).fetchone() == ('batch v2',)
+            assert conn.execute('SELECT reason, word2_level FROM confusable_pairs WHERE word1_id = ?',
+                                (known['揣摩'],)).fetchone() == ('batch v2', 4), '易混淆词等级一起写入'
         finally:
             conn.close()
+
+    def test_old_pair_gets_word2_level_in_its_stored_direction(self, app, tmp_path, monkeypatch):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        conn = sqlite3.connect(db)
+        try:
+            ids = {}
+            for chars in ('琢玉', '雕石', '刻木', '磨刀'):
+                ids[chars] = conn.execute("INSERT INTO word (pinyin, definition) VALUES ('p', 'd')").lastrowid
+                conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
+                                 [(c, 'p', 'd', '', ids[chars]) for c in chars])
+            # 两对没有题的旧词对：一对和素材同向，一对反向（素材里是 刻木 → 磨刀）
+            for w1, w2 in (('琢玉', '雕石'), ('磨刀', '刻木')):
+                conn.execute("INSERT INTO confusable_pairs (word1_id, word2_id, reason, difference, examples, tips, "
+                             "difficulty_level) VALUES (?, ?, 'old', 'd', 'e', 't', 1)", (ids[w1], ids[w2]))
+            conn.commit()
+        finally:
+            conn.close()
+        q = [{'question_type': 'confusable', 'stem': '( ) 。', 'options': ['琢玉', '雕石'], 'correct_answer': '琢玉'}]
+        same = {'word1': '琢玉', 'word2': '雕石', 'reason': 'new', 'difference': 'd', 'examples': 'e', 'tips': 't',
+                'difficulty_level': 2, 'questions': q, 'word2_level': 4}
+        reverse = dict(same, word1='刻木', word2='磨刀', word2_level=2)
+        path = tmp_path / '等级批.json'
+        write = lambda: path.write_text(json.dumps({'batch': '等级批', 'status': imp.APPROVED, 'words': [],
+                                                    'confusable_pairs': [same, reverse]}, ensure_ascii=False),
+                                        encoding='utf-8')
+        level = lambda w1: sqlite3.connect(db).execute(
+            'SELECT word2_level FROM confusable_pairs WHERE word1_id = ?', (ids[w1],)).fetchone()[0]
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 2, '两对旧词对都补题'
+        assert level('琢玉') == 4, '补题时写入易混淆词等级'
+        assert level('磨刀') == 4, '反向存的旧词对：库里的 word2 是素材的目标词（四级）'
+        assert imp.import_details(db)['pairs_updated'] == 0, '再导入不变'
+        same['word2_level'] = 3
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 1 and level('琢玉') == 3, '等级改了也同步'
 
     def test_word_without_exercises_stays_owned(self, app, tmp_path, monkeypatch):
         import sqlite3

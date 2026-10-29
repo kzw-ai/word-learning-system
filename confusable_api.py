@@ -38,7 +38,7 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
 
     schema_ready() 为假时（启动时没能补齐辨析题需要的列和唯一索引），不带出辨析，作答接口返回 503。
 
-    pair_due(user_id, pair_id, word1_id, word2_id, questions) 判断练习结束时要不要带出这一对的辨析
+    pair_due(user_id, pair_id, word1_id, word2_id, questions, word2_level) 判断练习结束时要不要带出这一对的辨析
     （论文 2.2.4：两个词分别掌握到一定程度后再对比学习）；不传时只要有词对就带出。
     """
 
@@ -128,7 +128,7 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
         掌握到一定程度、这一对还没练过关（见 pair_due）。认不出身份时不带出。"""
         try:
             rows = db.session.execute(text("""
-                SELECT id, word1_id, word2_id, questions FROM confusable_pairs
+                SELECT id, word1_id, word2_id, questions, word2_level FROM confusable_pairs
                 WHERE word1_id = :word_id OR word2_id = :word_id
                 ORDER BY id
             """), {'word_id': word_id}).fetchall()
@@ -139,8 +139,13 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
                 return jsonify({'success': True, 'pair_id': None})
             # 有辨析题、还没过关的词对优先；没有题的旧词对解锁后一直到期，排在后面才不会挡住新词对
             rows = sorted(rows, key=lambda r: (not parse_questions(r[3]), r[0]))
-            due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], parse_questions(r[3]))), None)
-            return jsonify({'success': True, 'pair_id': due})
+            due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], parse_questions(r[3]), r[4])), None)
+            # 以前做过这一对的辨析题（上次没全对才会再带出）：页面直接展开讲解
+            attempted = due is not None and db.session.execute(text("""
+                SELECT 1 FROM confusable_exercise_records
+                WHERE user_id = :user_id AND pair_id = :pair_id AND question_index IS NOT NULL LIMIT 1
+            """), {'user_id': str(viewer_id), 'pair_id': due}).first() is not None
+            return jsonify({'success': True, 'pair_id': due, 'attempted': attempted})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -98,6 +98,28 @@ def answer_with(model, outdir, words, kind='判断', check=validate):
         print(f"{word}：输入 {usage.get('prompt_tokens')}，输出 {usage.get('completion_tokens')} token，{usage['seconds']} 秒", flush=True)
 
 
+# 判断任务里来自候选清单的部分；说明和回答格式不算（只改了说明不必重新判断）
+INPUT_KEYS = ('word', 'cedict_word', 'cedict_chars', 'sentences', 'collocations')
+
+
+def task_inputs(word, c):
+    """由候选清单生成判断任务的输入：词典、例句和搭配（编号即回答里用的 1、2… 和 edu1、wiki1…）"""
+    return {
+        'word': word,
+        'cedict_word': [f"[{e['pinyin']}] " + ' / '.join(e['senses']) for e in c['cedict_word']],
+        'cedict_chars': {ch: [f"[{e['pinyin']}] " + ' / '.join(e['senses'][:10]) for e in es[:4]] for ch, es in c['cedict_chars'].items()},
+        'sentences': {str(i): s['sentence'] for i, s in enumerate(c['sentences'], 1)},
+        'collocations': {**{f'edu{i}': x['collocation'] for i, x in enumerate(c['collocations_edu'], 1)},
+                         **{f'wiki{i}': x['collocation'] for i, x in enumerate(c['collocations_wiki'], 1)}},
+    }
+
+
+def check_candidates(task, candidates, word):
+    """判断里的例句、搭配编号对应生成任务时的候选清单；第 4 步之后重跑过第 3 步、候选变了，旧判断就不能用"""
+    if {k: task.get(k) for k in INPUT_KEYS} != task_inputs(word, candidates):
+        raise SystemExit(f'「{word}」的候选清单在第 4 步之后改过，判断里的例句、搭配编号已对不上：重新跑第 4 步')
+
+
 def main(batch, model=None):
     words = step2_confusables.words_from_args([batch])
     src = common.OUT / '候选清单' / batch
@@ -105,16 +127,10 @@ def main(batch, model=None):
     outdir.mkdir(parents=True, exist_ok=True)
     for word in words:
         c = json.loads((src / f'{word}.json').read_text(encoding='utf-8'))
-        task = {
-            'word': word,
-            'instructions': INSTRUCTIONS,
-            'answer_format': ANSWER_FORMAT,
-            'cedict_word': [f"[{e['pinyin']}] " + ' / '.join(e['senses']) for e in c['cedict_word']],
-            'cedict_chars': {ch: [f"[{e['pinyin']}] " + ' / '.join(e['senses'][:10]) for e in es[:4]] for ch, es in c['cedict_chars'].items()},
-            'sentences': {str(i): s['sentence'] for i, s in enumerate(c['sentences'], 1)},
-            'collocations': {**{f'edu{i}': x['collocation'] for i, x in enumerate(c['collocations_edu'], 1)},
-                             **{f'wiki{i}': x['collocation'] for i, x in enumerate(c['collocations_wiki'], 1)}},
-        }
+        inputs = task_inputs(word, c)
+        # 键的顺序与以前相同，任务文件和指纹不变
+        task = {'word': word, 'instructions': INSTRUCTIONS, 'answer_format': ANSWER_FORMAT,
+                **{k: inputs[k] for k in INPUT_KEYS[1:]}}
         common.write_json(outdir / f'{word}.任务.json', task)
     print(f'已生成 {len(words)} 个判断任务：{outdir}')
     if model:

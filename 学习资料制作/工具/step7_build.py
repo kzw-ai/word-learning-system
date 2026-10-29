@@ -66,11 +66,12 @@ def pick_quiz(key, word, other, candidates, checks):
     rng = random.Random(key)
     questions, notes = [], []
     for w in (word, other):
-        ok = [q for k, q in candidates.items() if q['answer'] == w and checks[k]['usable'] and not checks[k]['other_fits']]
+        ok = [dict(q, key=k) for k, q in candidates.items() if q['answer'] == w and checks[k]['usable'] and not checks[k]['other_fits']]
         for q in ok[:QUIZ_PER_WORD]:
             options = [word, other]
             rng.shuffle(options)
-            questions.append({'question_type': 'confusable', 'stem': q['stem'], 'options': options, 'correct_answer': w})
+            questions.append({'question_type': 'confusable', 'stem': q['stem'], 'options': options, 'correct_answer': w,
+                              'explanation': checks[q['key']]['explanation']})
         if len(ok) < QUIZ_PER_WORD:
             notes.append(f'答案是「{w}」的辨析题只有 {len(ok)} 道（候选句里另一个词也能填或不适合出题）')
     return questions, notes
@@ -173,7 +174,12 @@ def main(batch, source=None):
     materials, md = [], [f'# 审核清单　{batch}', '',
                          '请逐词核对：义项是否恰当、例句是否适合学习者、翻译与拼音是否准确、搭配是否常用、练习题有没有两个正确答案。',
                          '标 ⚠ 的是程序发现需要特别看一下的地方。', '']
+    pair_only = step2_confusables.pair_only_words(batch)
+    if pair_only:
+        md += [f"只做辨析（论文词库已有学习材料，不重做）：{'、'.join(sorted(pair_only))}", '']
     for word in step2_confusables.words_from_args([batch]):
+        if word in pair_only:
+            continue
         sel = json.loads((sel_dir / f'{word}.json').read_text(encoding='utf-8'))
         name = f'{word}.检查.{source}.json' if source else f'{word}.检查.json'
         task = json.loads((check_dir / f'{word}.任务.json').read_text(encoding='utf-8'))
@@ -182,24 +188,28 @@ def main(batch, source=None):
         materials.append(material)
         md += checklist_entry(material, sel, notes)
     pairs = []
-    for word, other, stats in step6_check_tasks.confusable_pairs(step2_confusables.words_from_args([batch])):
+    levels = common.hsk_levels()
+    for word, other, stats in step6_check_tasks.confusable_pairs(batch):
         key = step6_check_tasks.pair_key(word, other)
         name = f'{key}.辨析.{source}.json' if source else f'{key}.辨析.json'
         task = json.loads((check_dir / f'{key}.任务.json').read_text(encoding='utf-8'))
         a = common.load_answer(check_dir / name, task, step6_check_tasks.validate_pair)
-        corpus = (f"HSK 动态作文语料库里，该用「{word}」的地方学习者出错 {stats['word1_errors']} 处，"
-                  f"其中 {stats['wrote_word2']} 处（{stats['share']:.0%}）写成了「{other}」。")
-        reason = '\n'.join([a['reason'].rstrip(), corpus, '学习者常错在：'] + [f'· {x}' for x in a['confusion_points']])
-        difference = '\n'.join([a['difference'].rstrip(), '搭配对比：'] + [f'· {x}' for x in a['collocation_contrast']]
-                                + [f"English: {a['english']}"])
+        corpus = (f"In the HSK Dynamic Composition Corpus, learners made {stats['word1_errors']} mistakes where "
+                  f"{word} was needed; {stats['wrote_word2']} of them ({stats['share']:.0%}) used {other} instead.")
+        if back := stats.get('reverse'):
+            corpus += (f" The other way round, of {back['word1_errors']} mistakes where {other} was needed, "
+                       f"{back['wrote_word2']} ({back['share']:.0%}) used {word}.")
+        reason = '\n'.join([a['reason'].rstrip(), corpus, 'Common mistakes:'] + [f'· {x}' for x in a['confusion_points']])
+        difference = '\n'.join([a['english'].rstrip(), a['difference'].rstrip(), 'Collocations:']
+                                + [f'· {x}' for x in a['collocation_contrast']])
         questions, quiz_notes = pick_quiz(key, word, other, task['quiz_candidates'], a['quiz_checks'])
         pairs.append({'word1': word, 'word2': other, 'reason': reason, 'difference': difference,
                       'examples': '\n'.join(a['examples']), 'tips': a['tips'], 'difficulty_level': a['difficulty_level'],
-                      'questions': questions, 'corpus': stats})
+                      'questions': questions, 'corpus': stats, 'word2_level': levels.get(other)})
         md += [f'## 易混淆词辨析：{word} / {other}', '', '为什么容易混：', ''] + [f'> {x}' for x in reason.splitlines()]
         md += ['', '区别：', ''] + [f'> {x}' for x in difference.splitlines()]
         md += ['', '例句：', ''] + [f'- {x}' for x in a['examples']] + ['', f'提示：{a["tips"]}　难度：{a["difficulty_level"]}', '', '辨析题：', '']
-        md += [f"- {q['stem']}　选项 {' / '.join(q['options'])}　答案 {q['correct_answer']}" for q in questions]
+        md += [f"- {q['stem']}　选项 {' / '.join(q['options'])}　答案 {q['correct_answer']}\n  - {q['explanation']}" for q in questions]
         md += [f'- ⚠ {n}' for n in quiz_notes] + ['']
     common.write_json(outdir / '素材.json', {'batch': batch, 'status': '待审核', 'words': materials, 'confusable_pairs': pairs})
     (outdir / '审核清单.md').write_text('\n'.join(md) + '\n', encoding='utf-8')

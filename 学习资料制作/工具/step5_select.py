@@ -172,7 +172,8 @@ def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混
             problems.append(f"义项「{s['definition']}」成立的搭配不足两条（{len(s['collocations'])} 条）")
     exercises = None
     if usable:
-        exercises, notes = build_exercises(word, kept, confusables, pool)
+        # 释义题的干扰项只用一至三级的易混淆词（pool 就是一至三级词）：四级的易混淆词学习者可能还没学
+        exercises, notes = build_exercises(word, kept, [c for c in confusables if c in pool], pool)
         problems += notes
     return {
         'word': word, 'hsk_level': candidates['hsk_level'], 'rank': rank, 'tier': tier,
@@ -198,8 +199,11 @@ def main(batch, source=None):
         candidates = json.loads((cand_dir / f'{word}.json').read_text(encoding='utf-8'))
         name = f'{word}.判断.{source}.json' if source else f'{word}.判断.json'
         task = json.loads((judge_dir / f'{word}.任务.json').read_text(encoding='utf-8'))
+        step4_semantic_tasks.check_candidates(task, candidates, word)
         judgment = common.load_answer(judge_dir / name, task, step4_semantic_tasks.validate)
         result = select(word, candidates, judgment, pool, *tiers.get(word, (None, '一至三级易混淆词')), name=name)
+        # 取舍依据的候选清单和判断（回答内容本身，回答可能被修订）的指纹：第 6 步据此认出过期的取舍
+        result['inputs'] = common.task_hash({'candidates': candidates, 'judgment': judgment})
         kept, dropped, problems = result['senses'], result['dropped_senses'], result['problems']
         common.write_json(outdir / f'{word}.json', result)
         senses_text = '；'.join(f"{s['pos']} {s['definition']}（{s['sentences']} 句）" for s in kept)

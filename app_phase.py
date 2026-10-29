@@ -246,6 +246,8 @@ class ConfusablePair(db.Model):
     difficulty_level = db.Column(db.Integer, default=1)
     # 辨析题（论文 3.2.4）：JSON 数组 [{stem, options, correct_answer}]，由 scripts/import_hsk4_batches.py 导入
     questions = db.Column(db.Text)
+    # 易混淆词（word2）的 HSK 等级：4 是另一个四级词，两个词都要学习期复习完才辨析；空值按一至三级
+    word2_level = db.Column(db.Integer)
 
 class ConfusableExerciseRecord(db.Model):
     __tablename__ = 'confusable_exercise_records'
@@ -491,16 +493,23 @@ def remaining_review_types(user_id, word_id):
     return types or None
 
 
-def word_ready_for_contrast(user_id, word_id):
-    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。
-    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。
-    一次请求里同一个词只算一次（一个词可能属于好几对）。"""
-    cache = g.setdefault('contrast_ready', {})
+def word_ready_for_contrast(user_id, word_id, is_target):
+    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。「一定程度」（作者确定）：
+    - 四级词（目标词，以及四级的易混淆词）：学习期复习完（表 4.2 的次数达标，即交给 SM-2 巩固的时候），
+      按档位是学后 3–14 天；
+    - 一至三级易混淆词：学习者以前学过，学过并复习过一次即可。只有释义题、第一次就答对的词第一次练习就达标，
+      所以看实际复习过的节数（学习期的复习加上达标以后的练习），不看是否达标。
+    一次请求里同一个词的复习进度只算一次（一个词可能属于好几对）。"""
+    cache = g.setdefault('contrast_state', {})
     key = (str(user_id), word_id)
     if key not in cache:
-        state = review_state(user_id, word_id)
-        cache[key] = bool(state) and (state['reviews_done'] >= 1 or state['completed'])
-    return cache[key]
+        cache[key] = review_state(user_id, word_id)
+    state = cache[key]
+    if not state:
+        return False
+    if is_target:
+        return state['completed']
+    return state['reviews_done'] + state['after_completion'] >= 1
 
 
 def contrast_passed(user_id, pair_id, questions):
@@ -519,11 +528,14 @@ def contrast_passed(user_id, pair_id, questions):
     return all(latest.get(i) for i in range(len(questions)))
 
 
-def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions):
-    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关
-    （contrast_passed）；答错的下次练这两个词时再带出。没有辨析题的旧词对没有作答可看，解锁后都算到期，
-    但 for-word 接口会优先带出有题、还没过关的词对。辨析题不计入论文表 4.2 的复习次数。"""
-    if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
+def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions, word2_level=None):
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast（word1 是四级目标词、word2 是易混淆词，
+    批次导入的词对都是这个顺序；word2_level 为 4 时 word2 也按四级词要求），且这一对还没练过关（contrast_passed）；
+    答错的下次练这两个词时再带出。
+    没有辨析题的旧词对没有作答可看，解锁后都算到期，但 for-word 接口会优先带出有题、还没过关的词对。
+    辨析题不计入论文表 4.2 的复习次数。"""
+    if not (word_ready_for_contrast(user_id, word1_id, is_target=True)
+            and word_ready_for_contrast(user_id, word2_id, is_target=word2_level == 4)):
         return False
     return not questions or not contrast_passed(user_id, pair_id, questions)
 
@@ -2288,73 +2300,6 @@ def validate_session():
 # 应用初始化
 # ================================================
 
-def seed_confusable_pairs():
-    """添加易混淆词初始数据（HSK中级典型易混词对）"""
-    pairs_data = [
-        {
-            'word1': ('突然 tūrán', 'sudden; suddenly (can be adj. or adv.)'),
-            'word2': ('忽然 hūrán', 'suddenly (adv. only)'),
-            'reason': '两个词都表示"事情发生得快、出乎意料"，且都能作状语，意思几乎相同。',
-            'difference': '「突然」是形容词，可以作状语、定语、谓语，可以被"很、非常"修饰；\n「忽然」是副词，只能作状语，不能被程度副词修饰。',
-            'examples': '✓ 天气突然变冷了。／天气忽然变冷了。（都可以）\n✓ 这件事发生得很突然。\n✗ 这件事发生得很忽然。（错误）\n✓ 突然的变化让大家吃惊。\n✗ 忽然的变化让大家吃惊。（错误）',
-            'tips': '能说"很突然"，不能说"很忽然"——记住：突然是形容词，忽然只是副词。',
-            'difficulty_level': 2,
-        },
-        {
-            'word1': ('常常 chángcháng', 'often; frequently (subjective habit)'),
-            'word2': ('往往 wǎngwǎng', 'often; tend to (objective regularity)'),
-            'reason': '都表示某种情况经常发生，中文学习者常常互换使用。',
-            'difference': '「常常」表示主观意愿的经常性行为，可用于将来和否定（不常常）；\n「往往」表示根据经验总结的规律性，必须带条件或情境，不能用于将来。',
-            'examples': '✓ 我常常去图书馆。\n✓ 周末的时候，他往往在家看书。\n✗ 明年我往往去锻炼。（错误：往往不能用于将来）\n✓ 明年我要常常去锻炼。',
-            'tips': '「往往」= 规律总结，前面通常有条件（周末/下雨天…）；「常常」= 个人习惯，随时可用。',
-            'difficulty_level': 3,
-        },
-        {
-            'word1': ('刚 gāng', 'just; only a short while ago (adv.)'),
-            'word2': ('刚才 gāngcái', 'just now; a moment ago (time noun)'),
-            'reason': '都表示"不久之前"，发音相近，意思相近。',
-            'difference': '「刚」是副词，只能放在动词前作状语，表示的时间可长可短；\n「刚才」是时间名词，可以放在句首、主语前后，也可作定语，只指几分钟前。',
-            'examples': '✓ 他刚走。／他刚才走的。\n✓ 刚才的事请你别介意。\n✗ 刚的事请你别介意。（错误）\n✓ 我刚来北京一个月。\n✗ 我刚才来北京一个月。（错误）',
-            'tips': '「刚才」是名词，能说"刚才的+名词"；「刚」是副词，后面只能跟动词。',
-            'difficulty_level': 2,
-        },
-        {
-            'word1': ('一直 yìzhí', 'continuously; all along (uninterrupted)'),
-            'word2': ('一向 yíxiàng', 'always; consistently (habitual attitude)'),
-            'reason': '都表示动作或状态持续不变，都作状语。',
-            'difference': '「一直」强调动作不间断地持续，可用于过去、现在、将来，也可指空间方向；\n「一向」指从过去到现在的一贯习惯或态度，多与表示态度、性格的词搭配，不能用于将来或空间。',
-            'examples': '✓ 雨一直下了三天。\n✗ 雨一向下了三天。（错误）\n✓ 他一向很谦虚。\n✓ 一直往前走，然后右转。\n✗ 一向往前走。（错误）',
-            'tips': '指方向（一直走）或将来，只能用「一直」；说人的一贯性格态度，多用「一向」。',
-            'difficulty_level': 3,
-        },
-        {
-            'word1': ('二 èr', 'two (used in numbers, ordinals, fractions)'),
-            'word2': ('两 liǎng', 'two (used before measure words)'),
-            'reason': '都表示数字2，但使用场合不同，是初中级学习者的高频错误。',
-            'difference': '「两」用在量词前（两个人、两本书）和"千/万/亿"前；\n「二」用于序数（第二）、小数、分数、号码，以及"十"前（二十）。',
-            'examples': '✓ 两个人／两本书\n✗ 二个人（错误）\n✓ 第二课／二十块钱\n✗ 第两课／两十块钱（错误）\n✓ 两千块／二千块（都可以，两千更常用）',
-            'tips': '量词前用「两」，排序和数数用「二」。',
-            'difficulty_level': 1,
-        },
-    ]
-
-    for item in pairs_data:
-        w1 = Word(pinyin=item['word1'][0], definition=item['word1'][1])  # pyrefly: ignore
-        w2 = Word(pinyin=item['word2'][0], definition=item['word2'][1])  # pyrefly: ignore
-        db.session.add_all([w1, w2])
-        db.session.flush()  # 先拿到 word id 再建词对
-        db.session.add(ConfusablePair(
-            word1_id=w1.id,
-            word2_id=w2.id,
-            reason=item['reason'],
-            difference=item['difference'],
-            examples=item['examples'],
-            tips=item['tips'],
-            difficulty_level=item['difficulty_level'],
-        ))
-    db.session.commit()
-    print(f"✅ 易混淆词数据添加完成（{len(pairs_data)} 组）")
-
 def ensure_user_profile_columns():
     """为旧数据库补齐 user_profile 新增列（create_all 不会修改已存在的表）"""
     conn = get_db_connection()
@@ -2453,14 +2398,14 @@ CONTRAST_SCHEMA_READY = False
 
 
 def ensure_confusable_pair_columns():
-    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions，
+    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions、word2_level，
     confusable_exercise_records 的题号、版本号、所选答案、作答编号，以及作答编号的唯一索引。
     必须在第一次查询这两个模型之前执行。加列失败（如别的进程正持有写锁）时再看一次列是否已由别的进程加上。
     做不完时不中断启动（后面还有认证迁移、推荐引擎等初始化），只把 CONTRAST_SCHEMA_READY 置为假：
     辨析不再带出，作答接口返回 503。"""
     global CONTRAST_SCHEMA_READY
     wanted = {
-        'confusable_pairs': [('questions', 'TEXT')],
+        'confusable_pairs': [('questions', 'TEXT'), ('word2_level', 'INTEGER')],
         'confusable_exercise_records': [('question_index', 'INTEGER'), ('question_version', 'VARCHAR(16)'),
                                         ('user_answer', 'VARCHAR(50)'), ('attempt_id', 'VARCHAR(64)')],
     }
@@ -2566,11 +2511,8 @@ def initialize_database():
                 db.session.commit()
                 print("✅ 初始数据添加完成")
             
-            # 检查是否需要添加易混淆词数据。用 SQL 数行数而不是 ORM：辨析题的列万一没补上，
-            # ORM 查询会因为选不到新列而报错，跳过后面的初始化
-            if db.session.execute(text("SELECT COUNT(*) FROM confusable_pairs")).scalar() == 0:
-                print("📝 添加易混淆词数据...")
-                seed_confusable_pairs()
+            # 易混淆词对只来自学习资料流水线（语料库确认、易混淆词限一至三级，作者 2026-10-29 定），
+            # 由下面的 HSK4 批次导入写入；不再写入手写的种子词对
 
             # 修复已入库素材的已知缺陷（拼音混在释义里、缺拼音、搭配丢了目标词等）。
             # 导入脚本只插入不更新，修好它不会改正旧数据；这里幂等，改过一次后不再动

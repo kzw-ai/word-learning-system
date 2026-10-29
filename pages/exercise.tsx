@@ -324,12 +324,14 @@ const Exercise = () => {
     // 必须在 endSession 之前查询并埋点：endSession 会发出最后一批事件并把追踪器
     // 标记为已结束，之后再 trackEvent 的事件不会再被发送。
     let confusablePairId: number | null = null;
+    let confusableAttempted = false;
     try {
-      // 带上身份：后端只在两个词都学过并复习过、这一对还没练过关时才带出（论文 2.2.4）
+      // 带上身份：后端只在两个词分别掌握到一定程度、这一对还没练过关时才带出（论文 2.2.4）
       const resp = await authenticatedGet(`/api/confusable/for-word/${wordId}`);
       const result = await resp.json();
       if (result.success && result.pair_id) {
         confusablePairId = result.pair_id;
+        confusableAttempted = result.attempted === true;
         trackEvent('confusable_step', 'exercise-end', { wordId, pairId: result.pair_id });
       }
     } catch {
@@ -339,7 +341,8 @@ const Exercise = () => {
     await endSession(true);
 
     if (confusablePairId) {
-      router.push(`/confusable-words?pair=${confusablePairId}&from=exercise`);
+      // 以前做过这一对的辨析题、没全对才再带出：辨析页直接展开讲解
+      router.push(`/confusable-words?pair=${confusablePairId}&from=exercise${confusableAttempted ? '&revisit=1' : ''}`);
       return;
     }
 
