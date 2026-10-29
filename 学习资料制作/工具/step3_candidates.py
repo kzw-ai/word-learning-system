@@ -10,6 +10,7 @@
 - 词典：CC-CEDICT 里这个词和每个字的全部读音与义项。
 """
 import json
+import re
 import sys
 
 import jieba
@@ -19,12 +20,42 @@ import step2_confusables
 
 TOP = 20
 
+# 句首杂质（教材录入、切句时混进来的）：对话的说话人「王静：」、上一句落下的右引号「”」、题号「2黄色代表……」。
+# 去掉以后句子本身常常是好例句（「朋友：她去年秋天出生的，刚过完一岁生日。」），不去掉就被大模型当成片段判掉
+# （作者同意，2026-10-29）。「我想：」「朋友说：」这类冒号前是说话动作的不去；冒号前含目标词的不去
+SPEAKER = re.compile(r'^([一-龥A-Za-z·]{1,4})[：:]')
+SPEECH_VERBS = ('说', '想', '是', '道', '问', '答', '写', '认为')
+STRAY_CLOSE = re.compile(r'^[”’」』）)]+')
+LEADING_NUMBER = re.compile(r'^[0-9０-９]+[、.．]?')
+# 数字后面是这些字时，数字是句子的一部分（「20世纪」「28岁」「800万」「16点」），不去
+NUMBER_UNITS = set('年月日号点时分秒岁世纪万千百亿元块角个位名次倍层米斤克件本张只条辆家所门期届级度%％多余来后前半')
+
+
+def clean_start(s, word):
+    while True:
+        t = STRAY_CLOSE.sub('', s, count=1)
+        m = LEADING_NUMBER.match(t)
+        if m and m.end() < len(t) and t[m.end()] not in NUMBER_UNITS and not t[m.end()].isdigit():
+            t = t[m.end():]
+        m = SPEAKER.match(t)
+        if m and not m.group(1).endswith(SPEECH_VERBS) and word not in m.group(1):
+            t = t[m.end():]
+        t = t.lstrip()
+        if not t:
+            return s
+        if t == s:
+            return t
+        s = t
+
 
 def sentences_with(word, sentences, complexity, levels):
     def find():
         found, seen = [], set()
         for book, s in sentences:
-            if word not in s or s in seen:
+            if word not in s:
+                continue
+            s = clean_start(s, word)
+            if s in seen:
                 continue
             tokens = common.tokenize(s)
             if word not in tokens:
