@@ -94,3 +94,28 @@
     text-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
   }
 }
+/* 学习页翻页：从下一步翻过来时内容从右侧滑入，回到上一步时从左侧滑入（见 src/hooks/useSwipeNavigation.ts） */
+@keyframes learning-slide-from-right {
+  from { opacity: 0; transform: translateX(32px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes learning-slide-from-left {
+  from { opacity: 0; transform: translateX(-32px); }
+  to { opacity: 1; transform: none; }
+}
+
+.learning-slide-next {
+  animation: learning-slide-from-right 0.22s ease-out;
+}
+
+.learning-slide-previous {
+  animation: learning-slide-from-left 0.22s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learning-slide-next,
+  .learning-slide-previous {
+    animation: none;
+  }
+}

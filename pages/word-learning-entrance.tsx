@@ -210,7 +210,11 @@ export default function Component() {
     // 第二次请求会让引擎另挑一个词，自评档位就记到了没问过的词上，还多一条对不上的推荐日志
     const resolvedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
     const resolvedWord = targetWord?.word ?? DEFAULT_WORD_NAME;
-    const resolvedModule = resolveModuleRoute(selectedLearning.module, selectedLearning.path, selectedLearning.label);
+    // 单字词（如「得」）拆不出字，字页和词页内容一样：选 A 的也从词页开始（档位仍记 A，复习次数不变）
+    const singleChar = Array.from(resolvedWord).length === 1;
+    const resolvedModule = singleChar && selectedLearning.module === 'character'
+      ? resolveModuleRoute('word', '/word-learning', 'Word')
+      : resolveModuleRoute(selectedLearning.module, selectedLearning.path, selectedLearning.label);
     const recommendationId = targetWord?.recommendationId ?? null;
     setRecommendationMessage(`Starting with ${resolvedModule.label} · ${resolvedWord}`);
 
