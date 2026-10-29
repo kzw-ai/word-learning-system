@@ -100,8 +100,8 @@ def pair_key(word, other):
 
 def word_outputs(word, home):
     """一个词第 3–5 步的产出（候选清单、判断、取舍），都取它所在的那一批（home_batches），不混用不同批次的文件。
-    判断用取舍记下的那一份（第 5 步可能用 --judgment 选了别的来源），并和第 5 步一样核对：
-    回答对应这份判断任务（指纹），任务里的句子就是现在的候选清单（判断里的句子编号对得上）。
+    判断用取舍记下的那一份（第 5 步可能用 --judgment 选了别的来源），并核对：回答对应这份判断任务（指纹），
+    任务的输入就是现在的候选清单（例句、搭配编号对得上），取舍正是用这份候选清单和这份回答做的。
     缺了或对不上就报错，要先把那一批重新跑到第 5 步。"""
     batch = home.get(word)
     paths = {sub: common.OUT / sub / str(batch) / name for sub, name in
@@ -111,6 +111,8 @@ def word_outputs(word, home):
     cand, task, sel = (json.loads(paths[sub].read_text(encoding='utf-8')) for sub in ('候选清单', '判断', '取舍'))
     step4_semantic_tasks.check_candidates(task, cand, word)
     judgment = common.load_answer(paths['判断'].parent / sel['judgment'], task, step4_semantic_tasks.validate)
+    if sel.get('inputs') != common.task_hash({'candidates': cand, 'judgment': judgment}):
+        raise SystemExit(f'「{word}」的取舍是用旧的候选清单或判断做的（之后重跑过第 3 或第 4 步）：重新跑 {batch} 的第 5 步')
     return {'候选清单': cand, '判断': judgment, '取舍': sel}
 
 

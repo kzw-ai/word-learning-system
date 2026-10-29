@@ -202,6 +202,8 @@ def main(batch, source=None):
         step4_semantic_tasks.check_candidates(task, candidates, word)
         judgment = common.load_answer(judge_dir / name, task, step4_semantic_tasks.validate)
         result = select(word, candidates, judgment, pool, *tiers.get(word, (None, '一至三级易混淆词')), name=name)
+        # 取舍依据的候选清单和判断（回答内容本身，回答可能被修订）的指纹：第 6 步据此认出过期的取舍
+        result['inputs'] = common.task_hash({'candidates': candidates, 'judgment': judgment})
         kept, dropped, problems = result['senses'], result['dropped_senses'], result['problems']
         common.write_json(outdir / f'{word}.json', result)
         senses_text = '；'.join(f"{s['pos']} {s['definition']}（{s['sentences']} 句）" for s in kept)

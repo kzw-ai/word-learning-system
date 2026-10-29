@@ -80,12 +80,13 @@ def plan():
                 lines.append((c, note + (pair_only if c in in_db else '')))
         return lines
 
+    # 已写好的批次里的目标词，规则更新后新入选的易混淆词：补进第一个新批次；没有新目标词时单独成一批
+    extra = [line for word in sorted(done_words) for line in confusables_of(word)]
+    if extra and not batches:
+        batches.append([])
     out = []
     for i, targets in enumerate(batches):
-        lines = []
-        if i == 0:
-            # 已写好的批次里的目标词，规则更新后新入选的易混淆词：补进第一个新批次
-            lines += [line for word in sorted(done_words) for line in confusables_of(word)]
+        lines = list(extra) if i == 0 else []
         for word, tier in targets:
             lines.append((word, tier + (pair_only if word in in_db else '')))
             lines += confusables_of(word)
