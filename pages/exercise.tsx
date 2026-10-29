@@ -15,6 +15,9 @@ import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
 import StepProgress from '@/components/learning/StepProgress';
 import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
+import { gradeHandwriting, loadCharacterData, type Stroke } from '@/src/lib/handwriting';
+import HandwritingPad from '@/components/learning/HandwritingPad';
+import StrokeOrderAnimation from '@/components/learning/StrokeOrderAnimation';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -48,6 +51,28 @@ const Exercise = () => {
   const fillHint = currentQuestion?.type === 'fill_word' ? parseFillHint(currentQuestion.question) : null;
   const [selectedOption, setSelectedOption] = useState('');
   const [fillInAnswer, setFillInAnswer] = useState(''); // 填空题答案
+  // 填字题默认手写（论文 3.2 节）；也可以改用打字（电脑上用鼠标不好写），选择记在本机
+  const [fillMode, setFillMode] = useState<'write' | 'type'>('write');
+  const [handStrokes, setHandStrokes] = useState<Stroke[]>([]);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('fill-input-mode') === 'type') setFillMode('type');
+    } catch {
+      /* 读不了就用默认的手写 */
+    }
+  }, []);
+  // 填字题一出来就预先取答案字的笔画数据，点 CHECK 时不用等
+  useEffect(() => {
+    if (currentQuestion?.type === 'fill_word') loadCharacterData(currentQuestion.correctAnswer).catch(() => undefined);
+  }, [currentQuestion]);
+  const chooseFillMode = (mode: 'write' | 'type') => {
+    setFillMode(mode);
+    try {
+      localStorage.setItem('fill-input-mode', mode);
+    } catch {
+      /* 存不了就只在这一页有效 */
+    }
+  };
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -119,6 +144,7 @@ const Exercise = () => {
       setCurrentQuestion(normalizedQuestions[0]);
       setSelectedOption('');
       setFillInAnswer(''); // 重置填空答案
+      setHandStrokes([]);
       setShowFeedback(false);
       setIsCorrect(false);
       updateConfig({ wordId: data.wordId });
@@ -196,6 +222,7 @@ const Exercise = () => {
     setCurrentQuestion(nextQuestion);
     setSelectedOption('');
     setFillInAnswer(''); // 重置填空答案
+    setHandStrokes([]);
     setShowFeedback(false);
     setIsCorrect(false);
     startTimer();
@@ -244,9 +271,20 @@ const Exercise = () => {
     }
 
     // 检查用户是否已作答
-    const hasAnswer = currentQuestion.type === 'fill_word' ? fillInAnswer.trim() : selectedOption;
+    const writing = currentQuestion.type === 'fill_word' && fillMode === 'write';
+    const hasAnswer = currentQuestion.type === 'fill_word' ? (writing ? handStrokes.length > 0 : fillInAnswer.trim()) : selectedOption;
     if (!hasAnswer) {
       return;
+    }
+    // 手写：按笔画和答案字的标准笔画配对判分（不限笔顺）。取不到这个字的笔画数据时改用打字
+    let handwriting: ReturnType<typeof gradeHandwriting> | null = null;
+    if (writing) {
+      const data = await loadCharacterData(currentQuestion.correctAnswer).catch(() => null);
+      if (!data) {
+        chooseFillMode('type');
+        return;
+      }
+      handwriting = gradeHandwriting(handStrokes, data);
     }
 
     trackButtonClick('submit-button', 'CHECK', {
@@ -261,7 +299,13 @@ const Exercise = () => {
     let correct = false;
     let userAnswer = '';
     
-    if (currentQuestion.type === 'fill_word') {
+    if (handwriting) {
+      correct = handwriting.correct;
+      // 手写没有识别成具体的字：对了记答案字，错了记笔画配对情况
+      userAnswer = correct
+        ? currentQuestion.correctAnswer
+        : `[handwriting ${handwriting.matched}/${handwriting.expected} strokes, ${handwriting.extra} extra]`;
+    } else if (currentQuestion.type === 'fill_word') {
       userAnswer = fillInAnswer.trim();
       // 填空题：严格相等比对。此前用双向子串匹配，正确答案「改变」时只写「改」、
       // 正确答案 'happen; occur' 时只输入 'a' 都会判对，正确率被系统性高估。
@@ -493,7 +537,8 @@ const Exercise = () => {
                         'Choose the word that matches the meaning.' :
                         currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
                         currentQuestion.type === 'choose_word' ? 'Choose the right word.' :
-                        'Type the missing character.'
+                        // 缺的总是刚学的这个词里的一个字（单字词就是这个词本身，多字词是最后一个字）
+                        `${fillMode === 'write' ? 'Write' : 'Type'} the missing character of the word you just learned.`
                       }
                     </h2>
                     <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
@@ -521,10 +566,33 @@ const Exercise = () => {
                 </div>
 
                 {/* Option / Input Area */}
-                {currentQuestion.type === 'fill_word' ? (
-                  <div className="flex flex-col items-center">
-                    {/* 直接输入答案。原先的手写板没有识别能力，写完还要在浏览器弹窗里
-                        再打一遍字；可用系统输入法（含手写输入）作答 */}
+                {currentQuestion.type === 'fill_word' && fillMode === 'write' ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <HandwritingPad
+                      strokes={handStrokes}
+                      onChange={setHandStrokes}
+                      disabled={showFeedback}
+                      result={showFeedback ? (isCorrect ? 'correct' : 'wrong') : null}
+                    />
+                    {!showFeedback && (
+                      <div className="flex gap-2">
+                        <Button variant="ghost" className="h-9 px-3 text-sm text-gray-600" disabled={handStrokes.length === 0}
+                          onClick={() => setHandStrokes(handStrokes.slice(0, -1))}>
+                          Undo
+                        </Button>
+                        <Button variant="ghost" className="h-9 px-3 text-sm text-gray-600" disabled={handStrokes.length === 0}
+                          onClick={() => setHandStrokes([])}>
+                          Clear
+                        </Button>
+                        <Button variant="ghost" className="h-9 px-3 text-sm text-indigo-700" onClick={() => chooseFillMode('type')}>
+                          Type instead
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : currentQuestion.type === 'fill_word' ? (
+                  <div className="flex flex-col items-center gap-2">
+                    {/* 打字作答：可用系统输入法（拼音或手写输入） */}
                     <div className="relative w-full max-w-[260px]">
                       <input
                         type="text"
@@ -550,6 +618,11 @@ const Exercise = () => {
                         </span>
                       )}
                     </div>
+                    {!showFeedback && (
+                      <Button variant="ghost" className="h-9 px-3 text-sm text-indigo-700" onClick={() => chooseFillMode('write')}>
+                        Write instead
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   // Multiple Choice Selection
@@ -642,10 +715,12 @@ const Exercise = () => {
                                  <p className="text-[14px] font-bold text-gray-800 leading-snug mb-1.5">
                                    {completeSentence(fillHint.stem, currentQuestion.correctAnswer)}
                                  </p>
-                                 <p className="text-base font-medium text-gray-700 leading-snug">
+                                 <p className="text-base font-medium text-gray-700 leading-snug mb-3">
                                    <span className="mr-2 text-indigo-700">{wordLabel}</span>{word.pinyin}
                                    <span className="text-gray-500"> · {wordDefinition}</span>
                                  </p>
+                                 {/* 这个字的标准写法和笔顺 */}
+                                 <StrokeOrderAnimation character={currentQuestion.correctAnswer} />
                               </>
                            ) : currentQuestion.type === 'choose_word' && word.examples?.[0] ? (
                               <>
@@ -698,7 +773,7 @@ const Exercise = () => {
                 <div className="pt-2 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
                   <Button 
                     onClick={handleSubmit}
-                    disabled={currentQuestion.type === 'fill_word' ? !fillInAnswer.trim() : !selectedOption}
+                    disabled={currentQuestion.type === 'fill_word' ? (fillMode === 'write' ? handStrokes.length === 0 : !fillInAnswer.trim()) : !selectedOption}
                     className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
                   >
                     CHECK

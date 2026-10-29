@@ -81,6 +81,9 @@ const puppeteer = require('puppeteer-core');
         .find((b) => /^[A-D]\.\s/.test(b.innerText.trim()) && !b.disabled);
       if (optionBtn) { optionBtn.click(); return 'answered'; }
       if (document.querySelector('[data-fill-input]')) return 'fill';
+      // 填字题默认手写：这个测试改用打字作答（手写判分另有测试）
+      const typeInstead = [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Type instead');
+      if (typeInstead) { typeInstead.click(); return 'switched'; }
       return 'answered';
     });
     if (state === 'fill') {
