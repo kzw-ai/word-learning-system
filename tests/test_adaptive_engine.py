@@ -26,14 +26,16 @@ from adaptive_engine import AdaptiveRecommendationEngine, SpacedRepetitionAlgori
 
 @pytest.fixture
 def db_path(tmp_path):
-    """建一个最小可用的临时数据库（word + character + user_progress）"""
+    """建一个最小可用的临时数据库（word + character + example + confusable_pairs + user_progress）"""
     path = str(tmp_path / 'test.db')
     conn = sqlite3.connect(path)
     conn.executescript("""
         CREATE TABLE word (
             id INTEGER NOT NULL PRIMARY KEY,
             pinyin VARCHAR(80) NOT NULL,
-            definition VARCHAR(200) NOT NULL
+            definition VARCHAR(200) NOT NULL,
+            freq_rank INTEGER,
+            freq_tier VARCHAR(10)
         );
         CREATE TABLE user_progress (
             id INTEGER NOT NULL PRIMARY KEY,
@@ -74,6 +76,8 @@ def db_path(tmp_path):
             word_id INTEGER NOT NULL,
             FOREIGN KEY(word_id) REFERENCES word (id)
         );
+        CREATE TABLE example (id INTEGER PRIMARY KEY, word_id INTEGER, sentence TEXT);
+        CREATE TABLE confusable_pairs (id INTEGER PRIMARY KEY, word1_id INTEGER, word2_id INTEGER, word2_level INTEGER);
     """)
     conn.execute("INSERT INTO word (id, pinyin, definition) VALUES (1, 'fāshēng', 'happen')")
     conn.execute("INSERT INTO word (id, pinyin, definition) VALUES (2, 'túrán', 'sudden')")
@@ -93,6 +97,18 @@ def engine(db_path):
 @pytest.fixture
 def spaced(db_path):
     return SpacedRepetitionAlgorithm(db_path)
+
+
+def add_words(db_path, words):
+    """加几个出得了题的词（有单字、有例句）：[(word_id, 词频档位, 排名)]"""
+    conn = sqlite3.connect(db_path)
+    for word_id, tier, rank in words:
+        conn.execute("INSERT INTO word (id, pinyin, definition, freq_tier, freq_rank) VALUES (?, ?, '', ?, ?)",
+                     (word_id, f'w{word_id}', tier, rank))
+        conn.execute("INSERT INTO character (character, word_id) VALUES ('字', ?)", (word_id,))
+        conn.execute("INSERT INTO example (word_id, sentence) VALUES (?, '例句')", (word_id,))
+    conn.commit()
+    conn.close()
 
 
 def insert_progress(db_path, user_id='u1', word_id=1, **overrides):
@@ -406,19 +422,13 @@ class TestDueReviews:
 class TestPatternWithMissingData:
     def test_null_efficiency_still_recommends_a_new_word(self, engine, db_path):
         """学过一个词以后，AVG(learning_efficiency) 为 NULL，不能让引擎抛异常、退回固定的 1 号词"""
-        conn = sqlite3.connect(db_path)
-        conn.executescript("""
-            CREATE TABLE example (id INTEGER PRIMARY KEY, word_id INTEGER, sentence TEXT);
-            INSERT INTO example (word_id, sentence) VALUES (2, '他突然走了。');
-        """)
-        conn.commit()
-        conn.close()
+        add_words(db_path, [(3, None, None)])
         insert_progress(db_path, word_id=1, mastery_level=1.0, learning_efficiency=None,
                         total_attempts=0, correct_attempts=0,
                         next_review_suggested=datetime.now() + timedelta(days=1))
         rec = engine.get_next_recommendation('u1')
         assert rec['type'] == 'new_learning'
-        assert rec['word_id'] == 2
+        assert rec['word_id'] == 3
 
     def test_level_of_unknown_without_data(self):
         thresholds = {'high': 0.8, 'medium': 0.5}
@@ -428,17 +438,87 @@ class TestPatternWithMissingData:
         assert AdaptiveRecommendationEngine.level_of(0.1, thresholds) == 'low'
 
     def test_fallback_picks_an_unstudied_word_not_word_one(self, engine, db_path):
+        add_words(db_path, [(3, None, None)])
         conn = sqlite3.connect(db_path)
-        conn.executescript("""
-            CREATE TABLE example (id INTEGER PRIMARY KEY, word_id INTEGER, sentence TEXT);
-            INSERT INTO example (word_id, sentence) VALUES (1, '发生了什么？'), (2, '他突然走了。');
-        """)
+        conn.execute("INSERT INTO example (word_id, sentence) VALUES (1, '发生了什么？')")
         conn.commit()
         conn.close()
         insert_progress(db_path, word_id=1)
-        assert engine.get_fallback_recommendation('u1')['word_id'] == 2
-        assert engine.get_fallback_recommendation()['word_id'] == 1
+        assert engine.get_fallback_recommendation('u1')['word_id'] == 3
+        # 词 2 没有单字，出不了题，不推荐；学完了就是暂无任务，不再退回 1 号词
+        insert_progress(db_path, word_id=3)
+        assert engine.get_fallback_recommendation('u1')['word_id'] is None
 
     def test_learner_with_zero_mastery_is_not_a_new_user(self, engine, db_path):
         insert_progress(db_path, word_id=1, mastery_level=0.0)
         assert engine.analyze_user_learning_pattern('u1')['type'] == 'experienced_user'
+
+
+# ================================================
+# 新词的顺序：论文 5.3.1 高、中、低频均衡；2.2.4 易混淆词排在目标词之后
+# ================================================
+
+class TestNewWordOrder:
+    TIERED = [(10, '高频', 1), (11, '高频', 2), (12, '中频', 3), (13, '中频', 4), (14, '低频', 5), (15, '低频', 6)]
+
+    def next_word(self, engine):
+        rec = engine.get_next_recommendation('u1')
+        assert rec['type'] == 'new_learning', rec
+        return rec['word_id']
+
+    def study(self, db_path, word_id, **overrides):
+        insert_progress(db_path, word_id=word_id, next_review_suggested=datetime.utcnow() + timedelta(days=1),
+                        **overrides)
+
+    def test_tiers_take_turns_in_frequency_order(self, engine, db_path):
+        add_words(db_path, self.TIERED)
+        picked = []
+        for _ in range(6):
+            word_id = self.next_word(engine)
+            picked.append(word_id)
+            self.study(db_path, word_id)
+        assert picked == [10, 12, 14, 11, 13, 15]
+
+    def test_same_word_until_it_is_studied(self, engine, db_path):
+        """顺序固定：刷新看板、进入口页不会换成另一个词"""
+        add_words(db_path, self.TIERED)
+        assert {self.next_word(engine) for _ in range(5)} == {10}
+
+    def test_studied_word_is_never_a_new_word(self, engine, db_path):
+        """掌握度低、三天没学的词由复习日程安排，不能被当成新词提前推出来"""
+        add_words(db_path, [(10, '高频', 1), (12, '中频', 3)])
+        self.study(db_path, 10, mastery_level=0.0, last_studied=datetime.now() - timedelta(days=5))
+        assert self.next_word(engine) == 12
+
+    def test_confusable_partner_comes_after_its_target(self, engine, db_path):
+        add_words(db_path, self.TIERED + [(20, None, None)])
+        conn = sqlite3.connect(db_path)
+        conn.execute("INSERT INTO confusable_pairs (word1_id, word2_id, word2_level) VALUES (10, 20, 3)")
+        conn.commit()
+        conn.close()
+        assert self.next_word(engine) == 10
+        # 目标词今天才学：易混淆词不在同一天接着学（先分开学）
+        self.study(db_path, 10, first_studied=datetime.utcnow())
+        assert self.next_word(engine) == 12
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE user_progress SET first_studied = ? WHERE word_id = 10",
+                     (datetime.utcnow() - timedelta(days=1),))
+        conn.commit()
+        conn.close()
+        assert self.next_word(engine) == 20
+
+    def test_untiered_words_come_after_the_hsk4_words(self, engine, db_path):
+        add_words(db_path, [(3, None, None), (14, '低频', 5)])
+        assert self.next_word(engine) == 14
+        self.study(db_path, 14)
+        assert self.next_word(engine) == 3
+
+    def test_all_caught_up_has_no_word_and_says_when_next(self, engine, db_path):
+        add_words(db_path, [(10, '高频', 1)])
+        due = datetime.utcnow() + timedelta(days=2)
+        insert_progress(db_path, word_id=10, next_review_suggested=due)
+        insert_progress(db_path, word_id=1, next_review_suggested=due + timedelta(days=3))
+        rec = engine.get_next_recommendation('u1')
+        assert rec['type'] == 'all_caught_up'
+        assert rec['word_id'] is None
+        assert rec['next_review_at'] == due.strftime('%Y-%m-%d %H:%M:%S')

@@ -8,7 +8,7 @@ import { fetchWordExercises } from '@/src/lib/apiClient';
 import { authenticatedGet } from '@/src/lib/authClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
 import { useLearningContext } from '@/src/context/LearningContext';
-import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
+import { afterWordRoute, reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
 import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
@@ -339,6 +339,15 @@ const Exercise = () => {
     }
 
     await endSession(true);
+
+    // 复习模式下这个词的练习做完了：今天的复习列表不再显示它（作答万一没记下，也不会一直重复同一个词）。
+    // 只在做完时记，点开始复习时不记：中途退出的词还要留在列表里
+    if (learningSession.reviewMode) {
+      updateLearningSession({
+        reviewedWordIds: [...reviewedToday(learningSession).filter(id => id !== wordId), wordId],
+        reviewDate: todayReviewKey()
+      });
+    }
 
     if (confusablePairId) {
       // 以前做过这一对的辨析题、没全对才再带出：辨析页直接展开讲解

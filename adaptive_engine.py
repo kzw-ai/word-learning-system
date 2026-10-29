@@ -141,7 +141,7 @@ class AdaptiveRecommendationEngine:
                 FROM user_progress up
                 JOIN word w ON up.word_id = w.id
                 WHERE up.user_id = ?
-                AND up.next_review_suggested <= datetime('now')
+                AND datetime(up.next_review_suggested) <= datetime('now')
                 ORDER BY up.next_review_suggested ASC, up.mastery_level ASC
                 LIMIT 1
             """, (user_id,))
@@ -186,24 +186,11 @@ class AdaptiveRecommendationEngine:
             # 获取用户学习模式
             user_pattern = self.analyze_user_learning_pattern(user_id)
             
-            # 获取用户还未学习或掌握不佳的词汇
-            cursor.execute("""
-                SELECT w.id, w.pinyin, COALESCE(up.mastery_level, 0) as mastery
-                FROM word w
-                LEFT JOIN user_progress up ON w.id = up.word_id AND up.user_id = ?
-                WHERE COALESCE(up.mastery_level, 0) < ?
-                AND (up.user_id IS NULL OR up.last_studied < datetime('now', '-3 days'))
-                AND EXISTS (SELECT 1 FROM example e WHERE e.word_id = w.id)
-                ORDER BY COALESCE(up.mastery_level, 0) ASC, RANDOM()
-                LIMIT 5
-            """, (user_id, self.mastery_threshold))
-            
-            candidates = cursor.fetchall()
-            if not candidates:
+            candidate = self.next_new_word(cursor, user_id)
+            if not candidate:
                 return None
-            
-            # 选择最合适的词汇
-            word_id, pinyin, mastery_level = candidates[0]
+            word_id, pinyin = candidate
+            mastery_level = 0
             
             # 基于用户模式和当前上下文确定学习模块
             if context and 'vks_level' in context:
@@ -226,7 +213,59 @@ class AdaptiveRecommendationEngine:
             
         finally:
             conn.close()
-    
+
+    # 推荐新词时三档轮流的先后：学过的词数相同时先高频
+    FREQ_TIERS = ('高频', '中频', '低频')
+
+    def next_new_word(self, cursor, user_id: str) -> Optional[Tuple[int, str]]:
+        """下一个要学的新词 (word_id, pinyin)，没有时返回 None。只选这个用户还没学过（没有进度）、
+        出得了题（有单字和例句）的词；学过的词由复习日程安排，不再当新词推荐。顺序固定，刷新不会换词：
+        1. 一至三级易混淆词：它的四级目标词已经学过、且不是今天才学的（论文 2.2.4：先分开学，排在目标词之后）；
+        2. 四级词按高、中、低频轮流（论文 5.3.1：每次学习安排相当比例的三档词）：从学过的词最少的一档里
+           取词频排名最靠前的；
+        3. 不在四级词表里的其他词（论文词库里的低等级词），按 id；等目标词的易混淆词排在最后。"""
+        unstudied = """NOT EXISTS (SELECT 1 FROM user_progress up WHERE up.word_id = w.id AND up.user_id = ?)
+            AND EXISTS (SELECT 1 FROM example e WHERE e.word_id = w.id)
+            AND EXISTS (SELECT 1 FROM character c WHERE c.word_id = w.id)"""
+        cursor.execute(f"""
+            SELECT w.id, w.pinyin FROM confusable_pairs p
+            JOIN word w ON w.id = p.word2_id
+            JOIN user_progress t ON t.word_id = p.word1_id AND t.user_id = ?
+            WHERE p.word2_level < 4 AND date(t.first_studied) < date('now') AND {unstudied}
+            ORDER BY t.first_studied, p.id
+            LIMIT 1
+        """, (user_id, user_id))
+        row = cursor.fetchone()
+        if row:
+            return row
+
+        cursor.execute("""
+            SELECT w.freq_tier, COUNT(up.word_id) FROM word w
+            LEFT JOIN user_progress up ON up.word_id = w.id AND up.user_id = ?
+            WHERE w.freq_tier IS NOT NULL
+            GROUP BY w.freq_tier
+        """, (user_id,))
+        studied = dict(cursor.fetchall())
+        order = sorted(studied, key=lambda t: (studied[t], self.FREQ_TIERS.index(t) if t in self.FREQ_TIERS else 9))
+        for tier in order:
+            cursor.execute(f"""
+                SELECT w.id, w.pinyin FROM word w
+                WHERE w.freq_tier = ? AND {unstudied}
+                ORDER BY w.freq_rank, w.id
+                LIMIT 1
+            """, (tier, user_id))
+            row = cursor.fetchone()
+            if row:
+                return row
+
+        cursor.execute(f"""
+            SELECT w.id, w.pinyin FROM word w
+            WHERE w.freq_tier IS NULL AND {unstudied}
+            ORDER BY EXISTS (SELECT 1 FROM confusable_pairs p WHERE p.word2_id = w.id AND p.word2_level < 4), w.id
+            LIMIT 1
+        """, (user_id,))
+        return cursor.fetchone()
+
     @staticmethod
     def level_of(value: Optional[float], thresholds: Dict) -> str:
         """按阈值分 high / medium / low；没有数据（None）时为 unknown"""
@@ -543,22 +582,32 @@ class AdaptiveRecommendationEngine:
             return self.base_intervals[-1] * (2 ** (review_count - len(self.base_intervals) + 1))
     
     def get_default_recommendation(self, user_id: str) -> Dict:
-        """获取默认推荐"""
+        """没有到期复习、也没有新词可学时：明确告诉前端暂时没有任务（word_id 为空，不能开始学习），
+        并带上最近一次复习的时间（UTC，没有排期时为空）"""
+        conn = self.get_connection()
+        try:
+            next_review_at = conn.execute("""
+                SELECT MIN(datetime(next_review_suggested)) FROM user_progress
+                WHERE user_id = ? AND next_review_suggested IS NOT NULL
+            """, (user_id,)).fetchone()[0]
+        finally:
+            conn.close()
         return {
-            'type': 'explore_learning',
+            'type': 'all_caught_up',
             'priority': 'low',
             'word_id': None,
-            'reason': 'Explore something new',
-            'recommended_module': 'word',
+            'reason': 'Nothing to study right now',
+            'recommended_module': None,
+            'next_review_at': next_review_at,
             'confidence': 0.5,
-            'estimated_time': 300,
+            'estimated_time': 0,
             'algorithm_version': self.algorithm_version
         }
     
     def get_fallback_recommendation(self, user_id: Optional[str] = None) -> Dict:
-        """推荐出错时的退路：这个用户还没学过、有例句的词（按 id），都学过了才退回 1 号词。
+        """推荐出错时的退路：这个用户还没学过、出得了题的词（按 id）；都学过了或查不出来时 word_id 为空（暂无任务）。
         以前固定返回 1 号词，出错就一直推荐同一个词，故障也被掩盖了"""
-        word_id = 1
+        word_id = None
         if user_id:
             try:
                 conn = self.get_connection()
@@ -566,6 +615,7 @@ class AdaptiveRecommendationEngine:
                     row = conn.execute("""
                         SELECT w.id FROM word w
                         WHERE EXISTS (SELECT 1 FROM example e WHERE e.word_id = w.id)
+                        AND EXISTS (SELECT 1 FROM character c WHERE c.word_id = w.id)
                         AND NOT EXISTS (SELECT 1 FROM user_progress up WHERE up.word_id = w.id AND up.user_id = ?)
                         ORDER BY w.id LIMIT 1
                     """, (user_id,)).fetchone()
@@ -708,7 +758,7 @@ class SpacedRepetitionAlgorithm:
                 FROM user_progress up
                 JOIN word w ON up.word_id = w.id
                 WHERE up.user_id = ?
-                AND up.next_review_suggested <= datetime('now')
+                AND datetime(up.next_review_suggested) <= datetime('now')
                 ORDER BY up.next_review_suggested ASC, up.mastery_level ASC
                 LIMIT ?
             """, (user_id, limit))

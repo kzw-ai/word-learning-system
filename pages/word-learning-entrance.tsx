@@ -10,6 +10,7 @@ import { sendRecommendationFeedback } from '@/src/lib/authClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { guestDisplayName, isGuestId, safeGetItem } from '@/src/lib/guestIdentity';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { formatReviewTime } from '@/src/lib/reviewTime';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -57,6 +58,8 @@ export default function Component() {
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   // 本次要测评的目标词：由推荐引擎决定（挂载后加载，初始用默认词保证水合一致）
   const [targetWord, setTargetWord] = useState<{ id: number; word: string; recommendationId?: number } | null>(null);
+  // 推荐引擎说暂时没有任务（新词学完、复习未到期）：不再拿默认词来问，显示下次复习时间（UTC 字符串，可能为空）
+  const [caughtUp, setCaughtUp] = useState<{ nextReviewAt: string | null } | null>(null);
   const router = useRouter();
   const { userId, availableUsers } = useLearningContext();
 
@@ -105,17 +108,25 @@ export default function Component() {
     setSelectedOption(learningSession.wordId === askedWordId ? learningSession.vksLevel ?? '' : '');
   }, [askedWordId, learningSession.wordId, learningSession.vksLevel]);
 
-  // 从推荐引擎获取本次学习的目标词
+  // 从推荐引擎获取本次学习的目标词。从看板点「开始」学新词时，看板已经拿到推荐并写进会话，
+  // 地址里带着 wordId：直接问这个词，不再请求一次（否则多一条推荐记录，采纳记到另一条上）
+  const passedWordId = Number(router.query.wordId) || null;
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !router.isReady) return;
+    if (passedWordId && learningSession.wordId === passedWordId && learningSession.word) {
+      setTargetWord({ id: passedWordId, word: learningSession.word, recommendationId: learningSession.recommendationId ?? undefined });
+      return;
+    }
     let cancelled = false;
     fetch(buildApiUrl(`/api/adaptive/recommendation/${userId}`), { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !result.data) return;
-        const { word_id: wordId, word, recommendationId } = result.data;
+        const { word_id: wordId, word, recommendationId, type, next_review_at: nextReviewAt } = result.data;
         if (wordId && word) {
           setTargetWord({ id: wordId, word, recommendationId });
+        } else if (type === 'all_caught_up') {
+          setCaughtUp({ nextReviewAt: nextReviewAt ?? null });
         }
       })
       .catch(() => {
@@ -124,7 +135,9 @@ export default function Component() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+    // 会话里的词只在进页时读一次：之后点「继续」写会话，不能因此重新取推荐
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, router.isReady, passedWordId]);
 
   useEffect(() => {
     updateConfig({ userId });
@@ -294,6 +307,16 @@ export default function Component() {
             </div>
             
             <div className="flex-1 px-5 pb-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
+              {caughtUp ? (
+                <div className="glass-panel p-5 rounded-2xl space-y-2">
+                  <p className="text-lg font-bold text-gray-800 leading-snug">You’re all caught up 🎉</p>
+                  <p className="text-base text-gray-500 font-medium">
+                    {caughtUp.nextReviewAt
+                      ? `Your next review is ${formatReviewTime(caughtUp.nextReviewAt)}.`
+                      : 'There are no new words to learn right now.'}
+                  </p>
+                </div>
+              ) : (
               <div className="space-y-4">
                   <div className="glass-panel p-5 rounded-2xl">
                     <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
@@ -342,6 +365,7 @@ export default function Component() {
                   )}
                 </Button>
               </div>
+              )}
             </div>
 
             {/* Decorative blurs */}
