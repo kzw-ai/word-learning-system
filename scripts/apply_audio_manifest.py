@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -16,7 +17,8 @@ from pathlib import Path
 import import_hsk4_batches
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST = PROJECT_ROOT / 'data' / 'learning_materials' / 'audio' / '论文词库.json'
+# AUDIO_MANIFEST 可覆盖（测试指向不存在的文件）
+MANIFEST = Path(os.environ.get('AUDIO_MANIFEST') or PROJECT_ROOT / 'data' / 'learning_materials' / 'audio' / '论文词库.json')
 DB_PATH = PROJECT_ROOT / 'words_extended.db'
 
 

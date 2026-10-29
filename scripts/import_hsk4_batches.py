@@ -18,13 +18,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BATCH_DIR = PROJECT_ROOT / 'data' / 'learning_materials' / 'hsk4'
+# HSK4_BATCH_DIR 可覆盖（测试指向空目录，免得导入真实的审核批次）
+BATCH_DIR = Path(os.environ.get('HSK4_BATCH_DIR') or PROJECT_ROOT / 'data' / 'learning_materials' / 'hsk4')
 DB_PATH = PROJECT_ROOT / 'words_extended.db'
 APPROVED = '作者已审核'
 
