@@ -7,6 +7,7 @@
 
 import sqlite3
 import json
+import traceback
 import math
 import random
 from datetime import datetime, timedelta
@@ -83,9 +84,9 @@ class AdaptiveRecommendationEngine:
             # 4. 默认推荐
             return self.get_default_recommendation(user_id)
             
-        except Exception as e:
-            print(f"推荐引擎错误: {str(e)}")
-            return self.get_fallback_recommendation()
+        except Exception:
+            print(f"推荐引擎错误: {traceback.format_exc()}")
+            return self.get_fallback_recommendation(user_id)
     
     def check_urgent_review(self, user_id: str) -> Optional[Dict]:
         """检查紧急复习需求"""
@@ -226,6 +227,17 @@ class AdaptiveRecommendationEngine:
         finally:
             conn.close()
     
+    @staticmethod
+    def level_of(value: Optional[float], thresholds: Dict) -> str:
+        """按阈值分 high / medium / low；没有数据（None）时为 unknown"""
+        if value is None:
+            return 'unknown'
+        if value >= thresholds['high']:
+            return 'high'
+        if value >= thresholds['medium']:
+            return 'medium'
+        return 'low'
+
     def analyze_user_learning_pattern(self, user_id: str) -> Dict:
         """分析用户学习模式"""
         conn = self.get_connection()
@@ -245,7 +257,7 @@ class AdaptiveRecommendationEngine:
             """, (user_id,))
             
             stats = cursor.fetchone()
-            if not stats[0]:  # 新用户
+            if not stats[3]:  # 新用户：一条进度都没有（不能看平均掌握度，学过但掌握度为 0 的不是新用户）
                 return {
                     'type': 'new_user',
                     'efficiency': 'unknown',
@@ -255,21 +267,11 @@ class AdaptiveRecommendationEngine:
             
             avg_mastery, avg_efficiency, avg_accuracy, total_words, avg_study_time = stats
             
-            # 分析学习效率模式
-            if avg_efficiency >= self.efficiency_thresholds['high']:
-                efficiency_level = 'high'
-            elif avg_efficiency >= self.efficiency_thresholds['medium']:
-                efficiency_level = 'medium'
-            else:
-                efficiency_level = 'low'
-            
-            # 分析准确率模式
-            if avg_accuracy >= self.accuracy_thresholds['high']:
-                accuracy_level = 'high'
-            elif avg_accuracy >= self.accuracy_thresholds['medium']:
-                accuracy_level = 'medium'
-            else:
-                accuracy_level = 'low'
+            # 学习效率 learning_efficiency 没有任何代码写入，全是 NULL，AVG 也是 NULL；学过词但没作答过时
+            # 准确率的分母是 0，同样是 NULL。拿 None 比大小会抛异常，引擎就退回固定的 1 号词，
+            # 学过一个词以后看板永远推荐「发生」。没有数据时按 unknown，同新用户
+            efficiency_level = self.level_of(avg_efficiency, self.efficiency_thresholds)
+            accuracy_level = self.level_of(avg_accuracy, self.accuracy_thresholds)
             
             # 分析学习偏好（基于各模块的学习时间分布）
             cursor.execute("""
@@ -553,12 +555,30 @@ class AdaptiveRecommendationEngine:
             'algorithm_version': self.algorithm_version
         }
     
-    def get_fallback_recommendation(self) -> Dict:
-        """获取fallback推荐"""
+    def get_fallback_recommendation(self, user_id: Optional[str] = None) -> Dict:
+        """推荐出错时的退路：这个用户还没学过、有例句的词（按 id），都学过了才退回 1 号词。
+        以前固定返回 1 号词，出错就一直推荐同一个词，故障也被掩盖了"""
+        word_id = 1
+        if user_id:
+            try:
+                conn = self.get_connection()
+                try:
+                    row = conn.execute("""
+                        SELECT w.id FROM word w
+                        WHERE EXISTS (SELECT 1 FROM example e WHERE e.word_id = w.id)
+                        AND NOT EXISTS (SELECT 1 FROM user_progress up WHERE up.word_id = w.id AND up.user_id = ?)
+                        ORDER BY w.id LIMIT 1
+                    """, (user_id,)).fetchone()
+                finally:
+                    conn.close()
+                if row:
+                    word_id = row[0]
+            except Exception:
+                print(f"推荐引擎退路也出错: {traceback.format_exc()}")
         return {
             'type': 'system_default',
             'priority': 'low',
-            'word_id': 1,
+            'word_id': word_id,
             'reason': 'Suggested for you',
             'recommended_module': 'word',
             'confidence': 0.3,

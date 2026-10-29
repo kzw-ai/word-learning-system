@@ -397,3 +397,48 @@ class TestDueReviews:
         conn.close()
         assert row[0] == 2  # review_count 已自增
         assert datetime.fromisoformat(row[1]) > datetime.now()
+
+
+# ================================================
+# 学习模式缺数据：learning_efficiency 没有代码写入，全是 NULL
+# ================================================
+
+class TestPatternWithMissingData:
+    def test_null_efficiency_still_recommends_a_new_word(self, engine, db_path):
+        """学过一个词以后，AVG(learning_efficiency) 为 NULL，不能让引擎抛异常、退回固定的 1 号词"""
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE example (id INTEGER PRIMARY KEY, word_id INTEGER, sentence TEXT);
+            INSERT INTO example (word_id, sentence) VALUES (2, '他突然走了。');
+        """)
+        conn.commit()
+        conn.close()
+        insert_progress(db_path, word_id=1, mastery_level=1.0, learning_efficiency=None,
+                        total_attempts=0, correct_attempts=0,
+                        next_review_suggested=datetime.now() + timedelta(days=1))
+        rec = engine.get_next_recommendation('u1')
+        assert rec['type'] == 'new_learning'
+        assert rec['word_id'] == 2
+
+    def test_level_of_unknown_without_data(self):
+        thresholds = {'high': 0.8, 'medium': 0.5}
+        assert AdaptiveRecommendationEngine.level_of(None, thresholds) == 'unknown'
+        assert AdaptiveRecommendationEngine.level_of(0.9, thresholds) == 'high'
+        assert AdaptiveRecommendationEngine.level_of(0.6, thresholds) == 'medium'
+        assert AdaptiveRecommendationEngine.level_of(0.1, thresholds) == 'low'
+
+    def test_fallback_picks_an_unstudied_word_not_word_one(self, engine, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE example (id INTEGER PRIMARY KEY, word_id INTEGER, sentence TEXT);
+            INSERT INTO example (word_id, sentence) VALUES (1, '发生了什么？'), (2, '他突然走了。');
+        """)
+        conn.commit()
+        conn.close()
+        insert_progress(db_path, word_id=1)
+        assert engine.get_fallback_recommendation('u1')['word_id'] == 2
+        assert engine.get_fallback_recommendation()['word_id'] == 1
+
+    def test_learner_with_zero_mastery_is_not_a_new_user(self, engine, db_path):
+        insert_progress(db_path, word_id=1, mastery_level=0.0)
+        assert engine.analyze_user_learning_pattern('u1')['type'] == 'experienced_user'
