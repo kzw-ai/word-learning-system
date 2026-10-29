@@ -169,7 +169,7 @@ CCA_TYPES = {'V_O': '动宾', 'V_HV_O': '动宾', 'V_2HV_O': '动宾', 'D_V': '�
 
 
 def load_collocation_rows():
-    """中文搭配知识库的两个子库：(教材库行, 维基库行)，每行为
+    """中文搭配知识库的两个子库：(分级阅读库行, 维基库行)，每行为
     (ID, Collocation, Type, Parent, Frequency, Frequency_with_variants, Mutual_Information)。"""
     edu = list(openpyxl.load_workbook(CCA_EDU, read_only=True).worksheets[0].iter_rows(values_only=True))[1:]
     wiki = []
