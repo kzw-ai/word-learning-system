@@ -4,7 +4,7 @@
 集成自适应推荐引擎、学习分析和复习调度功能
 """
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, g, jsonify, request, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
@@ -50,7 +50,7 @@ except ImportError:
 
 # 导入易混淆词API模块
 try:
-    from confusable_api import register_confusable_apis
+    from confusable_api import question_version, register_confusable_apis
 except ImportError:
     print("⚠️  易混淆词API模块未找到")
     register_confusable_apis = None
@@ -244,6 +244,8 @@ class ConfusablePair(db.Model):
     examples = db.Column(db.Text)
     tips = db.Column(db.Text)
     difficulty_level = db.Column(db.Integer, default=1)
+    # 辨析题（论文 3.2.4）：JSON 数组 [{stem, options, correct_answer}]，由 scripts/import_hsk4_batches.py 导入
+    questions = db.Column(db.Text)
 
 class ConfusableExerciseRecord(db.Model):
     __tablename__ = 'confusable_exercise_records'
@@ -253,6 +255,13 @@ class ConfusableExerciseRecord(db.Model):
     is_correct = db.Column(db.Boolean, nullable=False)
     response_time = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # 辨析题的题号（confusable_pairs.questions 里的下标）、作答时那道题的版本号与所选答案，由后端判分。
+    # 旧记录为空。版本号由题干、选项、答案算出（confusable_api.question_version）：改过的题以前的作答不再算数
+    question_index = db.Column(db.Integer)
+    question_version = db.Column(db.String(16))
+    user_answer = db.Column(db.String(50))
+    # 客户端为每次作答生成的编号；重试沿用同一个，(user_id, attempt_id) 唯一，不会重复记录
+    attempt_id = db.Column(db.String(64))
 
 class LearningEvent(db.Model):
     __tablename__ = 'learning_event'
@@ -480,6 +489,43 @@ def remaining_review_types(user_id, word_id):
         return None
     types = {t for t, n in state['remaining'].items() if n > 0} | set(state['pending'])
     return types or None
+
+
+def word_ready_for_contrast(user_id, word_id):
+    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。
+    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。
+    一次请求里同一个词只算一次（一个词可能属于好几对）。"""
+    cache = g.setdefault('contrast_ready', {})
+    key = (str(user_id), word_id)
+    if key not in cache:
+        state = review_state(user_id, word_id)
+        cache[key] = bool(state) and (state['reviews_done'] >= 1 or state['completed'])
+    return cache[key]
+
+
+def contrast_passed(user_id, pair_id, questions):
+    """辨析题过关：当前每道题最近一次作答都答对。只认作答时版本号与现在相同的记录（题干、选项、答案都没改过），
+    所以题目改过以后要重新作答；重复提交同一题、只做部分题都不算过关。
+    已知局限：以记录先后（id）代表作答先后，一轮作答的请求若迟到到下一轮之后才落库，会被当成最近一次。"""
+    latest = {}
+    rows = (db.session.query(ConfusableExerciseRecord.question_index, ConfusableExerciseRecord.question_version,
+                             ConfusableExerciseRecord.is_correct)
+            .filter(ConfusableExerciseRecord.user_id == str(user_id), ConfusableExerciseRecord.pair_id == pair_id,
+                    ConfusableExerciseRecord.question_index.isnot(None))
+            .order_by(ConfusableExerciseRecord.id.desc()).all())
+    for index, version, ok in rows:
+        if 0 <= index < len(questions) and version == question_version(questions[index]):
+            latest.setdefault(index, bool(ok))
+    return all(latest.get(i) for i in range(len(questions)))
+
+
+def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions):
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关
+    （contrast_passed）；答错的下次练这两个词时再带出。没有辨析题的旧词对没有作答可看，解锁后都算到期，
+    但 for-word 接口会优先带出有题、还没过关的词对。辨析题不计入论文表 4.2 的复习次数。"""
+    if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
+        return False
+    return not questions or not contrast_passed(user_id, pair_id, questions)
 
 
 def review_summary(state):
@@ -2403,6 +2449,49 @@ def ensure_user_progress_unique_index():
     finally:
         conn.close()
 
+CONTRAST_SCHEMA_READY = False
+
+
+def ensure_confusable_pair_columns():
+    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions，
+    confusable_exercise_records 的题号、版本号、所选答案、作答编号，以及作答编号的唯一索引。
+    必须在第一次查询这两个模型之前执行。加列失败（如别的进程正持有写锁）时再看一次列是否已由别的进程加上。
+    做不完时不中断启动（后面还有认证迁移、推荐引擎等初始化），只把 CONTRAST_SCHEMA_READY 置为假：
+    辨析不再带出，作答接口返回 503。"""
+    global CONTRAST_SCHEMA_READY
+    wanted = {
+        'confusable_pairs': [('questions', 'TEXT')],
+        'confusable_exercise_records': [('question_index', 'INTEGER'), ('question_version', 'VARCHAR(16)'),
+                                        ('user_answer', 'VARCHAR(50)'), ('attempt_id', 'VARCHAR(64)')],
+    }
+    conn = sqlite3.connect(_db_path, timeout=30)
+    CONTRAST_SCHEMA_READY = False
+    try:
+        for table, columns in wanted.items():
+            existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, ddl in columns:
+                if not existing or column in existing:
+                    continue
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                    conn.commit()
+                    print(f"   ➕ 已为 {table} 补齐 {column} 列")
+                except sqlite3.Error:
+                    if column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                        raise
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_confusable_records_user_pair "
+                     "ON confusable_exercise_records (user_id, pair_id, id)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_confusable_records_attempt "
+                     "ON confusable_exercise_records (user_id, attempt_id) WHERE attempt_id IS NOT NULL")
+        conn.commit()
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(confusable_exercise_records)")}
+        CONTRAST_SCHEMA_READY = 'uq_confusable_records_attempt' in indexes
+    except sqlite3.Error as e:
+        print(f"⚠️  辨析题的列或索引没能补齐，辨析暂停使用: {e}")
+    finally:
+        conn.close()
+
+
 def initialize_database():
     """初始化数据库和测试数据"""
     try:
@@ -2410,6 +2499,7 @@ def initialize_database():
             db.create_all()
             ensure_user_profile_columns()
             ensure_learning_session_columns()
+            ensure_confusable_pair_columns()
             ensure_learning_event_columns()
             ensure_user_progress_unique_index()
             ensure_review_indexes()
@@ -2476,8 +2566,9 @@ def initialize_database():
                 db.session.commit()
                 print("✅ 初始数据添加完成")
             
-            # 检查是否需要添加易混淆词数据
-            if ConfusablePair.query.count() == 0:
+            # 检查是否需要添加易混淆词数据。用 SQL 数行数而不是 ORM：辨析题的列万一没补上，
+            # ORM 查询会因为选不到新列而报错，跳过后面的初始化
+            if db.session.execute(text("SELECT COUNT(*) FROM confusable_pairs")).scalar() == 0:
                 print("📝 添加易混淆词数据...")
                 seed_confusable_pairs()
 
@@ -2508,6 +2599,17 @@ def initialize_database():
             except Exception as e:
                 print(f"⚠️  论文练习题同步失败: {str(e)}")
 
+            # 按论文 5.3 节流程批量制作的四级词学习资料（只导入作者已审核的批次），幂等
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import import_hsk4_batches  # pyrefly: ignore  # 运行时动态路径
+                added, _, items, pairs = import_hsk4_batches.import_into(_db_path)
+                if added or items or pairs:
+                    print(f"📝 四级词批次导入：新增词 {added}，练习题 {items}，易混淆词对 {pairs}")
+            except Exception as e:
+                print(f"⚠️  四级词批次导入失败: {str(e)}")
+
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:
                 print("📊 生成测试数据...")
@@ -2528,7 +2630,8 @@ def initialize_database():
 # 在module级别注册易混淆词API（gunicorn不走__main__）
 if register_confusable_apis:
     try:
-        register_confusable_apis(app, db, require_authentication, check_data_ownership)
+        register_confusable_apis(app, db, require_authentication, check_data_ownership,
+                                  pair_due=confusable_pair_due, schema_ready=lambda: CONTRAST_SCHEMA_READY)
     except Exception as e:
         print(f"⚠️  易混淆词API模块级注册失败: {str(e)}")
 

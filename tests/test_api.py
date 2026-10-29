@@ -997,3 +997,329 @@ class TestThesisReviewPlan:
             mod.db.session.commit()
         rec = anon_client.get(f'/api/adaptive/recommendation/{learner}', headers=guest_headers(learner)).get_json()['data']
         assert rec['type'] != 'system_default', rec
+
+
+# ================================================
+# 易混淆词辨析：解锁时机与辨析题（论文 2.2.4、3.2.4）
+# ================================================
+
+class TestConfusableContrast:
+    """两个词分别掌握到一定程度（学过并至少复习过一次）后才带出辨析；辨析题全对后不再带出"""
+
+    QUESTIONS = [
+        {'question_type': 'confusable', 'stem': '我 ( ) 我这次做到了。', 'options': ['考虑', '想'], 'correct_answer': '想'},
+        {'question_type': 'confusable', 'stem': '这房子可以 ( ) 。', 'options': ['想', '考虑'], 'correct_answer': '考虑'},
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _engine(self):
+        import app_phase as mod
+        if mod.spaced_repetition is None:
+            pytest.skip('自适应引擎未加载')
+
+    @pytest.fixture
+    def pair(self, app):
+        """在词 1 和一个新词之间建一对带辨析题的易混淆词，测完删掉"""
+        import json
+        import app_phase as mod
+        with app.app_context():
+            other = mod.Word(pinyin='xiǎng', definition='v. to think')
+            mod.db.session.add(other)
+            mod.db.session.flush()
+            row = mod.ConfusablePair(word1_id=1, word2_id=other.id, reason='r', difference='d', examples='e', tips='t',
+                                     difficulty_level=2, questions=json.dumps(self.QUESTIONS, ensure_ascii=False))
+            mod.db.session.add(row)
+            mod.db.session.commit()
+            ids = (row.id, other.id)
+        yield ids
+        with app.app_context():
+            mod.ConfusableExerciseRecord.query.filter_by(pair_id=ids[0]).delete()
+            mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, ids[0]))
+            mod.db.session.delete(mod.db.session.get(mod.Word, ids[1]))
+            mod.db.session.commit()
+
+    def _practise(self, client, learner, word_id, session_id):
+        """一节练习：词 1 按出题接口全部答对；没有素材的词答一道就算练过"""
+        client.post('/api/learning/session/start', json={
+            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise',
+            'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+        if word_id == 1:
+            data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
+            questions = [(q['id'], q['type']) for q in data['questions']]
+        else:
+            questions = [(f'definition-{word_id}', 'definition')]
+        for question_id, question_type in questions:
+            client.post('/api/learning/exercise/record', json={
+                'sessionId': session_id, 'questionId': question_id, 'questionType': question_type,
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+                'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+            }, headers=guest_headers(learner))
+
+    def _offered(self, client, learner):
+        return client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()['pair_id']
+
+    def _answer(self, client, learner, pair_id, index, correct, questions=None, attempt_id=None, answer=None):
+        import uuid
+        from confusable_api import question_version
+        q = (questions or self.QUESTIONS)[index]
+        if answer is None:
+            answer = q['correct_answer'] if correct else next(o for o in q['options'] if o != q['correct_answer'])
+        return client.post('/api/confusable/exercise/record', headers=guest_headers(learner), json={
+            'pair_id': pair_id, 'question_index': index, 'question_version': question_version(q), 'user_answer': answer,
+            'response_time': 2.0, 'attempt_id': attempt_id or uuid.uuid4().hex})
+
+    def test_offered_only_after_both_words_were_reviewed(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastunlock')
+        assert self._offered(anon_client, learner) is None, '还没学过，不带出'
+        self._practise(anon_client, learner, 1, 's-contrast-1')
+        self._practise(anon_client, learner, other, 's-contrast-o1')
+        assert self._offered(anon_client, learner) is None, '词 1 刚学完第一次，还没复习过（论文：先分开学）'
+        self._practise(anon_client, learner, 1, 's-contrast-2')
+        assert self._offered(anon_client, learner) == pair_id
+        assert anon_client.get('/api/confusable/for-word/1').get_json()['pair_id'] is None, '认不出身份时不带出'
+
+    def test_passing_the_quiz_stops_offering_until_a_wrong_answer(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastpass')
+        for n, word in enumerate((1, other, 1)):
+            self._practise(anon_client, learner, word, f's-contrast-p{n}')
+        assert self._offered(anon_client, learner) == pair_id
+        self._answer(anon_client, learner, pair_id, 0, True)
+        self._answer(anon_client, learner, pair_id, 0, True)
+        assert self._offered(anon_client, learner) == pair_id, '同一题答对两次不算过关，第 2 题还没答'
+        self._answer(anon_client, learner, pair_id, 1, True)
+        assert self._offered(anon_client, learner) is None, '每道题最近一次都对，不再带出'
+        self._answer(anon_client, learner, pair_id, 1, False)
+        assert self._offered(anon_client, learner) == pair_id, '有题最近一次答错，下次再带出'
+
+    def test_server_judges_answers_and_validates_input(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, _ = pair
+        learner = _learner('contrastjudge')
+        from confusable_api import question_version
+        v = question_version(self.QUESTIONS[0])
+        post = lambda body: anon_client.post('/api/confusable/exercise/record', json=body, headers=guest_headers(learner))
+        wrong = post({'pair_id': pair_id, 'question_index': 0, 'question_version': v, 'user_answer': '考虑', 'is_correct': True})
+        assert wrong.status_code == 200 and wrong.get_json()['is_correct'] is False, '客户端报的对错不用'
+        assert wrong.get_json()['correct_answer'] == '想'
+        assert post({'pair_id': 99999, 'question_index': 0, 'question_version': v, 'user_answer': '想'}).status_code == 404
+        assert post({'pair_id': pair_id, 'question_index': 5, 'question_version': v, 'user_answer': '想'}).status_code == 409, '题目撤下了'
+        assert post({'pair_id': pair_id, 'question_index': 0, 'question_version': v, 'user_answer': '别的'}).status_code == 400
+        assert post({'pair_id': pair_id, 'question_index': 0, 'question_version': 'old', 'user_answer': '想'}).status_code == 409
+        assert post({'pair_id': str(pair_id), 'is_correct': True}).status_code == 400
+        assert post({'pair_id': pair_id, 'is_correct': True, 'response_time': True}).status_code == 400
+        assert post({'pair_id': pair_id, 'is_correct': True, 'response_time': -1}).status_code == 400
+        assert anon_client.post('/api/confusable/exercise/record', json=[1], headers=guest_headers(learner)).status_code == 400
+        # 重试沿用同一个作答编号：只记一条，返回当时的结果
+        for _ in range(2):
+            resp = self._answer(anon_client, learner, pair_id, 1, False, attempt_id='retry-1')
+            assert resp.status_code == 200 and resp.get_json()['is_correct'] is False
+        with app.app_context():
+            assert mod.ConfusableExerciseRecord.query.filter_by(user_id=learner, attempt_id='retry-1').count() == 1
+        # 同一个编号换了答案：冲突，不能报告保存成功
+        conflict = self._answer(anon_client, learner, pair_id, 1, True, attempt_id='retry-1')
+        assert conflict.status_code == 409 and conflict.get_json()['code'] == 'ATTEMPT_CONFLICT'
+
+    def test_paused_when_schema_is_not_ready(self, anon_client, pair, monkeypatch):
+        import app_phase as mod
+        pair_id, other = pair
+        learner = _learner('contrastpaused')
+        for n, word in enumerate((1, other, 1)):
+            self._practise(anon_client, learner, word, f's-contrast-z{n}')
+        monkeypatch.setattr(mod, 'CONTRAST_SCHEMA_READY', False)
+        assert self._offered(anon_client, learner) is None
+        assert self._answer(anon_client, learner, pair_id, 0, True).status_code == 503
+
+    def test_changed_question_must_be_answered_again(self, app, anon_client, pair):
+        import json
+        import app_phase as mod
+        pair_id, other = pair
+        learner = _learner('contrastchanged')
+        for n, word in enumerate((1, other, 1)):
+            self._practise(anon_client, learner, word, f's-contrast-c{n}')
+        self._answer(anon_client, learner, pair_id, 0, True)
+        self._answer(anon_client, learner, pair_id, 1, True)
+        assert self._offered(anon_client, learner) is None
+        changed = [dict(self.QUESTIONS[0]), dict(self.QUESTIONS[1], stem='这件事我得 ( ) 一下。')]
+        with app.app_context():
+            mod.db.session.get(mod.ConfusablePair, pair_id).questions = json.dumps(changed, ensure_ascii=False)
+            mod.db.session.commit()
+        assert self._offered(anon_client, learner) == pair_id, '第 2 题改过了，以前的作答不算'
+        self._answer(anon_client, learner, pair_id, 1, True, questions=changed)
+        assert self._offered(anon_client, learner) is None
+        # 只改答案（题干不变）也算改过：第 1 题以前答的「想」不再算对
+        changed[0] = dict(changed[0], correct_answer='考虑')
+        with app.app_context():
+            mod.db.session.get(mod.ConfusablePair, pair_id).questions = json.dumps(changed, ensure_ascii=False)
+            mod.db.session.commit()
+        assert self._offered(anon_client, learner) == pair_id
+
+    def test_pairs_with_questions_come_before_old_pairs_without(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, other = pair
+        with app.app_context():
+            # 词 1 另有一对编号更小、没有辨析题的旧词对
+            third = mod.Word(pinyin='kàn', definition='v. to look')
+            mod.db.session.add(third)
+            mod.db.session.flush()
+            # 编号 0：比带题的词对小，只按编号排就会先带出它
+            old = mod.ConfusablePair(id=0, word1_id=third.id, word2_id=1,
+                                     reason='r', difference='d', examples='e', tips='t', difficulty_level=1)
+            mod.db.session.add(old)
+            mod.db.session.commit()
+            old_id, third_id = old.id, third.id
+        assert old_id < pair_id
+        try:
+            learner = _learner('contrastorder')
+            for n, word in enumerate((1, other, third_id, 1)):
+                self._practise(anon_client, learner, word, f's-contrast-r{n}')
+            assert self._offered(anon_client, learner) == pair_id, '有题、没过关的优先'
+            self._answer(anon_client, learner, pair_id, 0, True)
+            self._answer(anon_client, learner, pair_id, 1, True)
+            assert self._offered(anon_client, learner) == old_id, '过关后才轮到没有题的旧词对'
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, old_id))
+                mod.db.session.delete(mod.db.session.get(mod.Word, third_id))
+                mod.db.session.commit()
+
+    def test_pair_payload_includes_questions(self, client, pair):
+        pair_id, _ = pair
+        data = client.get(f'/api/confusable/pair/{pair_id}').get_json()
+        from confusable_api import question_version
+        assert data['pair']['questions'] == [dict(q, version=question_version(q)) for q in self.QUESTIONS]
+        listed = client.get('/api/confusable/pairs?limit=50').get_json()['pairs']
+        assert all(isinstance(p['questions'], list) for p in listed)
+
+
+class TestHsk4BatchImport:
+    """学习资料制作第 7 步的素材：只导入作者已审核的批次；重复导入不重复插入；重新审核后的修改能同步"""
+
+    def _word(self, hanzi, chars, definition='v. to think'):
+        return {
+            'hanzi': hanzi, 'pinyin': 'p', 'definition': definition,
+            'characters': [{'character': c, 'pinyin': 'p', 'definition': 'd'} for c in chars],
+            'collocations': [{'collocation': f'认真（三级） {hanzi}', 'translation': 'carefully'}],
+            'examples': [{'sentence': f'我{hanzi}。', 'pinyin': 'p', 'translation': 'v1'}],
+            'exercises': [
+                # 两个词的释义题题干相同：不能被当成同一道题
+                {'question_type': 'definition', 'stem': definition, 'options': [hanzi, '老师', '明天', '书'], 'correct_answer': hanzi},
+                {'question_type': 'fill_word', 'stem': f'我{chars[0]} ( ) 。', 'options': [], 'correct_answer': chars[1]},
+            ],
+        }
+
+    def _write(self, path, status, words, pairs=()):
+        import json
+        path.write_text(json.dumps({'batch': '测试批', 'status': status, 'words': words,
+                                    'confusable_pairs': list(pairs)}, ensure_ascii=False), encoding='utf-8')
+
+    def _items(self, conn, hanzi):
+        return conn.execute("SELECT question_type, correct_answer FROM exercise_item WHERE source_deck = ? ORDER BY source_slide",
+                            (f'HSK4 测试批 {hanzi}',)).fetchall()
+
+    def test_only_reviewed_batches_idempotent_and_synced(self, app, tmp_path, monkeypatch):
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        path = tmp_path / '测试批.json'
+        words = [self._word('测验', '测验'), self._word('思索', '思索')]
+        self._write(path, '待审核', words)
+        assert imp.import_into(db) == (0, 0, 0, 0), '待审核的批次不导入'
+        self._write(path, imp.APPROVED, words)
+        assert imp.import_into(db) == (2, 0, 4, 0), '两个词的题干相同也各自导入'
+        assert imp.import_into(db) == (0, 0, 0, 0), '重复导入不重复插入'
+
+        # 重新审核：改了答案、撤下填字题、改了例句翻译
+        words[0]['exercises'][0]['options'] = ['测验', '老师', '明天', '笔']
+        words[0]['exercises'].pop()
+        words[0]['examples'][0]['translation'] = 'v2'
+        self._write(path, imp.APPROVED, words)
+        d = imp.import_details(db)
+        assert (d['items_updated'], d['items_removed'], d['items_added']) == (1, 1, 0)
+        conn = sqlite3.connect(db)
+        try:
+            assert self._items(conn, '测验') == [('definition', '测验')]
+            assert len(self._items(conn, '思索')) == 2
+            word_id = imp.hanzi_map(conn)['测验']
+            assert conn.execute('SELECT translation FROM example WHERE word_id = ?', (word_id,)).fetchall() == [('v2',)]
+        finally:
+            conn.close()
+        data = app.test_client().get(f'/api/learning/word/{word_id}/exercises?limit=10').get_json()['data']
+        assert data['source'] == 'authored' and [q['type'] for q in data['questions']] == ['definition']
+
+    def test_old_pair_keeps_its_text_and_batch_pair_is_synced(self, app, tmp_path, monkeypatch):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        path = tmp_path / '辨析批.json'
+        q = [{'question_type': 'confusable', 'stem': '我 ( ) 。', 'options': ['甲乙', '丙丁'], 'correct_answer': '甲乙'}]
+        old_pair = {'word1': '甲乙', 'word2': '丙丁', 'reason': 'new', 'difference': 'd', 'examples': 'e', 'tips': 't',
+                    'difficulty_level': 2, 'questions': q}
+        new_pair = dict(old_pair, word1='揣摩', word2='推敲', reason='batch')
+        words = [self._word('揣摩', '揣摩'), self._word('推敲', '推敲')]
+        write = lambda: path.write_text(json.dumps({'batch': '辨析批', 'status': imp.APPROVED, 'words': words,
+                                                    'confusable_pairs': [old_pair, new_pair]}, ensure_ascii=False),
+                                        encoding='utf-8')
+        conn = sqlite3.connect(db)
+        try:
+            # 词库里已有、不归属任何批次的旧词对（没有辨析题）
+            ids = []
+            for chars in ('甲乙', '丙丁'):
+                wid = conn.execute("INSERT INTO word (pinyin, definition) VALUES ('p', 'd')").lastrowid
+                conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
+                                 [(c, 'p', 'd', '', wid) for c in chars])
+                ids.append(wid)
+            conn.execute("INSERT INTO confusable_pairs (word1_id, word2_id, reason, difference, examples, tips, difficulty_level) "
+                         "VALUES (?, ?, 'old', 'd', 'e', 't', 1)", ids)
+            conn.commit()
+        finally:
+            conn.close()
+        write()
+        first = imp.import_details(db)
+        assert (first['pairs_added'], first['pairs_updated']) == (1, 1), '新词对插入，旧词对补题'
+        old_pair['reason'], new_pair['reason'] = 'newer', 'batch v2'
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 1, '只有归属批次的词对被同步'
+        conn = sqlite3.connect(db)
+        try:
+            reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
+            assert reason == 'old', '旧词对的讲解保持原样，补题以后也不被覆盖'
+            assert json.loads(questions) == q
+        finally:
+            conn.close()
+        # 补上的题由这个批次继续同步：撤下题目也能生效
+        old_pair['questions'] = []
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 1
+        conn = sqlite3.connect(db)
+        try:
+            reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
+            assert (reason, json.loads(questions)) == ('old', [])
+            known = imp.hanzi_map(conn)
+            assert conn.execute('SELECT reason FROM confusable_pairs WHERE word1_id = ?', (known['揣摩'],)).fetchone() == ('batch v2',)
+        finally:
+            conn.close()
+
+    def test_word_without_exercises_stays_owned(self, app, tmp_path, monkeypatch):
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        path = tmp_path / '空题批.json'
+        word = self._word('琢磨', '琢磨')
+        exercises, word['exercises'] = word['exercises'], []
+        path.write_text(__import__('json').dumps({'batch': '空题批', 'status': imp.APPROVED, 'words': [word]},
+                                                 ensure_ascii=False), encoding='utf-8')
+        assert imp.import_details(db)['words_added'] == 1
+        word['exercises'] = exercises
+        path.write_text(__import__('json').dumps({'batch': '空题批', 'status': imp.APPROVED, 'words': [word]},
+                                                 ensure_ascii=False), encoding='utf-8')
+        d = imp.import_details(db)
+        assert (d['words_synced'], d['items_added']) == (1, 2), '没有题时导入的词仍归属这个批次，补回的题能同步进去'

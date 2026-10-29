@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
-import { fetchWordExercises, buildApiUrl } from '@/src/lib/apiClient';
+import { fetchWordExercises } from '@/src/lib/apiClient';
+import { authenticatedGet } from '@/src/lib/authClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
@@ -324,7 +325,8 @@ const Exercise = () => {
     // 标记为已结束，之后再 trackEvent 的事件不会再被发送。
     let confusablePairId: number | null = null;
     try {
-      const resp = await fetch(buildApiUrl(`/api/confusable/for-word/${wordId}`));
+      // 带上身份：后端只在两个词都学过并复习过、这一对还没练过关时才带出（论文 2.2.4）
+      const resp = await authenticatedGet(`/api/confusable/for-word/${wordId}`);
       const result = await resp.json();
       if (result.success && result.pair_id) {
         confusablePairId = result.pair_id;
