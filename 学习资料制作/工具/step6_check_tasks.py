@@ -218,6 +218,23 @@ def join_split_pinyin(answer):
         e['pinyin'] = ' '.join(tokens)
 
 
+def drop_stray_conflicts(answer, task):
+    """冲突列表只该列选项和备用词里也说得通的；大模型有时顺带列出能填进空里、却不是选项的词（「( ) 音乐」列了「听」）。
+    这些词后面用不到，去掉；正确答案本身也去掉"""
+    conflicts = answer.get('distractor_conflicts')
+    if not isinstance(conflicts, dict):
+        return
+    for key, q in task['exercises'].items():
+        if isinstance(conflicts.get(key), list):
+            allowed = set(q.get('options', []) + q.get('spares', [])) - {q['correct_answer']}
+            conflicts[key] = [w for w in conflicts[key] if w in allowed]
+
+
+def tidy_check(answer, task):
+    join_split_pinyin(answer)
+    drop_stray_conflicts(answer, task)
+
+
 def hanzi_of(pinyin_line):
     """「我/wǒ 想/xiǎng 。」→「我想。」，用来核对标注后的拼音没有漏词、改字。"""
     return ''.join(t.split('/')[0] for t in pinyin_line.split())
@@ -288,7 +305,7 @@ def main(batch, model=None):
         common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, home))
     print(f'已生成 {len(checked)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
     if model:
-        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate, tidy=join_split_pinyin)
+        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate, tidy=tidy_check)
         step4_semantic_tasks.answer_with(model, outdir, [pair_key(w, o) for w, o, _ in pairs], kind='辨析', check=validate_pair)
 
 
