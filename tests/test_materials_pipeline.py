@@ -11,6 +11,7 @@ pytest.importorskip('xlrd')
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / '学习资料制作' / '工具'))
 
 import step3_candidates as s3  # noqa: E402  # pyrefly: ignore
+import step5_select as s5  # noqa: E402  # pyrefly: ignore
 import step6_check_tasks as s6  # noqa: E402  # pyrefly: ignore
 import step7_build as s7  # noqa: E402  # pyrefly: ignore
 
@@ -75,3 +76,56 @@ class TestSingleCharacterReading:
         sel = {'characters': [{'character': '出', 'pinyin': 'chū', 'pos': 'v.', 'definition': 'to go out'},
                               {'character': '生', 'pinyin': 'shēng', 'pos': 'v.', 'definition': 'to be born'}]}
         assert [c['pinyin'] for c in s7.characters('出生', sel, {'word_pinyin': 'chūshēng'}, [{}])] == ['chū', 'shēng']
+
+
+class TestTrimLongSentences:
+    ORIGINAL = '每天早上9点上班，工资三千来块，试用期一个月。'
+
+    def test_only_a_clause_bounded_by_punctuation(self):
+        assert s6.is_clause_of(self.ORIGINAL, '工资三千来块，试用期一个月。')
+        assert s6.is_clause_of(self.ORIGINAL, '工资三千来块。'), '末尾的逗号可以改成句号'
+        assert not s6.is_clause_of(self.ORIGINAL, '早上9点上班。'), '不能从分句中间截'
+        assert not s6.is_clause_of(self.ORIGINAL, '工资三千块，试用期一个月。'), '不能改字'
+        assert not s6.is_clause_of(self.ORIGINAL, self.ORIGINAL), '要比原句短'
+
+    def test_validate_trim(self):
+        task = {'sentences': {'1': self.ORIGINAL, '2': '他特意拿了个旧书包，要我同他一起到附近的银行取钱。'}}
+        assert s6.validate_trim({'trims': {'1': '工资三千来块，试用期一个月。', '2': None}}, task) == []
+        assert s6.validate_trim({'trims': {'1': '工资很高。', '2': None}}, task)
+        assert s6.validate_trim({'trims': {'1': None}}, task), '漏答'
+
+    def test_apply_keeps_original_and_is_idempotent(self):
+        e = {'sentence': self.ORIGINAL, 'tokens': [], 'book': '书', 'complexity': 1.0, 'hsk4_6_words': []}
+        sel = {'senses': [{'example': e}], 'exercises': {'fill_word': None}}
+        trims = {self.ORIGINAL: '工资三千来块，试用期一个月。'}
+        assert s6.apply_trims('工资', sel, trims, {}, {}) == 1
+        ex = sel['senses'][0]['example']
+        assert (ex['sentence'], ex['original']) == ('工资三千来块，试用期一个月。', self.ORIGINAL)
+        s6.apply_trims('工资', sel, trims, {}, {})
+        assert sel['senses'][0]['example']['original'] == self.ORIGINAL
+
+    def test_trim_without_the_target_word_is_ignored(self):
+        e = {'sentence': self.ORIGINAL, 'tokens': [], 'book': '书', 'complexity': 1.0, 'hsk4_6_words': []}
+        sel = {'senses': [{'example': e}], 'exercises': {'fill_word': None}}
+        assert s6.apply_trims('上班', sel, {self.ORIGINAL: '工资三千来块，试用期一个月。'}, {}, {}) == 0
+        assert sel['senses'][0]['example']['sentence'] == self.ORIGINAL
+
+    def test_bad_trims_fall_back_to_the_original(self):
+        task = {'sentences': {'1': self.ORIGINAL, '2': '电视里有很多精彩的体育节目，大家都爱看。'}}
+        a = {'trims': {'1': '工资三千来块，试用期一个月。', '2': '电视里有精彩的体育节目。'}}
+        s6.drop_bad_trims(a, task)
+        assert a['trims']['2'] is None and a['rejected'] == {'2': '电视里有精彩的体育节目。'}
+        assert s6.validate_trim(a, task) == []
+
+
+class TestShortExamplesFirst:
+    def test_short_usable_sentence_wins_over_lower_complexity_long_one(self):
+        long_s = {'sentence': '每天早上9点上班，工资三千来块，试用期一个月，下个月开始转正。', 'tokens': [], 'complexity': 0.5}
+        short_s = {'sentence': '他的工资不高。', 'tokens': ['他', '的', '工资', '不', '高', '。'], 'complexity': 0.9}
+        judgment = {'senses': [{'id': 's1', 'pos': 'n.', 'definition': 'wages'}],
+                    'sentence_senses': {'1': 's1', '2': 's1'}, 'collocation_senses': {}, 'characters': []}
+        candidates = {'sentences': [long_s, short_s], 'collocations_edu': [], 'collocations_wiki': [],
+                      'confusables': [], 'hsk_level': 4}
+        pool = [f'词{i}' for i in range(40)]
+        result = s5.select('工资', candidates, judgment, pool)
+        assert result['senses'][0]['example']['sentence'] == '他的工资不高。'

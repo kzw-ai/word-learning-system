@@ -92,6 +92,11 @@ def build(word, sel, check):
     coll_tr = {c['collocation']: c['translation'] for c in check['collocations']}
     notes, exercises = [], []
     ex = sel['exercises'] or {}
+    # 第 6 步截短过的句子：审核时对照原句看截得对不对
+    notes += [f"例句截自原句：{s['example']['original']}" for s in sel['senses'] if s['example'] and s['example'].get('original')]
+    if (ex.get('fill_word') or {}).get('original') and ex['fill_word']['original'] not in \
+            [s['example'].get('original') for s in sel['senses'] if s['example']]:
+        notes.append(f"填字题截自原句：{ex['fill_word']['original']}")
     conflicts = check.get('distractor_conflicts', {})
     choice = ([('definition', '释义题', ex['definition'])] if ex.get('definition') else []) + \
              [(f'collocation{i}', f'搭配题 {i}', c) for i, c in enumerate(ex.get('collocation', []), 1)]
