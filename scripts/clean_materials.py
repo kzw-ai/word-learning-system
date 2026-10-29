@@ -5,7 +5,7 @@ import_learning_materials.py 只插入不更新，修好它的解析器并不能
 数据，所以由这个脚本按同样的规则修一遍。后端每次启动时也会调用 clean_database。
 
 修复的六类问题：
-1. 种子脚本 setup_confusable_data.py 早期写入的词拼音没有声调（yinwei、suoyi……），
+1. 种子脚本 setup_confusable_data.py（已删除）早期写入的词拼音没有声调（yinwei、suoyi……），
    辨析页直接显示成这样。这些是项目自己的种子数据，没有课件可推，按对照表改正。
 2. 课件里单字的拼音和词性释义挤在一行（'hòu NOUN climate'），整行被当成了释义：
    拼音为空，释义里漏出 'hòu NOUN'。拆开，词性改成 n. / v. 缩写。

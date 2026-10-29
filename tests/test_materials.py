@@ -130,3 +130,47 @@ class TestSupplementMaterials:
                 assert ''.join(tokens) == ex['sentence'].replace('，', '').replace('。', '')
             # 单字拼音与整词拼音的音节一致
             assert [c['pinyin'] for c in word['characters']] == split_word_pinyin(word['pinyin'], len(hanzi))
+
+
+class TestPruneConfusablePairs:
+    """辨析词对只来自学习资料流水线：不归属批次的旧词对留档后删除"""
+
+    def _db(self, tmp_path):
+        db = tmp_path / 'words_extended.db'
+        conn = sqlite3.connect(db)
+        conn.executescript('''
+            CREATE TABLE word (id INTEGER PRIMARY KEY, pinyin TEXT, definition TEXT);
+            CREATE TABLE character (id INTEGER PRIMARY KEY, character TEXT, word_id INTEGER);
+            CREATE TABLE confusable_pairs (id INTEGER PRIMARY KEY, word1_id INTEGER, word2_id INTEGER, reason TEXT);
+            CREATE TABLE confusable_exercise_records (id INTEGER PRIMARY KEY, user_id TEXT, pair_id INTEGER);
+            CREATE TABLE hsk4_batch_owner (kind TEXT, ref_id INTEGER, batch TEXT, PRIMARY KEY (kind, ref_id));
+            INSERT INTO word VALUES (1, 'fāshēng', ''), (2, 'fāxiàn', ''), (3, 'tūrán', '');
+            INSERT INTO character VALUES (1, '发', 1), (2, '生', 1), (3, '发', 2), (4, '现', 2);
+            INSERT INTO confusable_pairs VALUES (1, 1, 2, 'old'), (2, 3, 2, 'seed'), (3, 1, 2, 'batch');
+            INSERT INTO confusable_exercise_records VALUES (1, 'u', 1), (2, 'u', 3);
+            INSERT INTO hsk4_batch_owner VALUES ('pair', 3, '第02批'), ('pair_questions', 1, '第02批');
+        ''')
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_report_only_by_default(self, tmp_path):
+        import prune_confusable_pairs  # pyrefly: ignore
+        db = self._db(tmp_path)
+        pairs, archive = prune_confusable_pairs.prune(db)
+        assert [p['id'] for p in pairs] == [1, 2] and archive is None
+        assert [p['words'] for p in pairs] == ['发生 / 发现', 'tūrán / 发现'], '没有字的词显示拼音'
+        assert sqlite3.connect(db).execute('SELECT COUNT(*) FROM confusable_pairs').fetchone()[0] == 3
+
+    def test_apply_archives_then_deletes(self, tmp_path):
+        import json
+        import prune_confusable_pairs  # pyrefly: ignore
+        db = self._db(tmp_path)
+        _, archive = prune_confusable_pairs.prune(db, apply=True)
+        saved = json.loads(archive.read_text(encoding='utf-8'))
+        assert [p['id'] for p in saved] == [1, 2] and saved[0]['records'] == [{'id': 1, 'user_id': 'u', 'pair_id': 1}]
+        conn = sqlite3.connect(db)
+        assert conn.execute('SELECT id FROM confusable_pairs').fetchall() == [(3,)], '归属批次的词对保留'
+        assert conn.execute('SELECT pair_id FROM confusable_exercise_records').fetchall() == [(3,)]
+        assert conn.execute('SELECT kind, ref_id FROM hsk4_batch_owner').fetchall() == [('pair', 3)]
+        assert prune_confusable_pairs.prune(db, apply=True) == ([], None), '再运行没有要删的'

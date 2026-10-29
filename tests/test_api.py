@@ -116,40 +116,68 @@ class TestCoreEndpoints:
 # ================================================
 
 class TestConfusableApi:
-    def test_pairs_list(self, client):
+    @pytest.fixture
+    def pair(self, app):
+        """一对测试词对，测完删掉（库里不再写入手写的种子词对）"""
+        import app_phase as mod
+        with app.app_context():
+            w1 = mod.Word(pinyin='tūrán', definition='adj./adv. sudden; suddenly')
+            w2 = mod.Word(pinyin='hūrán', definition='adv. suddenly')
+            mod.db.session.add_all([w1, w2])
+            mod.db.session.flush()
+            row = mod.ConfusablePair(word1_id=w1.id, word2_id=w2.id, reason='r', difference='d', examples='e',
+                                     tips='t', difficulty_level=1)
+            mod.db.session.add(row)
+            mod.db.session.commit()
+            ids = (row.id, w1.id, w2.id)
+        yield ids[0]
+        with app.app_context():
+            mod.ConfusableExerciseRecord.query.filter_by(pair_id=ids[0]).delete()
+            mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, ids[0]))
+            for word_id in ids[1:]:
+                mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
+            mod.db.session.commit()
+
+    def test_no_handwritten_seed_pairs(self, client):
+        """辨析词对只来自学习资料流水线：新库里没有词对"""
+        assert client.get('/api/confusable/pairs?limit=50').get_json()['total'] == 0
+
+    def test_pairs_list(self, client, pair):
         data = client.get('/api/confusable/pairs?limit=20').get_json()
         assert data['success'] is True
-        assert data['total'] == 5
-        pair = data['pairs'][0]
+        assert data['total'] == 1
+        listed = data['pairs'][0]
+        assert listed['id'] == pair
         for key in ('id', 'word1', 'word2', 'reason', 'difference', 'difficulty_level'):
-            assert key in pair
-        assert 'pinyin' in pair['word1'] and 'definition' in pair['word1']
+            assert key in listed
+        assert 'pinyin' in listed['word1'] and 'definition' in listed['word1']
 
-    def test_pairs_difficulty_filter(self, client):
+    def test_pairs_difficulty_filter(self, client, pair):
         data = client.get('/api/confusable/pairs?difficulty=1').get_json()
         assert data['success'] is True
-        assert all(p['difficulty_level'] == 1 for p in data['pairs'])
+        assert data['pairs'] and all(p['difficulty_level'] == 1 for p in data['pairs'])
+        assert client.get('/api/confusable/pairs?difficulty=2').get_json()['pairs'] == []
 
-    def test_single_pair(self, client):
-        data = client.get('/api/confusable/pair/1').get_json()
+    def test_single_pair(self, client, pair):
+        data = client.get(f'/api/confusable/pair/{pair}').get_json()
         assert data['success'] is True
-        assert data['pair']['id'] == 1
+        assert data['pair']['id'] == pair
 
     def test_single_pair_not_found(self, client):
         resp = client.get('/api/confusable/pair/9999')
         assert resp.status_code == 404
 
-    def test_record_requires_auth(self, anon_client):
+    def test_record_requires_auth(self, anon_client, pair):
         resp = anon_client.post('/api/confusable/exercise/record', json={
-            'pair_id': 1, 'is_correct': True, 'response_time': 3.0,
+            'pair_id': pair, 'is_correct': True, 'response_time': 3.0,
         })
         assert resp.status_code == 401
 
-    def test_record_with_session_token(self, client, auth_session):
+    def test_record_with_session_token(self, client, auth_session, pair):
         user_id, token = auth_session
         resp = client.post(
             '/api/confusable/exercise/record',
-            json={'pair_id': 1, 'is_correct': True, 'response_time': 3.0},
+            json={'pair_id': pair, 'is_correct': True, 'response_time': 3.0},
             headers={'X-Session-Token': token},
         )
         assert resp.status_code == 200
