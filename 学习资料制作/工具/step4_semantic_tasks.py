@@ -44,12 +44,27 @@ ANSWER_FORMAT = {
 }
 
 
+# 另有一至三级条目的四级词（600 个里只有这两个）：汉办词表的四级条目只指一个义项，学习材料只做这个义项，
+# 不然教材里多见的低级义项（「过得很开心」的结构助词 de）会按句数被选为主义项。只加在这两个词的任务里，
+# 不改 INSTRUCTIONS：改了它，所有词的任务指纹都会变、已有回答全部作废
+HSK4_ENTRY = {
+    '得': '汉办词表里「得」另有二级条目（助词 de，「过得很开心」）；四级条目是助动词 děi（to have to; must; need to）。'
+          'senses 只列助动词 děi 这一个义项；例句、搭配里用的是别的意思的，一律填 null，sentence_notes 写「不是四级义项」；'
+          'characters 只有一项，读音、释义按 děi。',
+    '等': '汉办词表里「等」另有二级条目（动词 děng，to wait）；四级条目是助词（and so on; etc.，如「北京、上海等城市」）。'
+          'senses 只列这个助词义项；例句、搭配里用的是别的意思的，一律填 null，sentence_notes 写「不是四级义项」；'
+          'characters 只有一项，读音、释义按这个助词。',
+}
+
+
 def validate(answer, task):
     """检查语义判断的结构：义项编号唯一，每个例句、每条搭配都有回答且引用的义项存在，每个字都有释义。"""
     problems = []
     senses = answer.get('senses')
     if not isinstance(senses, list) or not senses:
         return ['senses 为空']
+    if task.get('hsk4_entry') and len(senses) != 1:
+        problems.append(f'只该列四级条目的一个义项，回答列了 {len(senses)} 个')
     ids = [s.get('id') for s in senses if isinstance(s, dict)]
     if len(ids) != len(senses) or not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids):
         problems.append(f'义项编号缺失、不是字符串或重复：{ids}')
@@ -131,6 +146,8 @@ def main(batch, model=None):
         # 键的顺序与以前相同，任务文件和指纹不变
         task = {'word': word, 'instructions': INSTRUCTIONS, 'answer_format': ANSWER_FORMAT,
                 **{k: inputs[k] for k in INPUT_KEYS[1:]}}
+        if word in HSK4_ENTRY:
+            task['hsk4_entry'] = HSK4_ENTRY[word]
         common.write_json(outdir / f'{word}.任务.json', task)
     print(f'已生成 {len(words)} 个判断任务：{outdir}')
     if model:
