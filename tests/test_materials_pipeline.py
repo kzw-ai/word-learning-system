@@ -129,3 +129,24 @@ class TestShortExamplesFirst:
         pool = [f'词{i}' for i in range(40)]
         result = s5.select('工资', candidates, judgment, pool)
         assert result['senses'][0]['example']['sentence'] == '他的工资不高。'
+
+
+class TestWordsTheTokenizerGlues:
+    def test_split_glued_measure_words_and_complements(self):
+        assert s3.split_glued(['墙边', '种着', '几棵', '小', '果树'], '棵') == ['墙边', '种着', '几', '棵', '小', '果树']
+        assert s3.split_glued(['很帅'], '帅') == ['很', '帅']
+        assert s3.split_glued(['桥上', '走'], '桥') == ['桥', '上', '走']
+        assert s3.split_glued(['到底'], '底') == ['到底'], '到底不是「底」'
+
+    def test_force_token_for_drafted_sentences(self):
+        assert s3.force_token(['我们', '班有', '百分之六十', '的'], '百分之') == ['我们', '班有', '百分之', '六十', '的']
+        assert s3.force_token(['这', '篇'], '篇') == ['这', '篇']
+
+    def test_draft_validation(self):
+        import draft_examples as d  # noqa: E402  # pyrefly: ignore
+        task = {'word': '签证'}
+        good = ['我需要先办签证。', '我的签证下个月到期。', '别忘了带签证。', '办签证要几天？']
+        assert d.validate({'sentences': good}, task) == []
+        assert d.validate({'sentences': good[:3]}, task), '至少 4 句'
+        assert d.validate({'sentences': good[:3] + ['签证签证都办好了。']}, task), '目标词只能出现一次'
+        assert d.validate({'sentences': good[:3] + ['我需要先办签证']}, task), '要有句末标点'

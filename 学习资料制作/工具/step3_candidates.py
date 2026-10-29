@@ -17,6 +17,7 @@ import sys
 import jieba
 
 import common
+import draft_examples
 import step2_confusables
 import step4_semantic_tasks
 
@@ -98,6 +99,18 @@ def split_glued(tokens, word):
     return out
 
 
+def force_token(tokens, word):
+    """大模型为这个词写的句子（目标词只出现一次，draft_examples.py 已核对）：分词把目标词并进了更长的词
+    （这篇、百分之六十）时，把它单独切出来"""
+    if word in tokens:
+        return tokens
+    out = []
+    for t in tokens:
+        i = t.find(word)
+        out += [x for x in (t[:i], word, t[i + len(word):]) if x] if i >= 0 else [t]
+    return out
+
+
 def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
     def find(split=False):
         found, seen = [], set()
@@ -110,6 +123,8 @@ def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
             tokens = common.tokenize(s)
             if split:
                 tokens = split_glued(tokens, word)
+            if book == draft_examples.SOURCE:
+                tokens = force_token(tokens, word)
             if word not in tokens:
                 continue
             seen.add(s)
@@ -143,7 +158,11 @@ def main(batch):
     outdir = common.OUT / '候选清单' / batch
     outdir.mkdir(parents=True, exist_ok=True)
     for word in words:
-        found, note = sentences_with(word, sentences, complexity, levels, speakers)
+        # 教材里没有可用例句、由大模型起草的（draft_examples.py，作者审核）：和教材句子一起作为候选
+        supplement = common.OUT / '补充例句' / f'{word}.json'
+        extra = [(draft_examples.SOURCE, x) for x in json.loads(supplement.read_text(encoding='utf-8'))['sentences']] \
+            if supplement.exists() else []
+        found, note = sentences_with(word, sentences + extra, complexity, levels, speakers)
         top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.HSK4_ENTRY else TOP
         data = {
             'word': word,
