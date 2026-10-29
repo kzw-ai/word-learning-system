@@ -2016,12 +2016,13 @@ def generate_dashboard_data(user_id, time_range):
         
         daily_stats = cursor.fetchall()
         
-        # 今日统计
+        # 今日统计。学过的词不算 VKS 自评页的会话：自评页曾经一律记在默认的 1 号词上，
+        # 学一个新词会多算一个「发生」
         cursor.execute("""
             SELECT 
                 COUNT(*) as sessions,
                 SUM(duration_seconds) as study_time,
-                COUNT(DISTINCT word_id) as words_reviewed
+                COUNT(DISTINCT CASE WHEN module_type != 'entrance' THEN word_id END) as words_studied
             FROM learning_session
             WHERE user_id = ? AND DATE(start_time) = DATE('now')
         """, (user_id,))

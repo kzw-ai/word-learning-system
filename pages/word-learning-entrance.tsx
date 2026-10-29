@@ -60,6 +60,10 @@ export default function Component() {
   const [targetWord, setTargetWord] = useState<{ id: number; word: string; recommendationId?: number } | null>(null);
   // 推荐引擎说暂时没有任务（新词学完、复习未到期）：不再拿默认词来问，显示下次复习时间（UTC 字符串，可能为空）
   const [caughtUp, setCaughtUp] = useState<{ nextReviewAt: string | null } | null>(null);
+  // 推荐请求结束（拿到词、暂无任务或失败）以后才建学习会话：之前不知道问的是哪个词，会话会记到默认词上
+  const [recommendationSettled, setRecommendationSettled] = useState(false);
+  // 学过的词数（有学习进度的词）；看板接口给的，取不到时不显示
+  const [wordsStudied, setWordsStudied] = useState<number | null>(null);
   const router = useRouter();
   const { userId, availableUsers } = useLearningContext();
 
@@ -92,9 +96,11 @@ export default function Component() {
 
   const tracking = useComprehensiveTracking({
     userId,
-    wordId: DEFAULT_WORD_ID,
+    // 自评问的是哪个词就记哪个词；推荐没拿到、页面退回去问默认词时记默认词。暂无任务时不问，也不建会话
+    wordId: targetWord?.id ?? DEFAULT_WORD_ID,
     moduleType: 'entrance',
-    sessionType: 'learning'
+    sessionType: 'learning',
+    ready: recommendationSettled && !caughtUp
   });
 
   const { pageTracking, interactionTracking, trackEvent, updateConfig, endSession } = tracking;
@@ -115,6 +121,7 @@ export default function Component() {
     if (!userId || !router.isReady) return;
     if (passedWordId && learningSession.wordId === passedWordId && learningSession.word) {
       setTargetWord({ id: passedWordId, word: learningSession.word, recommendationId: learningSession.recommendationId ?? undefined });
+      setRecommendationSettled(true);
       return;
     }
     let cancelled = false;
@@ -131,6 +138,9 @@ export default function Component() {
       })
       .catch(() => {
         /* 拉取失败时保持默认词，不阻塞流程 */
+      })
+      .finally(() => {
+        if (!cancelled) setRecommendationSettled(true);
       });
     return () => {
       cancelled = true;
@@ -140,10 +150,29 @@ export default function Component() {
   }, [userId, router.isReady, passedWordId]);
 
   useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(buildApiUrl(`/api/analytics/user/${userId}/dashboard`), { cache: 'no-cache' })
+      .then(resp => resp.json())
+      .then(result => {
+        const studied = result?.data?.overallProgress?.studiedWords;
+        if (!cancelled && result.success && typeof studied === 'number') setWordsStudied(studied);
+      })
+      .catch(() => {
+        /* 取不到就不显示 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
     updateConfig({ userId });
   }, [userId, updateConfig]);
 
   useEffect(() => {
+    // 追踪器等推荐结果出来才建（见上），进页和「开始自评」要等它建好再记
+    if (!recommendationSettled) return;
     trackPageEnter('word-learning-entrance');
     trackEvent('vks_test_start', 'entrance', {
       word: targetWord?.word ?? DEFAULT_WORD_NAME,
@@ -154,7 +183,7 @@ export default function Component() {
     return () => {
       trackPageLeave('word-learning-entrance');
     };
-  }, [trackEvent, trackPageEnter, trackPageLeave, userId, pageStartTime]);
+  }, [trackEvent, trackPageEnter, trackPageLeave, userId, pageStartTime, recommendationSettled]);
 
   const handleOptionChange = (value: string) => {
     trackSelectionChange('vks-level', selectedOption, value);
@@ -281,7 +310,7 @@ export default function Component() {
               )}
               <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
                 <div className="flex justify-between items-center">
-                  <span>Words studied: {currentUser?.wordsStudied ?? 0}</span>
+                  {wordsStudied !== null && <span>Words studied: {wordsStudied}</span>}
                   {learningSession.word && (
                     <span className="text-indigo-600 font-semibold">{activeModuleLabel || 'Practice'} · {learningSession.word}</span>
                   )}

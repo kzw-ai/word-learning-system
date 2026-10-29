@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { sendRecommendationFeedback } from "@/src/lib/authClient";
@@ -168,15 +167,6 @@ const LearningDashboard = () => {
     return labels[type] || type;
   };
 
-  const getPriorityColor = (priority: string) => {
-    const colors: Record<string, string> = {
-      high: 'bg-red-500',
-      medium: 'bg-orange-500',
-      low: 'bg-blue-500'
-    };
-    return colors[priority] || 'bg-gray-500';
-  };
-
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     return `about ${minutes} min`;
@@ -230,10 +220,6 @@ const LearningDashboard = () => {
                     <Target className="mr-2 text-indigo-500" size={20} />
                     Suggested next
                   </h2>
-                  <Badge className={`${getPriorityColor(recommendation.priority)} bg-opacity-90 shadow-sm border-none text-sm px-3 py-1`}>
-                    {recommendation.priority === 'high' ? 'High' : 
-                     recommendation.priority === 'medium' ? 'Medium' : 'Low'} priority
-                  </Badge>
                 </div>
                 <div className="p-5 space-y-4 relative z-10">
                   <div className="flex items-center justify-between">
@@ -254,7 +240,10 @@ const LearningDashboard = () => {
                       <div className="text-sm text-gray-500 mb-1 font-medium">Start with</div>
                       <div className="text-base font-bold text-gray-800 flex items-center">
                         <BookOpen size={16} className="mr-1.5 text-indigo-400" />
-                        {getModuleLabel(recommendation.recommended_module || recommendation.type)}
+                        {/* 新词先做 VKS 自评，从哪一步学由自评决定 */}
+                        {recommendation.type === 'new_learning'
+                          ? 'Self-check'
+                          : getModuleLabel(recommendation.recommended_module || recommendation.type)}
                       </div>
                     </div>
                     <div className="bg-white/30 p-3.5 rounded-xl border border-white/40 shadow-sm">
@@ -264,14 +253,6 @@ const LearningDashboard = () => {
                         {formatTime(recommendation.estimated_time)}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="mt-2 pt-3 border-t border-white/30">
-                    <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-gray-500 font-medium">Confidence</span>
-                      <span className="font-bold text-indigo-700">{(recommendation.confidence * 100).toFixed(0)}%</span>
-                    </div>
-                    <Progress value={recommendation.confidence * 100} className="h-2 bg-white/50 [&>div]:bg-gradient-to-r [&>div]:from-indigo-400 [&>div]:to-purple-500" />
                   </div>
 
                   <Button
@@ -300,7 +281,7 @@ const LearningDashboard = () => {
                     <div className="text-3xl font-bold text-indigo-600">
                       {dashboardData.todayStats.wordsReviewed}
                     </div>
-                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Words reviewed</div>
+                    <div className="text-sm text-gray-500 mt-1.5 font-medium">Words studied</div>
                   </div>
                   <div className="text-center p-4 bg-white/40 rounded-2xl border border-white/50 shadow-sm">
                     <div className="text-3xl font-bold text-emerald-600">

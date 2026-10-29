@@ -278,6 +278,20 @@ class TestAdaptiveEndpoints:
         ).get_json()
         assert data['success'] is True
 
+    def test_words_studied_today_leaves_out_the_self_check(self, anon_client):
+        """今天学了一个新词：自评页的会话（以前一律记在 1 号词上）不能让「今日学过的词」变成 2"""
+        from datetime import datetime
+        learner = _learner('todaywords')
+        now = datetime.utcnow().isoformat()
+        for session_id, module, word_id in (('s-today-vks', 'entrance', 1), ('s-today-word', 'word', 2),
+                                            ('s-today-ex', 'exercise', 2)):
+            anon_client.post('/api/learning/session/start', json={
+                'sessionId': session_id, 'wordId': word_id, 'sessionType': 'learning', 'moduleType': module,
+                'startTime': now}, headers=guest_headers(learner))
+        data = anon_client.get(f'/api/analytics/user/{learner}/dashboard',
+                               headers=guest_headers(learner)).get_json()['data']
+        assert data['todayStats']['wordsReviewed'] == 1
+
 
 # ================================================
 # 认证流程
