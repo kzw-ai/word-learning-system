@@ -40,7 +40,9 @@ def collocation_tokens(text, hanzi, word_pinyin):
     return [(s[:i], None), (hanzi, word_pinyin), (s[i + len(hanzi):], None)]
 
 
-SPEAKER = re.compile(r'^[一-鿿]{1,4}：')
+# 对话里每一轮开头的说话人：句首，或句号、问号、叹号之后，1–4 个汉字加冒号（「小王：」「李老师：」）。
+# 「她想：……」「他说：……」是句子本身，要读：以代词开头、或以说、想一类的动词结尾的不算说话人
+SPEAKER = re.compile(r'(?:^|(?<=[。！？]))(?![我你他她它])[一-鿿]{0,3}[一-鿿](?<![说想道问答喊叫写讲])：')
 
 
 def sentence_tokens(sentence, pinyin_line):
@@ -69,19 +71,19 @@ def only_punctuation(text):
 
 
 def drop_speaker(tokens):
+    """去掉对话里每一轮开头的说话人（不读）；和说话人连在一个词里的那一段不标注"""
     text = ''.join(t for t, _ in tokens)
-    m = SPEAKER.match(text)
-    if not m:
+    cut = set()
+    for m in SPEAKER.finditer(text):
+        cut |= set(range(m.start(), m.end()))
+    if not cut:
         return tokens
-    n, out = len(m.group(0)), []
+    out, k = [], 0
     for t, py in tokens:
-        if n >= len(t):
-            n -= len(t)
-        elif n:
-            out.append((t[n:], None))  # 说话人和台词连在一个词里：这一段不标注
-            n = 0
-        else:
-            out.append((t, py))
+        kept = ''.join(ch for i, ch in enumerate(t, k) if i not in cut)
+        k += len(t)
+        if kept:
+            out.append((t, py) if kept == t else (kept, None))
     return out
 
 

@@ -19,7 +19,9 @@ import_learning_materials.py 只插入不更新，修好它的解析器并不能
    这些无素材的词推荐给测试用户；现在只推荐有例句的词）。其余任何一处有引用就保留。
 7. 论文课件素材的拼音错误（2026-10-29 生成发音音频时查出，作者确认改正）：
    「通过」的「通」标成 tòng、「当时」标成 dàngshí、例句里的「当 dàng」「王 wàng」「脏 zàng」；
-   还有 10 条例句的拼音行缺了句尾（课件里那几个字的拼音没解析出来）。只在仍是错的值时改。
+   还有 10 条例句的拼音行缺了句尾（课件里那几个字的拼音没解析出来）。只在仍是错的值时改，
+   而且只改论文词库的词：归属四级批次（hsk4_batch_owner）的词由流水线校对，不动
+   （「当时 dàngshí」也是合法读音，义为「当即」，不能见到就改）。
 
 用法：
     python3 scripts/clean_materials.py --report     # 只看会改什么，不写库
@@ -220,12 +222,17 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
                               'DELETE FROM adaptive_recommendation WHERE target_word_id = ?', (wid,)))
         fixes.append((f'删除孤立词 {wid}（{pinyin}）', 'DELETE FROM word WHERE id = ?', (wid,)))
 
-    # 7. 论文课件素材的拼音勘误。字按 id 顺序拼成词（与页面显示一致）
+    # 7. 论文课件素材的拼音勘误，只改论文词库的词。字按 id 顺序拼成词（与页面显示一致）
+    batch_words = {r for (r,) in conn.execute("SELECT ref_id FROM hsk4_batch_owner WHERE kind = 'word'")} \
+        if 'hsk4_batch_owner' in tables else set()
     word_chars: dict[int, list[tuple[int, str, str]]] = {}
     for cid, wid, char, pinyin in conn.execute('SELECT id, word_id, character, pinyin FROM character ORDER BY word_id, id'):
-        word_chars.setdefault(wid, []).append((cid, char, pinyin))
+        if wid not in batch_words:
+            word_chars.setdefault(wid, []).append((cid, char, pinyin))
     hanzi_of = {wid: ''.join(c for _, c, _ in cs) for wid, cs in word_chars.items()}
     for wid, pinyin in conn.execute('SELECT id, pinyin FROM word').fetchall():
+        if wid in batch_words:
+            continue
         fixed = WORD_PINYIN_FIXES.get((hanzi_of.get(wid), pinyin))
         if fixed:
             fixes.append((f'词 {wid}（{hanzi_of[wid]}）拼音 {pinyin} -> {fixed}',
@@ -236,7 +243,9 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
             if fixed:
                 fixes.append((f'字 {cid}（{hanzi_of[wid]}的{char}）拼音 {pinyin} -> {fixed}',
                               'UPDATE character SET pinyin = ? WHERE id = ?', (fixed, cid)))
-    for eid, sentence, pinyin in conn.execute('SELECT id, sentence, pinyin FROM example').fetchall():
+    for eid, wid, sentence, pinyin in conn.execute('SELECT id, word_id, sentence, pinyin FROM example').fetchall():
+        if wid in batch_words:
+            continue
         line = fixed_example_pinyin(sentence, pinyin)
         if line != (pinyin or ''):
             fixes.append((f'例句 {eid}「{sentence[:12]}…」拼音勘误',

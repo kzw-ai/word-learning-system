@@ -132,6 +132,25 @@ class TestCleanMaterials:
         conn.close()
         assert clean_materials.clean_database(db) == 0
 
+    def test_thesis_errata_leave_batch_words_alone(self, tmp_path):
+        """「当时 dàngshí」（当即）也是合法读音：归属四级批次的词由流水线校对，勘误不动"""
+        db = str(tmp_path / 'm.db')
+        make_db(db)
+        conn = sqlite3.connect(db)
+        conn.executescript("""
+            CREATE TABLE hsk4_batch_owner (kind TEXT, ref_id INTEGER, batch TEXT, PRIMARY KEY (kind, ref_id));
+            INSERT INTO hsk4_batch_owner VALUES ('word', 11, '第09批');
+            INSERT INTO word VALUES (11, 'dàngshí', 'immediately');
+            INSERT INTO character VALUES (21, '当', 'dàng', 'right', '', 11), (22, '时', 'shí', 'time', '', 11);
+        """)
+        conn.commit()
+        conn.close()
+        clean_materials.clean_database(db)
+        conn = sqlite3.connect(db)
+        assert conn.execute('SELECT pinyin FROM word WHERE id = 11').fetchone()[0] == 'dàngshí'
+        assert conn.execute('SELECT pinyin FROM character WHERE id = 21').fetchone()[0] == 'dàng'
+        conn.close()
+
 
 class TestSupplementMaterials:
     """data/learning_materials/supplement_confusable_words.json：课件里没有的词按论文规则补写"""
