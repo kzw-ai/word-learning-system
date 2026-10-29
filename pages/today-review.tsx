@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { useLearningContext } from '@/src/context/LearningContext';
-import { reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
+import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
 import { Clock, BookOpen, TrendingUp } from 'lucide-react';
 
 interface ReviewItem {
@@ -41,10 +41,9 @@ const TodayReview = () => {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const currentUserRef = useRef(userId);
   currentUserRef.current = userId;
-  // 点了开始复习、正在跳走：此刻刚把这个词记入 reviewedWordIds，过滤后的列表
-  // 可能瞬间变空，不能据此判定「复习做完了」而清掉复习模式
+  // 点了开始复习、正在跳走：不能在跳走前据列表判定「复习做完了」而清掉复习模式
   const leavingRef = useRef(false);
-  // 隐藏今天已经复习过的词（记录只在当天有效）
+  // 隐藏今天已经复习完的词（练习页做完时记下，只在当天有效；中途退出的词不隐藏）
   const reviewed = reviewedToday(session);
   const reviews = dueReviews.filter((r) => !reviewed.includes(r.word_id));
 
@@ -99,8 +98,6 @@ const TodayReview = () => {
       vksLevel: undefined,
       recommendationId: null,
       reviewMode: true,
-      reviewedWordIds: [...reviewed, review.word_id],
-      reviewDate: todayReviewKey(),
       // 用户主动开始：即使内容与原来相同也要刷新时间戳
       lastUpdated: new Date().toISOString()
     });

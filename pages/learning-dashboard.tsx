@@ -8,6 +8,7 @@ import { buildApiUrl } from "@/src/lib/apiClient";
 import { sendRecommendationFeedback } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { formatReviewTime } from '@/src/lib/reviewTime';
 import { 
   TrendingUp, BookOpen, 
   Clock, Target, Award, ChevronRight 
@@ -16,13 +17,15 @@ import {
 interface Recommendation {
   type: string;
   priority: string;
-  word_id: number;
-  word: string;
+  // 暂时没有任务（all_caught_up）时为空
+  word_id: number | null;
+  word?: string;
   reason: string;
-  recommended_module: string;
+  recommended_module: string | null;
   confidence: number;
   estimated_time: number;
-  recommendationId?: number;
+  recommendationId?: number | null;
+  next_review_at?: string | null;
 }
 
 interface DashboardData {
@@ -91,7 +94,25 @@ const LearningDashboard = () => {
   };
 
   const startRecommendedLearning = () => {
-    if (!recommendation) return;
+    if (!recommendation?.word_id) return;
+
+    // 新词先做 VKS 自评（论文表 4.2 按自评档位定复习次数，入口模块也由档位决定），
+    // 入口页沿用这条推荐的词，不另取推荐；采纳由入口页在选完档位后上报
+    if (recommendation.type === 'new_learning') {
+      updateSession({
+        wordId: recommendation.word_id,
+        word: recommendation.word,
+        module: null,
+        entryModule: null,
+        vksLevel: undefined,
+        recommendationId: recommendation.recommendationId ?? null,
+        reviewMode: null,
+        lastUpdated: new Date().toISOString()
+      });
+      router.push(`/word-learning-entrance?wordId=${recommendation.word_id}`);
+      return;
+    }
+
     sendRecommendationFeedback(userId, recommendation.recommendationId, true,
       `${recommendation.recommended_module}:${recommendation.word_id}`);
 
@@ -118,7 +139,7 @@ const LearningDashboard = () => {
       new_learning: '/word-learning'
     };
 
-    const route = moduleRoutes[recommendation.recommended_module] || moduleRoutes[recommendation.type] || '/word-learning';
+    const route = moduleRoutes[recommendation.recommended_module ?? ''] || moduleRoutes[recommendation.type] || '/word-learning';
     router.push(route);
   };
 
@@ -141,7 +162,7 @@ const LearningDashboard = () => {
       urgent_review: '🚨 Urgent review',
       scheduled_review: '📅 Scheduled review',
       new_learning: '✨ New word',
-      explore_learning: '🔍 Explore',
+      all_caught_up: '🎉 All caught up',
       system_default: '📚 Suggested'
     };
     return labels[type] || type;
@@ -188,8 +209,20 @@ const LearningDashboard = () => {
               </div>
             )}
 
+            {/* 暂时没有任务：不显示开始按钮 */}
+            {recommendation && !recommendation.word_id && (
+              <div className="glass-card mb-4 rounded-[28px] p-5 shadow-xl border border-white/60 space-y-2">
+                <h2 className="text-lg font-bold text-gray-800">You’re all caught up 🎉</h2>
+                <p className="text-base text-gray-600 font-medium">
+                  {recommendation.next_review_at
+                    ? `Your next review is ${formatReviewTime(recommendation.next_review_at)}.`
+                    : 'There are no new words to learn right now.'}
+                </p>
+              </div>
+            )}
+
             {/* 智能推荐卡片 */}
-            {recommendation && (
+            {recommendation?.word_id && (
               <div className="glass-card mb-4 rounded-[28px] overflow-hidden shadow-xl border border-white/60 relative">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-200/40 rounded-full mix-blend-multiply filter blur-2xl pointer-events-none -mr-10 -mt-10"></div>
                 <div className="p-5 pb-4 bg-gradient-to-br from-white/40 to-white/10 border-b border-white/30 backdrop-blur-md relative z-10 flex items-center justify-between">

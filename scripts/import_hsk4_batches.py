@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import sqlite3
@@ -46,8 +47,9 @@ def ensure_schema(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS hsk4_batch_owner (
         kind TEXT NOT NULL, ref_id INTEGER NOT NULL, batch TEXT NOT NULL, PRIMARY KEY (kind, ref_id))''')
     word_columns = {row[1] for row in conn.execute('PRAGMA table_info(word)')}
-    if word_columns and 'audio' not in word_columns:
-        conn.execute('ALTER TABLE word ADD COLUMN audio VARCHAR(200)')
+    for column, ddl in (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)')):
+        if word_columns and column not in word_columns:
+            conn.execute(f'ALTER TABLE word ADD COLUMN {column} {ddl}')
     columns = {row[1] for row in conn.execute('PRAGMA table_info(confusable_pairs)')}
     for column, ddl in (('questions', 'TEXT'), ('word2_level', 'INTEGER')):
         if columns and column not in columns:
@@ -232,6 +234,31 @@ def import_details(db_path=DB_PATH, include_unreviewed=False):
     finally:
         conn.close()
     return totals
+
+
+FREQUENCY_TIERS = PROJECT_ROOT / 'data' / 'hsk4_frequency_tiers.csv'
+
+
+def apply_frequency_tiers(db_path=DB_PATH, tiers_path=FREQUENCY_TIERS):
+    """按汉字给词库里的新 HSK 四级词写上加权词频排名和档位（学习资料制作第 1 步的产出，论文 5.3.1），
+    推荐新词时按档位轮流。批次的词和论文词库里的旧词一样处理：排名、档位是词表信息，不是学习内容。
+    不在四级词表里的词清空。返回改动的词数，重复运行是幂等的。"""
+    with open(tiers_path, encoding='utf-8', newline='') as f:
+        tiers = {r['word']: (int(r['rank']), r['tier']) for r in csv.DictReader(f)}
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        ensure_schema(conn)
+        current = {row[0]: tuple(row[1:]) for row in conn.execute('SELECT id, freq_rank, freq_tier FROM word')}
+        changes = []
+        for hanzi, word_id in hanzi_map(conn).items():
+            wanted = tiers.get(hanzi, (None, None))
+            if current.get(word_id) != wanted:
+                changes.append((*wanted, word_id))
+        conn.executemany('UPDATE word SET freq_rank = ?, freq_tier = ? WHERE id = ?', changes)
+        conn.commit()
+        return len(changes)
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':

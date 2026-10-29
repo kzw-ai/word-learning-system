@@ -78,6 +78,10 @@ class Word(db.Model):
     definition = db.Column(db.String(200), nullable=False)
     # 整词发音的地址（/api/audio/<指纹>.mp3）；字、搭配、例句的 audio 列同此。音频文件见 AUDIO_DIR
     audio = db.Column(db.String(200))
+    # 新 HSK 四级词的加权词频排名（1–600）和档位（高频/中频/低频，论文 5.3.1），见 data/hsk4_frequency_tiers.csv；
+    # 不在四级词表里的词（一至三级易混淆词、论文词库里的低等级词）为空
+    freq_rank = db.Column(db.Integer)
+    freq_tier = db.Column(db.String(10))
 
 class ExerciseItem(db.Model):
     """论文 6 套答案课件里的人工命题。
@@ -415,6 +419,9 @@ def review_state(user_id, word_id):
     - VKS 档位取这个词最早带档位的学习会话（任何模块），晚到补写的档位也会被用上。
     - 之后每节练习里，每种还有剩余次数的题型各减 1，不论对错；同一题提交多次只算第一次。
       一节里没有任何还需复习的题型时不算一次复习。
+    - 学习期的复习要等到期：上一次进度有变化（定了次数或减了次数）的那节练习，最后一次作答之后
+      过了 LEARNING_PHASE_INTERVALS 的间隔，这节练习才算一次复习（与 schedule_review_from_session 排的日程一致）。
+      没到期就另开一节练习（同一天连做几节）不减次数，免得一天把两周的复习做完。
     - 每种出得了的题型都定过次数、且都复习完，才算达标。
     已知限制：复习日程（next_review_suggested）只在提交作答时重排。往更早的会话补交作答、
     之后才补写 VKS 档位时，这里推出的次数会变，已排的日程要等下一节练习才跟上；
@@ -422,7 +429,7 @@ def review_state(user_id, word_id):
     """
     rows = (
         db.session.query(LearningSession.id, ExerciseRecord.question_id,
-                         ExerciseRecord.question_type, ExerciseRecord.is_correct)
+                         ExerciseRecord.question_type, ExerciseRecord.is_correct, ExerciseRecord.created_at)
         .join(ExerciseRecord, ExerciseRecord.session_id == LearningSession.session_id)
         .filter(LearningSession.user_id == user_id, LearningSession.word_id == word_id)
         .order_by(LearningSession.id, ExerciseRecord.id)
@@ -431,8 +438,11 @@ def review_state(user_id, word_id):
     if not rows:
         return None
     sessions = {}  # 会话 id → {题目 id: (题型, 对错)}，dict 保持插入顺序即会话先后
-    for session_pk, question_id, question_type, is_correct in rows:
+    answered_at = {}  # 会话 id → (第一次作答时间, 最后一次作答时间)，按服务器写入时间
+    for session_pk, question_id, question_type, is_correct, created_at in rows:
         sessions.setdefault(session_pk, {}).setdefault(question_id, (question_type, bool(is_correct)))
+        first, _ = answered_at.get(session_pk, (created_at, None))
+        answered_at[session_pk] = (first, created_at)
 
     level_row = (LearningSession.query
                  .filter(LearningSession.user_id == user_id, LearningSession.word_id == word_id,
@@ -444,14 +454,21 @@ def review_state(user_id, word_id):
 
     targets, remaining = {}, {}
     reviews_done, after_completion, completed = 0, 0, False
-    for index, answers in enumerate(sessions.values()):
+    last_change_session, last_change_at = None, None
+    for index, (session_pk, answers) in enumerate(sessions.items()):
         if completed:
             after_completion += 1
             continue
+        first_answer, last_answer = answered_at[session_pk]
+        due_at = None
+        if last_change_at is not None:
+            due_at = last_change_at + timedelta(
+                days=LEARNING_PHASE_INTERVALS[min(reviews_done, len(LEARNING_PHASE_INTERVALS) - 1)])
+        on_schedule = due_at is None or first_answer is None or first_answer >= due_at
         by_type = {}
         for question_type, is_correct in answers.values():
             by_type.setdefault(question_type, []).append(is_correct)
-        reviewed = False
+        reviewed = changed = False
         for question_type in REVIEW_QUESTION_TYPES:
             if question_type not in by_type:
                 continue
@@ -463,11 +480,14 @@ def review_state(user_id, word_id):
                     # 这种题型的第一次练习
                     targets[question_type] = review_target(question_type, finished and all(answers), vks_level)
                     remaining[question_type] = targets[question_type]
-            elif remaining[question_type] > 0 and finished:
+                    changed = True
+            elif remaining[question_type] > 0 and finished and on_schedule:
                 remaining[question_type] -= 1
-                reviewed = True
+                reviewed = changed = True
         if index > 0 and reviewed:
             reviews_done += 1
+        if changed:
+            last_change_session, last_change_at = session_pk, last_answer
         # 只看现在还出得了的题型：素材删掉的题型复习不了，剩下的次数不能挡住达标
         completed = available <= set(targets) and not any(remaining.get(t, 0) for t in available)
 
@@ -483,6 +503,9 @@ def review_state(user_id, word_id):
         'after_completion': after_completion,
         'completed': completed,
         'last_wrong_types': sorted({t for t, ok in last_answers if not ok}),
+        # 最后一节让进度有变化的练习（LearningSession.id）和它最后一次作答的时间，复习日程从这里排
+        'last_change_session': last_change_session,
+        'last_change_at': last_change_at,
     }
 
 
@@ -659,8 +682,19 @@ def schedule_review_from_session(session, progress):
     # 各题型次数都复习完，转入 SM-2 的长间隔巩固
     state = review_state(session.user_id, session.word_id)
     if not state['completed']:
-        days = LEARNING_PHASE_INTERVALS[min(state['reviews_done'], len(LEARNING_PHASE_INTERVALS) - 1)]
-        progress.next_review_suggested = datetime.utcnow() + timedelta(days=days)
+        if state['last_change_session'] != session.id:
+            # 这节练习没让进度有变化（一种题型都没答满就退出，或复习还没到期）：日程不动，
+            # 免得没做完的词被推后 1–3 天。还没有日程（第一节就没答满）时现在就能接着练
+            if progress.next_review_suggested is None:
+                progress.next_review_suggested = datetime.utcnow()
+                progress.updated_at = datetime.utcnow()
+            return False
+        if state['pending']:
+            # 还有题型没做过第一次练习（这节没做完）：现在就能接着练
+            progress.next_review_suggested = state['last_change_at'] or datetime.utcnow()
+        else:
+            days = LEARNING_PHASE_INTERVALS[min(state['reviews_done'], len(LEARNING_PHASE_INTERVALS) - 1)]
+            progress.next_review_suggested = (state['last_change_at'] or datetime.utcnow()) + timedelta(days=days)
     else:
         # 巩固期从 SM-2 的第 3 次复习起算（首个间隔约一周），之后每节逐次拉长
         progress.next_review_suggested = spaced_repetition.engine.next_review_from(
@@ -1608,12 +1642,12 @@ def get_adaptive_recommendation(user_id, current_user_id=None, **kwargs):
                     'E': 'exercise'
                 }
                 recommendation['recommended_module'] = vks_modules.get(vks_level, 'word')
-            elif recommendation.get('recommended_module') is None:
+            elif recommendation.get('recommended_module') is None and recommendation.get('word_id'):
                 recommendation['recommended_module'] = 'word'
-            
-            # 保存推荐记录
-            rec_id = recommendation_engine.save_recommendation(user_id, recommendation)
-            recommendation['recommendationId'] = rec_id
+
+            # 保存推荐记录。暂无任务（all_caught_up，没有词）不算一次推荐，不记
+            recommendation['recommendationId'] = (recommendation_engine.save_recommendation(user_id, recommendation)
+                                                  if recommendation.get('word_id') else None)
         else:
             # 简化版推荐
             recommendation = get_simple_recommendation(user_id, context)
@@ -2415,19 +2449,24 @@ def ensure_user_progress_unique_index():
 CONTRAST_SCHEMA_READY = False
 
 
-def ensure_word_audio_column():
-    """为旧数据库补齐 word.audio（整词发音地址）。必须在第一次用 ORM 查 Word 之前执行：
-    模型里有这一列，库里没有时所有词的查询都会报错。加列失败（别的进程正持有写锁）时再看一次是否已由别的进程加上。"""
+WORD_COLUMNS = (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)'))
+
+
+def ensure_word_columns():
+    """为旧数据库补齐 word.audio（整词发音地址）、freq_rank、freq_tier（词频排名和档位）。必须在第一次用 ORM 查 Word 之前执行：
+    模型里有这些列，库里没有时所有词的查询都会报错。加列失败（别的进程正持有写锁）时再看一次是否已由别的进程加上。"""
     conn = sqlite3.connect(_db_path, timeout=30)
     try:
         existing = {row[1] for row in conn.execute("PRAGMA table_info(word)")}
-        if existing and 'audio' not in existing:
+        for column, ddl in WORD_COLUMNS:
+            if not existing or column in existing:
+                continue
             try:
-                conn.execute("ALTER TABLE word ADD COLUMN audio VARCHAR(200)")
+                conn.execute(f"ALTER TABLE word ADD COLUMN {column} {ddl}")
                 conn.commit()
-                print("   ➕ 已为 word 补齐 audio 列")
+                print(f"   ➕ 已为 word 补齐 {column} 列")
             except sqlite3.Error:
-                if 'audio' not in {row[1] for row in conn.execute("PRAGMA table_info(word)")}:
+                if column not in {row[1] for row in conn.execute("PRAGMA table_info(word)")}:
                     raise
     finally:
         conn.close()
@@ -2478,7 +2517,7 @@ def initialize_database():
     try:
         with app.app_context():
             db.create_all()
-            ensure_word_audio_column()
+            ensure_word_columns()
             ensure_user_profile_columns()
             ensure_learning_session_columns()
             ensure_confusable_pair_columns()
@@ -2588,6 +2627,14 @@ def initialize_database():
                     print(f"📝 四级词批次导入：新增词 {added}，练习题 {items}，易混淆词对 {pairs}")
             except Exception as e:
                 print(f"⚠️  四级词批次导入失败: {str(e)}")
+
+            # 四级词的词频排名和档位（推荐新词按高、中、低频轮流），批次导入之后补，幂等
+            try:
+                changed = import_hsk4_batches.apply_frequency_tiers(_db_path)
+                if changed:
+                    print(f"📝 四级词词频档位补入 {changed} 个词")
+            except Exception as e:
+                print(f"⚠️  四级词词频档位补入失败: {str(e)}")
 
             # 论文词库里的词的发音音频（学习资料制作第 8 步 --thesis 生成的清单），幂等
             try:

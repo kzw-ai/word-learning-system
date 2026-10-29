@@ -453,6 +453,19 @@ def _learner(name):
     return 'guest_' + (name + '0' * 20)[:20]
 
 
+def _wait_until_due(learner, days=30):
+    """把这个学习者已有的作答往前挪 days 天：下一节练习就是到期以后做的，算一次复习
+    （学习期的复习要等上次排的复习到期，见 review_state）"""
+    import app_phase as mod
+    from sqlalchemy import text
+    with mod.app.app_context():
+        mod.db.session.execute(text(
+            "UPDATE exercise_record SET created_at = datetime(created_at, :shift) "
+            "WHERE session_id IN (SELECT session_id FROM learning_session WHERE user_id = :user)"),
+            {'shift': f'-{days} days', 'user': learner})
+        mod.db.session.commit()
+
+
 def _stored(progress):
     """库里存的值（去掉随当前时间变化的 days）"""
     return {k: v for k, v in progress.items() if k != 'days'}
@@ -814,7 +827,9 @@ class TestThesisReviewPlan:
         data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
         return data['questions'], data.get('reviewTypes')
 
-    def _session(self, client, learner, session_id, level=None, wrong_types=(), answer_types=None):
+    def _session(self, client, learner, session_id, level=None, wrong_types=(), answer_types=None, due=True):
+        if due:
+            _wait_until_due(learner)
         body = {'sessionId': session_id, 'wordId': 1, 'sessionType': 'exercise',
                 'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}
         if level:
@@ -953,6 +968,45 @@ class TestThesisReviewPlan:
         assert rec['recommended_module'] == 'exercise'
         assert rec['reviews_remaining'] == 2 and rec['review_types'] == ['collocation', 'fill_word']
 
+    def test_extra_session_before_the_review_is_due_does_not_count(self, app, anon_client):
+        """同一天另开几节练习不能把学习期的复习次数一口气扣完：没到期的那节不减次数、不重排日程"""
+        learner = _learner('plansameday')
+        self._session(anon_client, learner, 's-plan-sd1', level='E')
+        targets, _, _, days = self._plan(app, learner)
+        self._session(anon_client, learner, 's-plan-sd2', due=False)
+        self._session(anon_client, learner, 's-plan-sd3', due=False)
+        _, remaining, done, days_after = self._plan(app, learner)
+        assert remaining == targets and done == 0
+        assert abs(days_after - days) < 0.01, '没到期的练习不能推后日程'
+        # 到期以后那一节照常算一次复习
+        self._session(anon_client, learner, 's-plan-sd4')
+        _, remaining, done, _ = self._plan(app, learner)
+        assert done == 1 and remaining == {t: max(n - 1, 0) for t, n in targets.items()}
+
+    def test_leaving_after_one_answer_keeps_the_word_available(self, app, anon_client):
+        """第一节只答了一道搭配题（两道才算练过）就退出：进度没有变化，这个词现在就能接着练，不能被推后 1–3 天"""
+        learner = _learner('planquitearly')
+        self._session(anon_client, learner, 's-plan-q1', level='E', answer_types=set())
+        questions, _ = self._questions(anon_client, learner)
+        colloc = next(q for q in questions if q['type'] == 'collocation')
+        anon_client.post('/api/learning/exercise/record', json={
+            'sessionId': 's-plan-q1', 'questionId': colloc['id'], 'questionType': 'collocation',
+            'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05'}, headers=guest_headers(learner))
+        *_, days = self._plan(app, learner)
+        assert days <= 0, '没答满一种题型，日程不能推后'
+
+    def test_unpractised_types_left_over_are_due_right_away(self, app, anon_client):
+        """第一节只答了释义题：搭配、填词还没做过第一次练习，马上就能接着练（推荐、今日复习里都有这个词）"""
+        import app_phase as mod
+        learner = _learner('planleftover')
+        self._session(anon_client, learner, 's-plan-left1', level='E', answer_types={'definition'})
+        *_, days = self._plan(app, learner)
+        assert days <= 0
+        with app.app_context():
+            due = mod.spaced_repetition.get_due_reviews(learner, 10)
+        assert [r['word_id'] for r in due] == [1]
+
     def test_collocation_counts_only_when_both_are_answered(self, app, anon_client):
         """两道搭配题算一个整体：只答一道（对）不算练过；只答一道但错了，已经是错"""
         import app_phase as mod
@@ -1071,7 +1125,9 @@ class TestConfusableContrast:
             mod.db.session.commit()
 
     def _practise(self, client, learner, word_id, session_id, correct=True):
-        """一节练习：词 1 按出题接口全部作答（VKS 选 E，答对时表 4.2 复习 2 次达标）；没有素材的词答一道就算练过"""
+        """一节练习：词 1 按出题接口全部作答（VKS 选 E，答对时表 4.2 复习 2 次达标）；没有素材的词答一道就算练过。
+        每节都在上一节排的复习到期以后做"""
+        _wait_until_due(learner)
         client.post('/api/learning/session/start', json={
             'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise', 'moduleType': 'exercise',
             'initialLevel': 'E', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
@@ -1353,6 +1409,27 @@ class TestHsk4BatchImport:
             conn.close()
         data = app.test_client().get(f'/api/learning/word/{word_id}/exercises?limit=10').get_json()['data']
         assert data['source'] == 'authored' and [q['type'] for q in data['questions']] == ['definition']
+
+    def test_frequency_tiers_follow_the_word_list(self, app, tmp_path):
+        """词频排名和档位按汉字写进词库（批次的词、论文词库的旧词都写），不在表里的词清空；重复运行不改动"""
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        tiers = tmp_path / 'tiers.csv'
+        tiers.write_text('rank,word,tier\n7,发生,中频\n', encoding='utf-8')
+        try:
+            assert imp.apply_frequency_tiers(db, tiers) > 0
+            assert imp.apply_frequency_tiers(db, tiers) == 0
+            conn = sqlite3.connect(db)
+            try:
+                word_id = imp.hanzi_map(conn)['发生']
+                assert conn.execute('SELECT freq_rank, freq_tier FROM word WHERE id = ?', (word_id,)).fetchone() == (7, '中频')
+                assert conn.execute('SELECT COUNT(*) FROM word WHERE freq_tier IS NOT NULL').fetchone()[0] == 1
+            finally:
+                conn.close()
+        finally:
+            imp.apply_frequency_tiers(db)  # 恢复成真实词表，别的测试照常
 
     def test_old_pair_keeps_its_text_and_batch_pair_is_synced(self, app, tmp_path, monkeypatch):
         import json
