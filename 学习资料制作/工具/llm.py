@@ -22,9 +22,9 @@ def _key():
     return key
 
 
-def ask_json(model, system, user, max_tokens=32000):
+def ask_json(model, system, user, max_tokens=64000):
     """发一轮对话，返回 (解析后的 JSON, 用量)。
-    max_tokens 含思考：大多数词 5–12K，个别词（「活动」）思考超过 16K、回答为空，所以留到 32K。"""
+    max_tokens 含思考：大多数词 5–12K；个别词思考超过 16K（「活动」）甚至 32K（「邮局」）、回答为空，所以留到 64K。"""
     if model not in MODELS:
         raise SystemExit(f'不认识的模型 {model}，可选：{"、".join(MODELS)}')
     body = json.dumps({
