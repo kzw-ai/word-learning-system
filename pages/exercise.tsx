@@ -9,7 +9,7 @@ import { authenticatedGet } from '@/src/lib/authClient';
 import type { ExerciseQuestionPayload } from '@/src/lib/types';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { afterWordRoute, reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
-import { useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
+import { isSingleCharacter, useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
@@ -473,7 +473,7 @@ const Exercise = () => {
               </Button>
             </div>
             <div className="mt-3">
-              <StepProgress current="exercise" entry={learningSession.entryModule} />
+              <StepProgress current="exercise" entry={learningSession.entryModule} skipCharacter={isSingleCharacter(word)} />
             </div>
           </div>
           

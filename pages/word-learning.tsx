@@ -4,7 +4,9 @@ import StepProgress from "@/components/learning/StepProgress";
 import { Button } from "@/components/ui/button";
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
-import { useLearningNavigation } from '@/src/hooks/useLearningNavigation';
+import { isSingleCharacter, useLearningNavigation } from '@/src/hooks/useLearningNavigation';
+import { useSlideIn, useSwipeNavigation } from '@/src/hooks/useSwipeNavigation';
+import SwipeHint from '@/components/learning/SwipeHint';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import ReviewReminder from '@/components/ReviewReminder';
@@ -13,7 +15,9 @@ export default function Component() {
   const { session: learningSession, hydrated: sessionHydrated, restored: sessionRestored, updateSession: updateLearningSession } = useLearningSession();
   const { userId } = useLearningContext();
   const { word, loading, error } = useWordData({ initialWordId: learningSession.wordId ?? undefined });
-  const { previous, next, goTo } = useLearningNavigation('word');
+  // 单字词跳过字页（字页和词页内容一样）
+  const singleChar = isSingleCharacter(word);
+  const { previous, next, goTo } = useLearningNavigation('word', { skipCharacter: singleChar });
 
   const tracking = useComprehensiveTracking({
     userId,
@@ -54,6 +58,10 @@ export default function Component() {
     goTo(target.key);
   };
 
+  // 左滑 / → 下一步，右滑 / ← 上一步；词加载出来以后才能翻
+  useSwipeNavigation(handleNavigate, Boolean(word));
+  const slideIn = useSlideIn();
+
   const renderBody = () => {
     if (loading) {
       return (
@@ -72,7 +80,7 @@ export default function Component() {
     }
 
     return (
-      <div className="flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20">
+      <div className={`flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20 ${slideIn}`}>
         <div className="flex-1 space-y-4">
           {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
           {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
@@ -85,14 +93,18 @@ export default function Component() {
             </div>
           </div>
           {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
-          <RecapSection labels={["Characters"]}>
-            <CharacterBreakdown word={word} />
-          </RecapSection>
+          {/* 单字词没有可拆的字，不重复显示 */}
+          {!singleChar && (
+            <RecapSection labels={["Characters"]}>
+              <CharacterBreakdown word={word} />
+            </RecapSection>
+          )}
           <div className="h-6 w-full shrink-0"></div>
         </div>
 
         {/* 底部按钮区域保持为单大绿色 CONTINUE 按钮以符合原型图 */}
         <div className="pt-4 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+          <SwipeHint />
           <Button
               className="w-full h-12 rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 text-white font-bold tracking-widest text-sm"
               onClick={() => handleNavigate("next")}
@@ -129,7 +141,7 @@ export default function Component() {
               </Button>
             </div>
             <div className="mt-3">
-              <StepProgress current="word" entry={learningSession.entryModule} />
+              <StepProgress current="word" entry={learningSession.entryModule} skipCharacter={singleChar} />
             </div>
           </div>
           

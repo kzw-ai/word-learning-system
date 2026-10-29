@@ -2,7 +2,7 @@ import React from 'react';
 import { Check } from 'lucide-react';
 
 // 五个标签要在 390px 宽的屏幕上排成一行：用短标签，各页标题仍用全称
-const STEPS = [
+const ALL_STEPS = [
   { key: 'character', label: 'Chars' },
   { key: 'word', label: 'Word' },
   { key: 'collocation', label: 'Phrases' },
@@ -18,13 +18,16 @@ interface StepProgressProps {
    * 未知时按从第一步开始处理
    */
   entry?: string | null;
+  /** 单字词跳过字页：不显示「Chars」这一步 */
+  skipCharacter?: boolean;
 }
 
 /**
  * 学习链路的步骤进度：字 → 词 → 搭配 → 例句 → 练习。只用于显示位置，不可点击——
  * 跳转仍由页面顶部的上一步 / 下一步按钮负责。
  */
-export default function StepProgress({ current, entry }: StepProgressProps) {
+export default function StepProgress({ current, entry, skipCharacter = false }: StepProgressProps) {
+  const STEPS = skipCharacter ? ALL_STEPS.filter(step => step.key !== 'character') : ALL_STEPS;
   const currentIndex = STEPS.findIndex(step => step.key === current);
   const entryIndex = Math.max(0, STEPS.findIndex(step => step.key === entry));
   // 当前步骤在入口之前（例如从后面的步骤点了「上一步」）时，按当前步骤为起点
