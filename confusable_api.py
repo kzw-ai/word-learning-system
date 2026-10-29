@@ -140,7 +140,12 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
             # 有辨析题、还没过关的词对优先；没有题的旧词对解锁后一直到期，排在后面才不会挡住新词对
             rows = sorted(rows, key=lambda r: (not parse_questions(r[3]), r[0]))
             due = next((r[0] for r in rows if pair_due(viewer_id, r[0], r[1], r[2], parse_questions(r[3]))), None)
-            return jsonify({'success': True, 'pair_id': due})
+            # 以前做过这一对的辨析题（上次没全对才会再带出）：页面直接展开讲解
+            attempted = due is not None and db.session.execute(text("""
+                SELECT 1 FROM confusable_exercise_records
+                WHERE user_id = :user_id AND pair_id = :pair_id AND question_index IS NOT NULL LIMIT 1
+            """), {'user_id': str(viewer_id), 'pair_id': due}).first() is not None
+            return jsonify({'success': True, 'pair_id': due, 'attempted': attempted})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 

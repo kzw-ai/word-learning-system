@@ -1122,6 +1122,15 @@ class TestConfusableContrast:
         self._answer(anon_client, learner, pair_id, 1, False)
         assert self._offered(anon_client, learner) == pair_id, '有题最近一次答错，下次再带出'
 
+    def test_reports_whether_the_pair_was_attempted(self, anon_client, pair):
+        pair_id, other = pair
+        learner = _learner('contrastattempted')
+        self._unlock(anon_client, learner, 's-contrast-a', other)
+        get = lambda: anon_client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()
+        assert get() == {'success': True, 'pair_id': pair_id, 'attempted': False}
+        self._answer(anon_client, learner, pair_id, 0, False)
+        assert get() == {'success': True, 'pair_id': pair_id, 'attempted': True}, '做过没全对：再带出时直接展开讲解'
+
     def test_server_judges_answers_and_validates_input(self, app, anon_client, pair):
         import app_phase as mod
         pair_id, _ = pair

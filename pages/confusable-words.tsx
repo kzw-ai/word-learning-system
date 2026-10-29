@@ -32,6 +32,8 @@ interface ContrastQuestion {
   stem: string;
   options: string[];
   correct_answer: string;
+  // 英文讲解：为什么这句用这个词（学习资料制作第 6 步写、作者审核），答完显示
+  explanation?: string;
   // 后端按题干、选项、答案算出的版本号；作答时带回去，题目改过时后端返回 409
   version: string;
 }
@@ -148,6 +150,9 @@ function ContrastQuiz({ pair }: { pair: ConfusablePair }) {
                   {isRight(i) ? 'Correct.' : `Not quite: the answer is ${answerOf(i)}.`}
                 </p>
               )}
+              {choice && saved[i] !== 'stale' && q.explanation && (
+                <p className="text-sm mt-1 text-gray-600 leading-relaxed whitespace-pre-line">{q.explanation}</p>
+              )}
               {saved[i] === 'stale' && (
                 <p className="text-sm mt-1.5 text-amber-700">This question has been updated. Please reload the page.</p>
               )}
@@ -195,6 +200,8 @@ export default function ConfusableWordsPage() {
   const [showAnswer, setShowAnswer] = useState(false);
   // 从练习流程带入时（?pair=<id>&from=exercise）定位到对应组并提供“继续主线”出口
   const fromExercise = router.query.from === 'exercise';
+  // 以前做过这一对的辨析题、没全对才再带出（&revisit=1）：直接展开讲解
+  const revisit = router.query.revisit === '1';
 
   useEffect(() => {
     if (router.isReady) loadConfusablePairs();
@@ -208,9 +215,9 @@ export default function ConfusableWordsPage() {
     const idx = pairs.findIndex(p => p.id === pairId);
     if (idx >= 0) {
       setCurrentIndex(idx);
-      setShowAnswer(false);
+      setShowAnswer(revisit);
     }
-  }, [router.isReady, router.query.pair, pairs]);
+  }, [router.isReady, router.query.pair, pairs, revisit]);
 
   // 只让最新一次加载更新页面：地址里的词对变了时，先发出的请求后返回也不能覆盖
   const loadSeq = useRef(0);
