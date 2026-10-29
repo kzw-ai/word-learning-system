@@ -1464,3 +1464,108 @@ class TestHsk4BatchImport:
                                                  ensure_ascii=False), encoding='utf-8')
         d = imp.import_details(db)
         assert (d['words_synced'], d['items_added']) == (1, 2), '没有题时导入的词仍归属这个批次，补回的题能同步进去'
+
+
+# ================================================
+# 发音音频：库里存地址（/api/audio/<指纹>.mp3），文件在 AUDIO_DIR
+# ================================================
+
+class TestAudio:
+    @staticmethod
+    def _url(n):
+        return f'/api/audio/{n:016x}.mp3'
+
+    def test_serves_fingerprinted_files_only(self, client, tmp_path, monkeypatch):
+        import app_phase as mod
+        monkeypatch.setattr(mod, 'AUDIO_DIR', str(tmp_path))
+        (tmp_path / '0123456789abcdef.mp3').write_bytes(b'ID3fake')
+        (tmp_path / 'secret.txt').write_text('x')
+        resp = client.get('/api/audio/0123456789abcdef.mp3')
+        assert resp.status_code == 200 and resp.data == b'ID3fake' and resp.mimetype == 'audio/mpeg'
+        assert 'max-age=31536000' in resp.headers.get('Cache-Control', ''), '文件名是内容指纹，可以长期缓存'
+        for bad in ('secret.txt', '0123456789abcdef.wav', 'ABCDEF0123456789.mp3', 'fedcba9876543210.mp3'):
+            assert client.get(f'/api/audio/{bad}').status_code == 404, bad
+
+    def test_word_detail_includes_audio(self, app, client):
+        import app_phase as mod
+        with app.app_context():
+            word = mod.Word(pinyin='p', definition='d', audio=self._url(1))
+            mod.db.session.add(word)
+            mod.db.session.commit()
+            word_id = word.id
+        try:
+            assert client.get(f'/word/{word_id}').get_json()['audio'] == self._url(1)
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
+                mod.db.session.commit()
+
+    def test_batch_import_writes_audio(self, app, tmp_path, monkeypatch):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        a = self._url
+        word = {'hanzi': '斟酌', 'pinyin': 'zhēnzhuó', 'definition': 'v. to consider', 'audio': a(1),
+                'characters': [{'character': '斟', 'pinyin': 'zhēn', 'definition': 'd', 'audio': a(2)},
+                               {'character': '酌', 'pinyin': 'zhuó', 'definition': 'd', 'audio': a(3)}],
+                'collocations': [{'collocation': '认真（三级） 斟酌', 'translation': 't', 'audio': a(4)}],
+                'examples': [{'sentence': '我再斟酌一下。', 'pinyin': 'p', 'translation': 't', 'audio': a(5)}],
+                'exercises': []}
+        path = tmp_path / '音频批.json'
+        write = lambda: path.write_text(json.dumps({'batch': '音频批', 'status': imp.APPROVED, 'words': [word]},
+                                                   ensure_ascii=False), encoding='utf-8')
+
+        def stored():
+            conn = sqlite3.connect(db)
+            try:
+                word_id = imp.hanzi_map(conn)['斟酌']
+                q = lambda table: [r[0] for r in conn.execute(f'SELECT audio FROM {table} WHERE word_id = ? ORDER BY id', (word_id,))]
+                return (conn.execute('SELECT audio FROM word WHERE id = ?', (word_id,)).fetchone()[0],
+                        q('character'), q('collocation'), q('example'))
+            finally:
+                conn.close()
+        write()
+        imp.import_details(db)
+        assert stored() == (a(1), [a(2), a(3)], [a(4)], [a(5)])
+        word['examples'][0]['audio'] = a(6)  # 改了拼音、重新生成：地址变了
+        write()
+        imp.import_details(db)
+        assert stored()[3] == [a(6)], '重新导入时发音地址同步'
+
+    def test_thesis_manifest_fills_only_empty_or_placeholder(self, app, tmp_path):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import apply_audio_manifest as am  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        a = self._url
+        conn = sqlite3.connect(db)
+        try:
+            word_id = conn.execute("INSERT INTO word (pinyin, definition, audio) VALUES ('chóuchú', 'd', '')").lastrowid
+            conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
+                             [('踌', 'chóu', 'd', '/audio/character_1.mp3', word_id), ('躇', 'chú', 'd', a(99), word_id)])
+            conn.execute("INSERT INTO collocation (collocation, translation, audio, word_id) VALUES ('犹豫 踌躇', 't', '', ?)", (word_id,))
+            conn.execute("INSERT INTO example (sentence, pinyin, translation, audio, word_id) VALUES ('他踌躇了很久。', 'p', 't', '', ?)",
+                         (word_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        manifest = tmp_path / '论文词库.json'
+        manifest.write_text(json.dumps({'words': [
+            {'hanzi': '踌躇', 'audio': a(7),
+             'characters': [{'character': '踌', 'audio': a(8)}, {'character': '躇', 'audio': a(9)}],
+             'collocations': [{'collocation': '犹豫 踌躇', 'audio': a(10)}],
+             'examples': [{'sentence': '他踌躇了很久。', 'audio': a(11)}]},
+            {'hanzi': '库里没有的词', 'audio': a(12), 'characters': [], 'collocations': [], 'examples': []},
+        ]}, ensure_ascii=False), encoding='utf-8')
+        assert am.apply(db, manifest) == 4, '空的和占位的补上，已有的（躇）不动'
+        conn = sqlite3.connect(db)
+        try:
+            assert [r[0] for r in conn.execute('SELECT audio FROM character WHERE word_id = ? ORDER BY id', (word_id,))] == [a(8), a(99)]
+            assert conn.execute('SELECT audio FROM word WHERE id = ?', (word_id,)).fetchone()[0] == a(7)
+        finally:
+            conn.close()
+        assert am.apply(db, manifest) == 0, '再执行不变'

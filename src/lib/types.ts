@@ -23,6 +23,8 @@ export interface WordResponse {
   pinyin: string;
   definition: string;
   hanzi?: string;
+  /** 整词发音地址（/api/audio/<指纹>.mp3）；空字符串表示没有音频文件，用浏览器朗读 */
+  audio?: string;
   examples: WordExample[];
   collocations: WordCollocation[];
   characters: WordCharacter[];

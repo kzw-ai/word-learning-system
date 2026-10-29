@@ -116,22 +116,39 @@ export default function AudioPlayer({
         onEnd?.();
       };
 
+      // 文件取不到（还没部署到服务器、早期的占位地址）：改用浏览器朗读，按钮不至于失灵
       audioRef.current.onerror = () => {
-        setIsPlaying(false);
-        setIsLoading(false);
-        setHasError(true);
-        const error = new Error('Failed to load audio');
-        onError?.(error);
+        audioRef.current = null;
+        fallBackToSpeech(new Error('Failed to load audio'));
       };
     }
 
     audioRef.current.play().catch((error) => {
+      // 用户主动打断播放（又点了一次）不算失败
+      if (error?.name === 'AbortError') return;
+      if (error?.name === 'NotSupportedError') {
+        audioRef.current = null;
+        fallBackToSpeech(error);
+        return;
+      }
       setIsPlaying(false);
       setIsLoading(false);
       setHasError(true);
       onError?.(error);
       console.error('Audio play error:', error);
     });
+  };
+
+  const fallBackToSpeech = (cause: Error) => {
+    console.warn('Audio file unavailable, using speech synthesis instead:', cause.message);
+    try {
+      playWithWebSpeech();
+    } catch (error) {
+      setIsPlaying(false);
+      setIsLoading(false);
+      setHasError(true);
+      onError?.(error as Error);
+    }
   };
 
   const handlePlay = async () => {

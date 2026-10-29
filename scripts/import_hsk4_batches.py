@@ -39,10 +39,13 @@ def load_batches(include_unreviewed=False):
 
 
 def ensure_schema(conn):
-    """归属表；confusable_pairs 加 questions（辨析题，论文 3.2.4）、word2_level（易混淆词等级）列。
-    应用启动时已补过列，这里给单独运行时兜底。"""
+    """归属表；confusable_pairs 加 questions（辨析题，论文 3.2.4）、word2_level（易混淆词等级）列，
+    word 加 audio（整词发音地址）列。应用启动时已补过列，这里给单独运行时兜底。"""
     conn.execute('''CREATE TABLE IF NOT EXISTS hsk4_batch_owner (
         kind TEXT NOT NULL, ref_id INTEGER NOT NULL, batch TEXT NOT NULL, PRIMARY KEY (kind, ref_id))''')
+    word_columns = {row[1] for row in conn.execute('PRAGMA table_info(word)')}
+    if word_columns and 'audio' not in word_columns:
+        conn.execute('ALTER TABLE word ADD COLUMN audio VARCHAR(200)')
     columns = {row[1] for row in conn.execute('PRAGMA table_info(confusable_pairs)')}
     for column, ddl in (('questions', 'TEXT'), ('word2_level', 'INTEGER')):
         if columns and column not in columns:
@@ -65,31 +68,33 @@ def hanzi_map(conn):
     return {''.join(cs): word_id for word_id, cs in chars.items()}
 
 
+# 发音地址（audio）由学习资料制作第 8 步写进素材；没跑第 8 步的素材为空，前端改用浏览器朗读
 CONTENT = {
-    'character': ('characters', ('character', 'pinyin', 'definition')),
-    'collocation': ('collocations', ('collocation', 'translation')),
-    'example': ('examples', ('sentence', 'pinyin', 'translation')),
+    'character': ('characters', ('character', 'pinyin', 'definition', 'audio')),
+    'collocation': ('collocations', ('collocation', 'translation', 'audio')),
+    'example': ('examples', ('sentence', 'pinyin', 'translation', 'audio')),
 }
 
 
 def write_content(conn, word_id, w):
-    """词的拼音、释义，以及字、搭配、例句写入。字、搭配、例句和素材一致时不动，
+    """词的拼音、释义、发音，以及字、搭配、例句写入。字、搭配、例句和素材一致时不动，
     有变化时整组替换（这几张表没有被别的表引用）。"""
-    conn.execute('UPDATE word SET pinyin = ?, definition = ? WHERE id = ?', (w['pinyin'], w['definition'], word_id))
+    conn.execute('UPDATE word SET pinyin = ?, definition = ?, audio = ? WHERE id = ?',
+                 (w['pinyin'], w['definition'], w.get('audio', ''), word_id))
     same = all(
         conn.execute(f'SELECT {", ".join(cols)} FROM {table} WHERE word_id = ? ORDER BY id', (word_id,)).fetchall()
-        == [tuple(item[c] for c in cols) for item in w[key]]
+        == [tuple(item.get(c, '') for c in cols) for item in w[key]]
         for table, (key, cols) in CONTENT.items())
     if same:
         return
     for table in ('character', 'collocation', 'example'):
         conn.execute(f'DELETE FROM {table} WHERE word_id = ?', (word_id,))
     conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
-                     [(c['character'], c['pinyin'], c['definition'], '', word_id) for c in w['characters']])
+                     [(c['character'], c['pinyin'], c['definition'], c.get('audio', ''), word_id) for c in w['characters']])
     conn.executemany('INSERT INTO collocation (collocation, translation, audio, word_id) VALUES (?, ?, ?, ?)',
-                     [(c['collocation'], c['translation'], '', word_id) for c in w['collocations']])
+                     [(c['collocation'], c['translation'], c.get('audio', ''), word_id) for c in w['collocations']])
     conn.executemany('INSERT INTO example (sentence, pinyin, translation, audio, word_id) VALUES (?, ?, ?, ?, ?)',
-                     [(e['sentence'], e['pinyin'], e['translation'], '', word_id) for e in w['examples']])
+                     [(e['sentence'], e['pinyin'], e['translation'], e.get('audio', ''), word_id) for e in w['examples']])
 
 
 def sync_exercises(conn, word_id, deck, exercises, now):
@@ -177,8 +182,8 @@ def import_batch(conn, batch, now):
             counts[1] += 1
             continue
         else:
-            word_id = conn.execute('INSERT INTO word (pinyin, definition) VALUES (?, ?)',
-                                   (w['pinyin'], w['definition'])).lastrowid
+            word_id = conn.execute('INSERT INTO word (pinyin, definition, audio) VALUES (?, ?, ?)',
+                                   (w['pinyin'], w['definition'], w.get('audio', ''))).lastrowid
             write_content(conn, word_id, w)
             claim(conn, 'word', word_id, name)
             word_owners[word_id] = name

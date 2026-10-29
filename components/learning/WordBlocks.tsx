@@ -20,7 +20,7 @@ export function WordHero({ word }: { word: WordData }) {
       <h2 className="text-[54px] font-extrabold text-gray-900 leading-none mb-2 mt-2">{word.hanzi}</h2>
       <div className="flex items-center gap-2 bg-indigo-50/80 px-4 py-1.5 rounded-full">
         <span className="text-sm font-medium text-indigo-700 tracking-widest">{word.pinyin}</span>
-        <AudioPlayer text={word.hanzi} language="zh-CN" buttonSize="sm" />
+        <AudioPlayer text={word.hanzi} audioUrl={word.audio || undefined} language="zh-CN" buttonSize="sm" />
       </div>
     </div>
   );
@@ -48,7 +48,7 @@ export function CharacterBreakdown({ word }: { word: WordData }) {
               <span className="font-extrabold text-lg text-gray-800 shrink-0 w-8">{item.character}</span>
               <span className="text-sm font-semibold text-indigo-600 shrink-0 w-14 text-left">{item.pinyin}</span>
               <p className="text-sm text-gray-700 font-medium px-2 flex-1 leading-relaxed break-words">{item.definition}</p>
-              <AudioPlayer text={item.character} language="zh-CN" buttonSize="sm" />
+              <AudioPlayer text={item.character} audioUrl={item.audio || undefined} language="zh-CN" buttonSize="sm" />
             </div>
           ))}
         </div>
