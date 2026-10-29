@@ -211,8 +211,9 @@ export default function ConfusableWordsPage() {
 
   useEffect(() => {
     if (router.isReady) loadConfusablePairs();
+    // revisit 也在里面：同一对改成 revisit=1 时重新加载，讲解随之展开
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady, router.query.pair]);
+  }, [router.isReady, router.query.pair, router.query.revisit]);
 
   // 只让最新一次加载更新页面：地址里的词对变了时，先发出的请求后返回也不能覆盖
   const loadSeq = useRef(0);
@@ -270,7 +271,8 @@ export default function ConfusableWordsPage() {
     moduleType: 'contrast',
     sessionType: session.reviewMode ? 'review' : 'learning',
     idleCapSeconds: CONTRAST_IDLE_CAP_SECONDS,
-    ready: !!currentPair,
+    // 加载另一对的过程中、加载出错时，页面上已经不是这一对：结束它的会话
+    ready: !!currentPair && !loading && !error,
   });
 
   useEffect(() => {
