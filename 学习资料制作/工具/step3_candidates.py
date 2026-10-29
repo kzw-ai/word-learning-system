@@ -18,8 +18,12 @@ import jieba
 
 import common
 import step2_confusables
+import step4_semantic_tasks
 
 TOP = 20
+# 只学四级义项的「得」「等」（step4_semantic_tasks.HSK4_ENTRY）：教材里多是低级义项，前 20 句可能一句四级义项都没有
+# （「等」105 句候选，前 20 句全是 wait），放宽到 60 句
+TOP_HSK4_ENTRY = 60
 
 # 句首杂质（教材录入、切句时混进来的）：对话的说话人「王静：」、上一句落下的右引号「”」、题号「2黄色代表……」。
 # 去掉以后句子本身常常是好例句（「朋友：她去年秋天出生的，刚过完一岁生日。」），不去掉就被大模型当成片段判掉
@@ -76,8 +80,26 @@ def clean_start(s, word, speakers):
         s = t
 
 
+# 默认分词、加入词典都切不出目标词时的最后一招：拆开粘在一起的「数词、指示词、程度副词 + 目标词」（一座、这场、很帅）
+# 和「目标词 + 方位词、补语」（桥上、留下、入口处）。只在一句都找不到时用，不影响找得到例句的词
+GLUED_BEFORE = set('一二三四五六七八九十两几这那每哪半很真太好挺更最0123456789')
+GLUED_AFTER = {'上', '里', '下', '在', '给', '着', '了', '过', '到', '起', '处'}
+
+
+def split_glued(tokens, word):
+    out = []
+    for t in tokens:
+        if t != word and t.endswith(word) and all(ch in GLUED_BEFORE for ch in t[:-len(word)]):
+            out += [t[:-len(word)], word]
+        elif t != word and t.startswith(word) and t[len(word):] in GLUED_AFTER:
+            out += [word, t[len(word):]]
+        else:
+            out.append(t)
+    return out
+
+
 def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
-    def find():
+    def find(split=False):
         found, seen = [], set()
         for book, s in sentences:
             if word not in s:
@@ -86,6 +108,8 @@ def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
             if s in seen:
                 continue
             tokens = common.tokenize(s)
+            if split:
+                tokens = split_glued(tokens, word)
             if word not in tokens:
                 continue
             seen.add(s)
@@ -102,6 +126,8 @@ def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
     if not found:
         jieba.add_word(word)
         found, note = find(), '默认词典切不出这个词，已临时加入分词词典'
+    if not found:
+        found, note = find(split=True), '分词把目标词和前后的字连在一起（一座、很帅、桥上），拆开后再找'
     found.sort(key=lambda c: (c['complexity'], len(c['hsk4_6_words'])))
     return found, note
 
@@ -118,6 +144,7 @@ def main(batch):
     outdir.mkdir(parents=True, exist_ok=True)
     for word in words:
         found, note = sentences_with(word, sentences, complexity, levels, speakers)
+        top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.HSK4_ENTRY else TOP
         data = {
             'word': word,
             'hsk_level': levels.get(word),
@@ -126,7 +153,7 @@ def main(batch):
             'cedict_chars': {ch: dictionary.get(ch, []) for ch in word},
             'textbook_sentences_total': len(found),
             'sentence_note': note,
-            'sentences': found[:TOP],
+            'sentences': found[:top],
             'collocations_edu': common.collocations_for(word, edu, levels)[:TOP],
             'collocations_wiki': common.collocations_for(word, wiki, levels)[:TOP],
         }
@@ -137,7 +164,7 @@ def main(batch):
         md += [f"- [{e['pinyin']}] " + ' / '.join(e['senses']) for e in data['cedict_word']] or ['- （词典未收）']
         for ch, es in data['cedict_chars'].items():
             md += [f"- 字「{ch}」[{e['pinyin']}] " + ' / '.join(e['senses'][:8]) for e in es[:4]]
-        md += ['', f"## 教材例句（共 {len(found)} 句，按句子复杂度取前 {TOP}）" + (f"　※ {note}" if note else ''), '']
+        md += ['', f"## 教材例句（共 {len(found)} 句，按句子复杂度取前 {top}）" + (f"　※ {note}" if note else ''), '']
         md += [f"{i}. {c['sentence']}　复杂度 {c['complexity']}｜四至六级：{'、'.join(c['hsk4_6_words']) or '无'}"
                f"｜表外：{'、'.join(c['not_in_hsk_list']) or '无'}｜{c['book']}" for i, c in enumerate(data['sentences'], 1)]
         for key, label in (('collocations_edu', '分级阅读库'), ('collocations_wiki', '维基库')):
