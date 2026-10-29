@@ -94,9 +94,10 @@ def validate(answer, task):
     return problems
 
 
-def answer_with(model, outdir, words, kind='判断', check=validate):
+def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
     """读 <词>.任务.json，调用接口，把回答存为 <词>.<kind>.<model>.json（第 6 步也用它）。
-    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。"""
+    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。
+    tidy(answer)：检查之前先整理回答里不影响内容的格式问题。"""
     log = outdir / f'用量.{model}.jsonl'
     for word in words:
         out = outdir / f'{word}.{kind}.{model}.json'
@@ -109,6 +110,8 @@ def answer_with(model, outdir, words, kind='判断', check=validate):
         with open(log, 'a', encoding='utf-8') as f:
             f.write(json.dumps({'word': word, 'task': common.task_hash(task), **usage}, ensure_ascii=False) + '\n')
         answer['_task'] = common.task_hash(task)
+        if tidy:
+            tidy(answer)
         if problems := check(answer, task):
             bad = out.with_name(out.name + '.不合格')
             common.write_json(bad, answer)

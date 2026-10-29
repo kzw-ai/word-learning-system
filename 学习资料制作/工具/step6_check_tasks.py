@@ -12,6 +12,7 @@
 拼音先由 pypinyin 按结巴分词自动标注（格式同现有材料「我/wǒ 认为/rènwéi …」），大模型只负责改错（轻声、多音字）。
 """
 import json
+import re
 import sys
 
 import jieba
@@ -199,6 +200,24 @@ def confusable_pairs(batch, home=None):
     return pairs
 
 
+PINYIN_SYLLABLE = re.compile(r'[a-zü' + 'āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ' + ']+', re.I)
+
+
+def join_split_pinyin(answer):
+    """「一个/yí ge」：大模型在一个词的拼音里加了空格，按空格分词时「ge」成了单独一项，字就对不上原句。
+    并回前一个词（「一个/yíge」，同 pypinyin 的写法）。只并不带「/」、全是拼音字母的项"""
+    for e in answer.get('examples', []):
+        if not (isinstance(e, dict) and isinstance(e.get('pinyin'), str)):
+            continue
+        tokens = []
+        for t in e['pinyin'].split():
+            if tokens and '/' in tokens[-1] and '/' not in t and PINYIN_SYLLABLE.fullmatch(t):
+                tokens[-1] += t
+            else:
+                tokens.append(t)
+        e['pinyin'] = ' '.join(tokens)
+
+
 def hanzi_of(pinyin_line):
     """「我/wǒ 想/xiǎng 。」→「我想。」，用来核对标注后的拼音没有漏词、改字。"""
     return ''.join(t.split('/')[0] for t in pinyin_line.split())
@@ -269,7 +288,7 @@ def main(batch, model=None):
         common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, home))
     print(f'已生成 {len(checked)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
     if model:
-        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate)
+        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate, tidy=join_split_pinyin)
         step4_semantic_tasks.answer_with(model, outdir, [pair_key(w, o) for w, o, _ in pairs], kind='辨析', check=validate_pair)
 
 
