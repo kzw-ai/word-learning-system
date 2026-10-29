@@ -4,11 +4,12 @@
 集成自适应推荐引擎、学习分析和复习调度功能
 """
 
-from flask import Flask, g, jsonify, request, make_response
+from flask import Flask, g, jsonify, request, make_response, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
 import os
+import re
 import json
 import random
 import sqlite3
@@ -75,6 +76,8 @@ class Word(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     pinyin = db.Column(db.String(80), nullable=False)
     definition = db.Column(db.String(200), nullable=False)
+    # 整词发音的地址（/api/audio/<指纹>.mp3）；字、搭配、例句的 audio 列同此。音频文件见 AUDIO_DIR
+    audio = db.Column(db.String(200))
 
 class ExerciseItem(db.Model):
     """论文 6 套答案课件里的人工命题。
@@ -745,6 +748,7 @@ def get_word(id):
         'pinyin': word.pinyin,
         'definition': word.definition,
         'hanzi': hanzi,
+        'audio': word.audio or '',
         'examples': [
             {
                 'sentence': ex.sentence,
@@ -773,6 +777,20 @@ def get_word(id):
         ]
     }
     return jsonify(word_data)
+
+# 发音音频：学习资料制作第 8 步用 Azure 语音生成的 mp3，文件名是内容指纹。不提交（含教材例句的朗读），
+# 部署时连同批次素材复制到服务器。库里只存地址，文件按地址从这里读
+AUDIO_DIR = os.path.join(basedir, 'data', 'learning_materials', 'audio')
+AUDIO_NAME = re.compile(r'^[0-9a-f]{16}\.mp3$')
+
+
+@app.route('/api/audio/<name>', methods=['GET'])
+def get_audio(name):
+    """内容指纹作文件名，内容变了文件名就变：浏览器可以长期缓存。只认指纹格式的文件名，读不到目录外的文件"""
+    if not AUDIO_NAME.match(name):
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    return send_from_directory(AUDIO_DIR, name, mimetype='audio/mpeg', max_age=365 * 24 * 3600)
+
 
 @app.route('/words', methods=['GET'])
 def list_words():
@@ -2397,6 +2415,24 @@ def ensure_user_progress_unique_index():
 CONTRAST_SCHEMA_READY = False
 
 
+def ensure_word_audio_column():
+    """为旧数据库补齐 word.audio（整词发音地址）。必须在第一次用 ORM 查 Word 之前执行：
+    模型里有这一列，库里没有时所有词的查询都会报错。加列失败（别的进程正持有写锁）时再看一次是否已由别的进程加上。"""
+    conn = sqlite3.connect(_db_path, timeout=30)
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(word)")}
+        if existing and 'audio' not in existing:
+            try:
+                conn.execute("ALTER TABLE word ADD COLUMN audio VARCHAR(200)")
+                conn.commit()
+                print("   ➕ 已为 word 补齐 audio 列")
+            except sqlite3.Error:
+                if 'audio' not in {row[1] for row in conn.execute("PRAGMA table_info(word)")}:
+                    raise
+    finally:
+        conn.close()
+
+
 def ensure_confusable_pair_columns():
     """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions、word2_level，
     confusable_exercise_records 的题号、版本号、所选答案、作答编号，以及作答编号的唯一索引。
@@ -2442,6 +2478,7 @@ def initialize_database():
     try:
         with app.app_context():
             db.create_all()
+            ensure_word_audio_column()
             ensure_user_profile_columns()
             ensure_learning_session_columns()
             ensure_confusable_pair_columns()
@@ -2551,6 +2588,17 @@ def initialize_database():
                     print(f"📝 四级词批次导入：新增词 {added}，练习题 {items}，易混淆词对 {pairs}")
             except Exception as e:
                 print(f"⚠️  四级词批次导入失败: {str(e)}")
+
+            # 论文词库里的词的发音音频（学习资料制作第 8 步 --thesis 生成的清单），幂等
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(basedir, 'scripts'))
+                import apply_audio_manifest  # pyrefly: ignore  # 运行时动态路径
+                filled = apply_audio_manifest.apply(_db_path)
+                if filled:
+                    print(f"🔊 论文词库发音音频补入 {filled} 处")
+            except Exception as e:
+                print(f"⚠️  论文词库发音音频补入失败: {str(e)}")
 
             # 检查是否有测试数据
             if UserProfile.query.count() == 0:

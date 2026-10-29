@@ -28,11 +28,14 @@ docs/安全审计报告.md
 !/学习资料制作/制作流程.md
 !/学习资料制作/工具/
 /学习资料制作/工具/deepseek_api_key.txt
+/学习资料制作/工具/azure_speech_key.txt
 # 语料库网站内部接口的客户端，只留在本地（见 学习资料制作/README.md）
 /学习资料制作/工具/hsk_client.py
 /学习资料制作/工具/__pycache__/
 # 审核通过的四级词批次素材（含教材例句），不提交；部署时单独复制到服务器的同一位置
 /data/learning_materials/hsk4/
+# 发音音频（学习资料制作第 8 步生成，含教材例句的朗读），同样不提交，部署时复制到服务器
+/data/learning_materials/audio/
 
 # 部署前的数据库备份、删除数据前的留档（服务器上）
 /backups/
