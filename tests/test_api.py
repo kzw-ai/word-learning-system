@@ -1004,7 +1004,7 @@ class TestThesisReviewPlan:
 # ================================================
 
 class TestConfusableContrast:
-    """两个词分别掌握到一定程度（学过并至少复习过一次）后才带出辨析；辨析题全对后不再带出"""
+    """两个词分别掌握到一定程度后才带出辨析（目标词学习期复习完，易混淆词学过并复习过一次）；辨析题全对后不再带出"""
 
     QUESTIONS = [
         {'question_type': 'confusable', 'stem': '我 ( ) 我这次做到了。', 'options': ['考虑', '想'], 'correct_answer': '想'},
@@ -1038,11 +1038,11 @@ class TestConfusableContrast:
             mod.db.session.delete(mod.db.session.get(mod.Word, ids[1]))
             mod.db.session.commit()
 
-    def _practise(self, client, learner, word_id, session_id):
-        """一节练习：词 1 按出题接口全部答对；没有素材的词答一道就算练过"""
+    def _practise(self, client, learner, word_id, session_id, correct=True):
+        """一节练习：词 1 按出题接口全部作答（VKS 选 E，答对时表 4.2 复习 2 次达标）；没有素材的词答一道就算练过"""
         client.post('/api/learning/session/start', json={
-            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise',
-            'moduleType': 'exercise', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
+            'sessionId': session_id, 'wordId': word_id, 'sessionType': 'exercise', 'moduleType': 'exercise',
+            'initialLevel': 'E', 'startTime': '2026-01-01T10:00:00'}, headers=guest_headers(learner))
         if word_id == 1:
             data = client.get('/api/learning/word/1/exercises?limit=10', headers=guest_headers(learner)).get_json()['data']
             questions = [(q['id'], q['type']) for q in data['questions']]
@@ -1051,9 +1051,14 @@ class TestConfusableContrast:
         for question_id, question_type in questions:
             client.post('/api/learning/exercise/record', json={
                 'sessionId': session_id, 'questionId': question_id, 'questionType': question_type,
-                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': True,
+                'userAnswer': 'x', 'correctAnswer': 'x', 'isCorrect': correct,
                 'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
             }, headers=guest_headers(learner))
+
+    def _unlock(self, client, learner, prefix, *others):
+        """目标词（词 1）学习期复习完：学 1 次 + 复习 2 次；其他词学过并复习过一次"""
+        for n, word in enumerate((1, 1, 1) + tuple(w for w in others for _ in range(2))):
+            self._practise(client, learner, word, f'{prefix}{n}')
 
     def _offered(self, client, learner):
         return client.get('/api/confusable/for-word/1', headers=guest_headers(learner)).get_json()['pair_id']
@@ -1074,16 +1079,40 @@ class TestConfusableContrast:
         assert self._offered(anon_client, learner) is None, '还没学过，不带出'
         self._practise(anon_client, learner, 1, 's-contrast-1')
         self._practise(anon_client, learner, other, 's-contrast-o1')
-        assert self._offered(anon_client, learner) is None, '词 1 刚学完第一次，还没复习过（论文：先分开学）'
+        assert self._offered(anon_client, learner) is None, '刚学完第一次（论文：先分开学）'
         self._practise(anon_client, learner, 1, 's-contrast-2')
-        assert self._offered(anon_client, learner) == pair_id
+        self._practise(anon_client, learner, other, 's-contrast-o2')
+        assert self._offered(anon_client, learner) is None, '目标词只复习了 1 次，学习期（E 档 2 次）还没复习完'
+        self._practise(anon_client, learner, 1, 's-contrast-3')
+        assert self._offered(anon_client, learner) == pair_id, '目标词复习完、易混淆词复习过一次'
         assert anon_client.get('/api/confusable/for-word/1').get_json()['pair_id'] is None, '认不出身份时不带出'
+
+    def test_confusable_word_needs_one_review(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, other = pair
+        with app.app_context():
+            # 有了字才出得了释义题；第一次答错要复习 6 次，学过一次时还没复习完
+            char = mod.Character(character='想', pinyin='xiǎng', definition='to think', audio='', word_id=other)
+            mod.db.session.add(char)
+            mod.db.session.commit()
+            char_id = char.id
+        try:
+            learner = _learner('contrastconfusable')
+            for n in range(3):
+                self._practise(anon_client, learner, 1, f's-contrast-t{n}')
+            self._practise(anon_client, learner, other, 's-contrast-t3', correct=False)
+            assert self._offered(anon_client, learner) is None, '目标词复习完了，易混淆词只学过一次'
+            self._practise(anon_client, learner, other, 's-contrast-t4')
+            assert self._offered(anon_client, learner) == pair_id
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.Character, char_id))
+                mod.db.session.commit()
 
     def test_passing_the_quiz_stops_offering_until_a_wrong_answer(self, anon_client, pair):
         pair_id, other = pair
         learner = _learner('contrastpass')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-p{n}')
+        self._unlock(anon_client, learner, 's-contrast-p', other)
         assert self._offered(anon_client, learner) == pair_id
         self._answer(anon_client, learner, pair_id, 0, True)
         self._answer(anon_client, learner, pair_id, 0, True)
@@ -1125,8 +1154,7 @@ class TestConfusableContrast:
         import app_phase as mod
         pair_id, other = pair
         learner = _learner('contrastpaused')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-z{n}')
+        self._unlock(anon_client, learner, 's-contrast-z', other)
         monkeypatch.setattr(mod, 'CONTRAST_SCHEMA_READY', False)
         assert self._offered(anon_client, learner) is None
         assert self._answer(anon_client, learner, pair_id, 0, True).status_code == 503
@@ -1136,8 +1164,7 @@ class TestConfusableContrast:
         import app_phase as mod
         pair_id, other = pair
         learner = _learner('contrastchanged')
-        for n, word in enumerate((1, other, 1)):
-            self._practise(anon_client, learner, word, f's-contrast-c{n}')
+        self._unlock(anon_client, learner, 's-contrast-c', other)
         self._answer(anon_client, learner, pair_id, 0, True)
         self._answer(anon_client, learner, pair_id, 1, True)
         assert self._offered(anon_client, learner) is None
@@ -1172,8 +1199,7 @@ class TestConfusableContrast:
         assert old_id < pair_id
         try:
             learner = _learner('contrastorder')
-            for n, word in enumerate((1, other, third_id, 1)):
-                self._practise(anon_client, learner, word, f's-contrast-r{n}')
+            self._unlock(anon_client, learner, 's-contrast-r', other, third_id)
             assert self._offered(anon_client, learner) == pair_id, '有题、没过关的优先'
             self._answer(anon_client, learner, pair_id, 0, True)
             self._answer(anon_client, learner, pair_id, 1, True)

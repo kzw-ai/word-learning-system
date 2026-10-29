@@ -491,16 +491,19 @@ def remaining_review_types(user_id, word_id):
     return types or None
 
 
-def word_ready_for_contrast(user_id, word_id):
-    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。
-    这里的「一定程度」取：这个词学过、并且至少复习过一次（或已复习达标）。
-    一次请求里同一个词只算一次（一个词可能属于好几对）。"""
-    cache = g.setdefault('contrast_ready', {})
+def word_ready_for_contrast(user_id, word_id, is_target):
+    """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。「一定程度」（作者确定）：
+    - 四级目标词：学习期复习完（表 4.2 的次数达标，即交给 SM-2 巩固的时候），按档位是学后 3–14 天；
+    - 一至三级易混淆词：学习者以前学过，学过并复习过一次即可。
+    一次请求里同一个词的复习进度只算一次（一个词可能属于好几对）。"""
+    cache = g.setdefault('contrast_state', {})
     key = (str(user_id), word_id)
     if key not in cache:
-        state = review_state(user_id, word_id)
-        cache[key] = bool(state) and (state['reviews_done'] >= 1 or state['completed'])
-    return cache[key]
+        cache[key] = review_state(user_id, word_id)
+    state = cache[key]
+    if not state:
+        return False
+    return state['completed'] or (not is_target and state['reviews_done'] >= 1)
 
 
 def contrast_passed(user_id, pair_id, questions):
@@ -520,10 +523,12 @@ def contrast_passed(user_id, pair_id, questions):
 
 
 def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions):
-    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast，且这一对还没练过关
-    （contrast_passed）；答错的下次练这两个词时再带出。没有辨析题的旧词对没有作答可看，解锁后都算到期，
-    但 for-word 接口会优先带出有题、还没过关的词对。辨析题不计入论文表 4.2 的复习次数。"""
-    if not (word_ready_for_contrast(user_id, word1_id) and word_ready_for_contrast(user_id, word2_id)):
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast（word1 是四级目标词、word2 是易混淆词，
+    批次导入的词对都是这个顺序），且这一对还没练过关（contrast_passed）；答错的下次练这两个词时再带出。
+    没有辨析题的旧词对没有作答可看，解锁后都算到期，但 for-word 接口会优先带出有题、还没过关的词对。
+    辨析题不计入论文表 4.2 的复习次数。"""
+    if not (word_ready_for_contrast(user_id, word1_id, is_target=True)
+            and word_ready_for_contrast(user_id, word2_id, is_target=False)):
         return False
     return not questions or not contrast_passed(user_id, pair_id, questions)
 
