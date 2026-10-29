@@ -75,6 +75,11 @@ const Exercise = () => {
   };
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  // 答完以后反馈区（含 CONTINUE）在小屏手机上会排到屏幕外：出现时滚到它
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (showFeedback) feedbackRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [showFeedback]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionStartTime] = useState(new Date());
   const [wordId, setWordId] = useState(initialWordId);
@@ -687,7 +692,7 @@ const Exercise = () => {
                 
                 {/* 统一的大画幅知识点嵌入式反馈面板 */}
                 {showFeedback && (
-                    <div className={`mt-5 px-5 py-5 -mx-5 border-t animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-[#def6cd] border-[#baecbc]' : 'bg-[#ffe4e6] border-[#fbbabf]'}`}>
+                    <div ref={feedbackRef} className={`mt-5 px-5 py-5 -mx-5 border-t animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-[#def6cd] border-[#baecbc]' : 'bg-[#ffe4e6] border-[#fbbabf]'}`}>
                        
                        <div className="flex items-center gap-2 mb-3">
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-red-600'}`}>
@@ -770,11 +775,11 @@ const Exercise = () => {
 
               {/* 仅在未反馈时才在底部显示唯一的SUBMIT类提交按钮 */}
               {!showFeedback && (
-                <div className="pt-2 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
                   <Button 
                     onClick={handleSubmit}
                     disabled={currentQuestion.type === 'fill_word' ? (fillMode === 'write' ? handStrokes.length === 0 : !fillInAnswer.trim()) : !selectedOption}
-                    className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
+                    className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:opacity-100 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
                   >
                     CHECK
                   </Button>

@@ -103,7 +103,8 @@ export default function Component() {
         </div>
 
         {/* 底部按钮区域保持为单大绿色 CONTINUE 按钮以符合原型图 */}
-        <div className="pt-4 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+        {/* 固定在屏幕底部：小屏手机上内容比屏幕高时，按钮也一直看得到（内容在它后面滚动） */}
+        <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
           <SwipeHint />
           <Button
               className="w-full h-12 rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 text-white font-bold tracking-widest text-sm"

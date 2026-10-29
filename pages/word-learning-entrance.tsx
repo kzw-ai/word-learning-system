@@ -339,7 +339,7 @@ export default function Component() {
               </div>
             </div>
             
-            <div className="flex-1 px-5 pb-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
+            <div className="flex-1 px-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
               {caughtUp ? (
                 <div className="glass-panel p-5 rounded-2xl space-y-2">
                   <p className="text-lg font-bold text-gray-800 leading-snug">You’re all caught up 🎉</p>
@@ -387,16 +387,19 @@ export default function Component() {
                   )}
                 </div>
                 
+                {/* 固定在屏幕底部：五个选项在小屏手机上一屏放不下，按钮也要一直看得到 */}
+                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 -mx-5 px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
                 <Button
                   onClick={handleContinue}
                   disabled={!selectedOption || isSubmitting}
-                  className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:from-gray-300 disabled:to-gray-300 hover:shadow-lg disabled:shadow-none text-white py-6 text-base font-bold rounded-2xl mt-4 mb-[calc(env(safe-area-inset-bottom)+1.5rem)] border-none transition-all duration-300"
+                  className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:opacity-100 disabled:from-gray-300 disabled:to-gray-300 hover:shadow-lg disabled:shadow-none text-white py-6 text-base font-bold rounded-2xl border-none transition-all duration-300"
                 >
                   <span className="relative z-10 tracking-wider text-glow">{isSubmitting ? 'LOADING…' : 'CONTINUE'}</span>
                   {!(!selectedOption || isSubmitting) && (
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity duration-300"></div>
                   )}
                 </Button>
+                </div>
               </div>
               )}
             </div>
