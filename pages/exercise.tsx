@@ -14,6 +14,7 @@ import { useWordData } from '@/hooks/useWordData';
 import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
 import StepProgress from '@/components/learning/StepProgress';
+import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -43,6 +44,8 @@ const Exercise = () => {
   const { previous, next, goTo } = useLearningNavigation('exercise');
   const [exerciseQuestions, setExerciseQuestions] = useState<ExerciseQuestion[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<ExerciseQuestion | null>(null);
+  // 填字题括号里的拼音提示，单独说明（见 src/lib/fillHint.ts）
+  const fillHint = currentQuestion?.type === 'fill_word' ? parseFillHint(currentQuestion.question) : null;
   const [selectedOption, setSelectedOption] = useState('');
   const [fillInAnswer, setFillInAnswer] = useState(''); // 填空题答案
   const [showFeedback, setShowFeedback] = useState(false);
@@ -498,7 +501,7 @@ const Exercise = () => {
                     </span>
                   </div>
                   <div className="mb-6 flex gap-2 items-center">
-                    <p className="text-lg font-bold text-gray-800">{currentQuestion.question}</p>
+                    <p className="text-lg font-bold text-gray-800">{fillHint ? fillHint.stem : currentQuestion.question}</p>
                     {currentQuestion.type === 'definition' && (
                       <AudioPlayer
                         text={currentQuestion.question}
@@ -508,6 +511,13 @@ const Exercise = () => {
                       />
                     )}
                   </div>
+                  {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
+                  {fillHint?.hint && (
+                    <p className="-mt-3 mb-5 text-base text-gray-600">
+                      Hint: the pinyin {fillHint.initialOnly ? 'starts with' : 'is'}{' '}
+                      <span className="font-semibold text-indigo-700">“{fillHint.hint}”</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Option / Input Area */}
@@ -626,7 +636,18 @@ const Exercise = () => {
                        {/* 内嵌知识点（取当前词的真实例句/搭配） */}
                        {word && (
                          <div className="mb-6">
-                           {(currentQuestion.type === 'fill_word' || currentQuestion.type === 'choose_word') && word.examples?.[0] ? (
+                           {fillHint ? (
+                              // 填字题：显示刚填完的这一句（不是学习页上那句例句），再给这个词的拼音和释义
+                              <>
+                                 <p className="text-[14px] font-bold text-gray-800 leading-snug mb-1.5">
+                                   {completeSentence(fillHint.stem, currentQuestion.correctAnswer)}
+                                 </p>
+                                 <p className="text-base font-medium text-gray-700 leading-snug">
+                                   <span className="mr-2 text-indigo-700">{wordLabel}</span>{word.pinyin}
+                                   <span className="text-gray-500"> · {wordDefinition}</span>
+                                 </p>
+                              </>
+                           ) : currentQuestion.type === 'choose_word' && word.examples?.[0] ? (
                               <>
                                  <p className="text-[14px] font-bold text-gray-800 leading-snug mb-1.5">
                                    {word.examples[0].sentence}
