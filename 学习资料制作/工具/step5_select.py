@@ -16,8 +16,10 @@
 4. 练习（附录 AD）：
    - 释义题：题干是主义项的英文释义，选项 = 目标词 + 易混淆词（有的话）+ 一至三级随机词，共 4 个；
    - 搭配题：两道，用选出的搭配，把目标词换成括号，选项 = 目标词 + 3 个一至三级随机词；
-   - 填字题：用主义项的下一句可用例句（没有就用例句本身），挖掉目标词的最后一个字。按分词结果定位，
-     目标词必须作为完整的词出现且只出现一次（否则「理想」里的「想」会被挖掉，或另一处目标词泄露答案），不符合的换下一句。
+   - 填字题：用主义项的例句本身（学习页上显示的那句，论文 3.2 节：句子来自学习模块的例句；作者 2026-10-30），
+     挖掉目标词的最后一个字。按分词结果定位，目标词必须作为完整的词出现且只出现一次（否则「理想」里的「想」会被挖掉，
+     或另一处目标词泄露答案），例句不符合时换同一义项的下一句可用例句。此前用的是下一句例句，学习者没见过那句，
+     有的句子里别的字比答案自然得多；已做好的批次由 step6b_fill_from_example.py 补改。
    随机词排除目标词、易混淆词和与目标词有相同汉字的词；用词本身作随机种子，重复运行结果不变。
    每道选择题另抽 8 个备用干扰项（spares）。干扰项和备用词会不会也说得通、填字是否需要提示拼音，由第 6 步检查；
    第 7 步用检查过、说不通的备用词替换说得通的干扰项。
@@ -141,7 +143,7 @@ def build_exercises(word, senses, confusables, pool):
     if len(collocation) < 2:
         notes.append(f'搭配题只有 {len(collocation)} 道（成立的搭配不够）')
     fill = None
-    for c in main['other_sentences'] + ([main['example']] if main['example'] else []):
+    for c in ([main['example']] if main['example'] else []) + main['other_sentences']:
         at = blank_position(c['sentence'], c['tokens'], word)
         if at is None:
             continue
@@ -151,8 +153,8 @@ def build_exercises(word, senses, confusables, pool):
         break
     if fill is None:
         notes.append('没有能出填字题的句子（目标词都出现了不止一次）')
-    elif fill['same_as_example']:
-        notes.append('填字题只能用例句本身（没有第二句可用例句）')
+    elif not fill['same_as_example']:
+        notes.append('填字题没能用例句本身（例句里目标词出现了不止一次），用了下一句可用例句')
     for q in [definition] + collocation:
         notes += option_problems(q)
     return {'definition': definition, 'collocation': collocation, 'fill_word': fill}, notes

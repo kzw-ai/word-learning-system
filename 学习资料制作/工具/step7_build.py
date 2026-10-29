@@ -201,6 +201,11 @@ def main(batch, source=None):
         name = f'{word}.检查.{source}.json' if source else f'{word}.检查.json'
         task = json.loads((check_dir / f'{word}.任务.json').read_text(encoding='utf-8'))
         check = common.load_answer(check_dir / name, task, step6_check_tasks.validate)
+        fill = (sel['exercises'] or {}).get('fill_word')
+        if fill and fill.get('from_example'):
+            # 填字题由 step6b 改用了例句：用它的检查结果（第 6 步检查的是原来那句）
+            import step6b_fill_from_example
+            check = dict(check, fill_word=step6b_fill_from_example.load_check(batch, word, fill, source or 'deepseek-flash'))
         material, notes = build(word, sel, check)
         materials.append(material)
         md += checklist_entry(material, sel, notes)
