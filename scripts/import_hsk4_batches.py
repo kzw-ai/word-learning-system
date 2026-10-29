@@ -11,7 +11,7 @@
   练习题按 (来源, 序号, 题型, 题干) 更新、新增、删除已撤下的。重新审核后的修改因此能生效。
 - 词库里已有、但不归属这个批次的词：整个跳过，不往旧词里混入新内容。
 - 易混淆词对：还没有就插入并记下归属；归属这个批次的按素材同步全部内容；
-  不归属任何批次的旧词对，讲解保持原样，只补辨析题：还没有题时补上并记下「题目归属」（kind = pair_questions），
+  不归属任何批次的旧词对，讲解保持原样，只补辨析题（连同易混淆词等级）：还没有题时补上并记下「题目归属」（kind = pair_questions），
   之后由这个批次继续同步这些题（修改、撤下都能生效）。
 """
 
@@ -142,14 +142,17 @@ def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
         return None
     if owner is not None:
         return None  # 别的批次的词对
-    # 不归属任何批次的旧词对：讲解保持原样，只管辨析题
+    # 不归属任何批次的旧词对：讲解保持原样，只管辨析题和易混淆词等级。旧词对存的方向可能和素材相反，
+    # 那样库里的 word2 是素材的目标词（四级），等级记 4
+    stored_word1 = conn.execute('SELECT word1_id FROM confusable_pairs WHERE id = ?', (pair_id,)).fetchone()[0]
+    level = p.get('word2_level') if stored_word1 == id1 else 4
     if question_owners.get(pair_id) == batch:
-        if old_questions != questions:
-            conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
+        if (old_questions, row[7]) != (questions, level):
+            conn.execute('UPDATE confusable_pairs SET questions = ?, word2_level = ? WHERE id = ?', (questions, level, pair_id))
             return 'updated'
         return None
     if pair_id not in question_owners and (not old_questions or old_questions == '[]') and p.get('questions'):
-        conn.execute('UPDATE confusable_pairs SET questions = ? WHERE id = ?', (questions, pair_id))
+        conn.execute('UPDATE confusable_pairs SET questions = ?, word2_level = ? WHERE id = ?', (questions, level, pair_id))
         claim(conn, 'pair_questions', pair_id, batch)
         question_owners[pair_id] = batch
         return 'updated'

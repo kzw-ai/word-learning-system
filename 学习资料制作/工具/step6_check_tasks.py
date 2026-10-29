@@ -99,14 +99,19 @@ def pair_key(word, other):
 
 
 def word_outputs(word, home):
-    """一个词第 3–5 步的产出（候选清单、判断、取舍），都取它所在的那一批（home_batches），
-    不混用不同批次的文件：判断里的句子编号对应的是同一批的候选清单。缺了就报错，要先把那一批跑完。"""
+    """一个词第 3–5 步的产出（候选清单、判断、取舍），都取它所在的那一批（home_batches），不混用不同批次的文件。
+    判断用取舍记下的那一份（第 5 步可能用 --judgment 选了别的来源），并和第 5 步一样核对：
+    回答对应这份判断任务（指纹），任务里的句子就是现在的候选清单（判断里的句子编号对得上）。
+    缺了或对不上就报错，要先把那一批重新跑到第 5 步。"""
     batch = home.get(word)
     paths = {sub: common.OUT / sub / str(batch) / name for sub, name in
-             (('候选清单', f'{word}.json'), ('判断', f'{word}.判断.json'), ('取舍', f'{word}.json'))}
+             (('候选清单', f'{word}.json'), ('判断', f'{word}.任务.json'), ('取舍', f'{word}.json'))}
     if batch is None or not all(p.exists() for p in paths.values()):
         raise SystemExit(f'「{word}」在 {batch or "任何一批的词表"} 里还没有第 3–5 步的产出：先把那一批跑到第 5 步')
-    return {sub: json.loads(p.read_text(encoding='utf-8')) for sub, p in paths.items()}
+    cand, task, sel = (json.loads(paths[sub].read_text(encoding='utf-8')) for sub in ('候选清单', '判断', '取舍'))
+    step4_semantic_tasks.check_candidates(task, cand, word)
+    judgment = common.load_answer(paths['判断'].parent / sel['judgment'], task, step4_semantic_tasks.validate)
+    return {'候选清单': cand, '判断': judgment, '取舍': sel}
 
 
 def quiz_candidates(words, home):
@@ -186,6 +191,9 @@ def confusable_pairs(batch, home=None):
         seen[key] = stats
         if word in home and other in home and max(home[word], home[other], key=order.get) == batch:
             pairs.append((word, other, stats))
+        elif (word in home) != (other in home) and batch in (home.get(word), home.get(other)):
+            print(f'⚠ 易混淆词对 {word} → {other}：「{other if word in home else word}」没有排进任何一批，这一对做不了；'
+                  '重新运行 plan_batches.py 补排', flush=True)
     return pairs
 
 

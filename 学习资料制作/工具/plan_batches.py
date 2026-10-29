@@ -69,17 +69,32 @@ def plan():
     missing = [r['word'] for r in rows if r['word'] not in done_words | analysed]
     levels = common.hsk_levels()
     first = max(done, default=0) + 1
+
+    def confusables_of(word):
+        """word 的入选易混淆词里还没排进任何一批的，作为词表行（排在 word 后面）"""
+        lines = []
+        for c in step2_confusables.selected(word):
+            if c not in placed:
+                placed.add(c)
+                note = f'{word}的易混淆词（{common.LEVEL_NAMES[levels[c] - 1]}级）'
+                lines.append((c, note + (pair_only if c in in_db else '')))
+        return lines
+
     out = []
     for i, targets in enumerate(batches):
         lines = []
+        if i == 0:
+            # 已写好的批次里的目标词，规则更新后新入选的易混淆词：补进第一个新批次
+            lines += [line for word in sorted(done_words) for line in confusables_of(word)]
         for word, tier in targets:
             lines.append((word, tier + (pair_only if word in in_db else '')))
-            for c in step2_confusables.selected(word):
-                if c not in placed:
-                    placed.add(c)
-                    note = f'{word}的易混淆词（{common.LEVEL_NAMES[levels[c] - 1]}级）'
-                    lines.append((c, note + (pair_only if c in in_db else '')))
+            lines += confusables_of(word)
         out.append((f'第{first + i:02d}批', lines))
+    # 每一对入选的易混淆词，两个词都要排进某一批，否则第 6 步做不了这一对
+    unplaced = [f"{r['target']} → {r['confused_with']}" for r in step2_confusables.selected_rows()
+                if not missing and not {r['target'], r['confused_with']} <= placed]
+    if unplaced:
+        raise SystemExit(f'有入选的易混淆词对没排进任何一批：{"、".join(unplaced)}')
     return out, missing
 
 

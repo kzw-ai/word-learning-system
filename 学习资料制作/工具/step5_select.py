@@ -199,6 +199,7 @@ def main(batch, source=None):
         candidates = json.loads((cand_dir / f'{word}.json').read_text(encoding='utf-8'))
         name = f'{word}.判断.{source}.json' if source else f'{word}.判断.json'
         task = json.loads((judge_dir / f'{word}.任务.json').read_text(encoding='utf-8'))
+        step4_semantic_tasks.check_candidates(task, candidates, word)
         judgment = common.load_answer(judge_dir / name, task, step4_semantic_tasks.validate)
         result = select(word, candidates, judgment, pool, *tiers.get(word, (None, '一至三级易混淆词')), name=name)
         kept, dropped, problems = result['senses'], result['dropped_senses'], result['problems']

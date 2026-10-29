@@ -1407,6 +1407,46 @@ class TestHsk4BatchImport:
         finally:
             conn.close()
 
+    def test_old_pair_gets_word2_level_in_its_stored_direction(self, app, tmp_path, monkeypatch):
+        import json
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        monkeypatch.setattr(imp, 'BATCH_DIR', tmp_path)
+        conn = sqlite3.connect(db)
+        try:
+            ids = {}
+            for chars in ('琢玉', '雕石', '刻木', '磨刀'):
+                ids[chars] = conn.execute("INSERT INTO word (pinyin, definition) VALUES ('p', 'd')").lastrowid
+                conn.executemany('INSERT INTO character (character, pinyin, definition, audio, word_id) VALUES (?, ?, ?, ?, ?)',
+                                 [(c, 'p', 'd', '', ids[chars]) for c in chars])
+            # 两对没有题的旧词对：一对和素材同向，一对反向（素材里是 刻木 → 磨刀）
+            for w1, w2 in (('琢玉', '雕石'), ('磨刀', '刻木')):
+                conn.execute("INSERT INTO confusable_pairs (word1_id, word2_id, reason, difference, examples, tips, "
+                             "difficulty_level) VALUES (?, ?, 'old', 'd', 'e', 't', 1)", (ids[w1], ids[w2]))
+            conn.commit()
+        finally:
+            conn.close()
+        q = [{'question_type': 'confusable', 'stem': '( ) 。', 'options': ['琢玉', '雕石'], 'correct_answer': '琢玉'}]
+        same = {'word1': '琢玉', 'word2': '雕石', 'reason': 'new', 'difference': 'd', 'examples': 'e', 'tips': 't',
+                'difficulty_level': 2, 'questions': q, 'word2_level': 4}
+        reverse = dict(same, word1='刻木', word2='磨刀', word2_level=2)
+        path = tmp_path / '等级批.json'
+        write = lambda: path.write_text(json.dumps({'batch': '等级批', 'status': imp.APPROVED, 'words': [],
+                                                    'confusable_pairs': [same, reverse]}, ensure_ascii=False),
+                                        encoding='utf-8')
+        level = lambda w1: sqlite3.connect(db).execute(
+            'SELECT word2_level FROM confusable_pairs WHERE word1_id = ?', (ids[w1],)).fetchone()[0]
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 2, '两对旧词对都补题'
+        assert level('琢玉') == 4, '补题时写入易混淆词等级'
+        assert level('磨刀') == 4, '反向存的旧词对：库里的 word2 是素材的目标词（四级）'
+        assert imp.import_details(db)['pairs_updated'] == 0, '再导入不变'
+        same['word2_level'] = 3
+        write()
+        assert imp.import_details(db)['pairs_updated'] == 1 and level('琢玉') == 3, '等级改了也同步'
+
     def test_word_without_exercises_stays_owned(self, app, tmp_path, monkeypatch):
         import sqlite3
         sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))

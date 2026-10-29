@@ -98,6 +98,12 @@ def answer_with(model, outdir, words, kind='判断', check=validate):
         print(f"{word}：输入 {usage.get('prompt_tokens')}，输出 {usage.get('completion_tokens')} token，{usage['seconds']} 秒", flush=True)
 
 
+def check_candidates(task, candidates, word):
+    """判断里的句子编号对应生成任务时的候选清单；第 4 步之后重跑过第 3 步、句子变了，旧判断就不能用"""
+    if task['sentences'] != {str(i): s['sentence'] for i, s in enumerate(candidates['sentences'], 1)}:
+        raise SystemExit(f'「{word}」的候选清单在第 4 步之后改过，判断里的句子编号已对不上：重新跑第 4 步')
+
+
 def main(batch, model=None):
     words = step2_confusables.words_from_args([batch])
     src = common.OUT / '候选清单' / batch
