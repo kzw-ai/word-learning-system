@@ -230,9 +230,18 @@ def drop_stray_conflicts(answer, task):
             conflicts[key] = [w for w in conflicts[key] if w in allowed]
 
 
+def restore_collocation_spaces(answer, task):
+    """搭配原文是「收 好」（两个词之间有空格），大模型有时写成「收好」，按原文对不上就当成漏答。去掉空格后能对上的改回原文"""
+    by_bare = {c.replace(' ', ''): c for c in task['collocations']}
+    for c in answer.get('collocations', []):
+        if isinstance(c, dict) and isinstance(c.get('collocation'), str) and c['collocation'] not in task['collocations']:
+            c['collocation'] = by_bare.get(c['collocation'].replace(' ', ''), c['collocation'])
+
+
 def tidy_check(answer, task):
     join_split_pinyin(answer)
     drop_stray_conflicts(answer, task)
+    restore_collocation_spaces(answer, task)
 
 
 def hanzi_of(pinyin_line):
