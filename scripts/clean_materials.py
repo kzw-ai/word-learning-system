@@ -17,6 +17,9 @@ import_learning_materials.py 只插入不更新，修好它的解析器并不能
 6. 孤立的测试词（苹果、学校、老师、重复的发生……）：没有字、例句、搭配，也没有被
    辨析词对、练习题、学习进度、学习会话引用。删除，连同指向它的推荐日志（旧引擎曾把
    这些无素材的词推荐给测试用户；现在只推荐有例句的词）。其余任何一处有引用就保留。
+7. 论文课件素材的拼音错误（2026-10-29 生成发音音频时查出，作者确认改正）：
+   「通过」的「通」标成 tòng、「当时」标成 dàngshí、例句里的「当 dàng」「王 wàng」「脏 zàng」；
+   还有 10 条例句的拼音行缺了句尾（课件里那几个字的拼音没解析出来）。只在仍是错的值时改。
 
 用法：
     python3 scripts/clean_materials.py --report     # 只看会改什么，不写库
@@ -40,6 +43,58 @@ from import_learning_materials import (  # noqa: E402
     split_word_pinyin,
     strip_tones,
 )
+
+# 7. 论文课件素材的拼音勘误：(词, 错误拼音) → 正确拼音；(词, 字, 错误拼音) → 正确拼音
+WORD_PINYIN_FIXES = {('当时', 'dàngshí'): 'dāngshí'}
+CHAR_PINYIN_FIXES = {('当时', '当', 'dàng'): 'dāng', ('通过', '通', 'tòng'): 'tōng'}
+# 例句里个别词的读音：例句 → [(错误的「词/拼音」, 正确的)]
+EXAMPLE_TOKEN_FIXES = {
+    '当他提出送她回家时，她竟然没有拒绝。': [('当/dàng', '当/dāng')],
+    '当时我还不懂是什么意思。': [('当时/dàngshí', '当时/dāngshí')],
+    '经理：小王，卫生间怎么那么脏啊？': [('王/wàng', '王/wáng'), ('脏/zàng', '脏/zāng')],
+    '小王：表演得真棒。李老师：是我孙子。': [('王/wàng', '王/wáng')],
+}
+# 拼音行缺了句尾的例句：拼音行里的字还和例句对不上时，整行换成补全的
+EXAMPLE_PINYIN_LINES = {
+    '小林：我还不习惯北方的气候，估计是天气太干。':
+        '小林/xiǎolín ： 我/wǒ 还/hái 不/bù 习惯/xíguàn 北方/běifāng 的/de 气候/qìhòu ， 估计/gūjì 是/shì 天气/tiānqì 太/tài 干/gān 。',
+    '有些经过科学研究，证明是错误的。':
+        '有些/yǒuxiē 经过/jīngguò 科学/kēxué 研究/yánjiū ， 证明/zhèngmíng 是/shì 错误/cuòwù 的/de 。',
+    '就这样过了三年，他终于去实现自己的想法了。':
+        '就/jiù 这样/zhèyàng 过/guò 了/le 三/sān 年/nián ， 他/tā 终于/zhōngyú 去/qù 实现/shíxiàn 自己/zìjǐ 的/de 想法/xiǎngfa 了/le 。',
+    '如果你想正确使用筷子，那就好好练习吧。':
+        '如果/rúguǒ 你/nǐ 想/xiǎng 正确/zhèngquè 使用/shǐyòng 筷子/kuàizi ， 那/nà 就/jiù 好好/hǎohāo 练习/liànxí 吧/ba 。',
+    '说完，他就出去了，我感觉到他在擦眼泪。':
+        '说完/shuōwán ， 他/tā 就/jiù 出去/chūqù 了/le ， 我/wǒ 感觉到/gǎnjuédào 他/tā 在/zài 擦/cā 眼泪/yǎnlèi 。',
+    '我的电话响了，看号码似乎是公司的。':
+        '我/wǒ 的/de 电话/diànhuà 响/xiǎng 了/le ， 看/kàn 号码/hàomǎ 似乎/sìhū 是/shì 公司/gōngsī 的/de 。',
+    '生意就这样成了。': '生意/shēngyì 就/jiù 这样/zhèyàng 成/chéng 了/le 。',
+    '小雨：在我看来，赚钱多少不是最重要的，兴趣才是关键。':
+        '小雨/xiǎoyǔ ： 在/zài 我/wǒ 看来/kànlái ， 赚钱/zhuànqián 多少/duōshao 不是/bùshì 最/zuì 重要/zhòngyào 的/de ， '
+        '兴趣/xìngqù 才/cái 是/shì 关键/guānjiàn 。',
+    '诸位，万页书可以使你成为一个学者了。':
+        '诸位/zhūwèi ， 万/wàn 页/yè 书/shū 可以/kěyǐ 使/shǐ 你/nǐ 成为/chéngwéi 一个/yīgè 学者/xuézhě 了/le 。',
+    '不愿意发生的事情终于出现了。':
+        '不/bù 愿意/yuànyì 发生/fāshēng 的/de 事情/shìqing 终于/zhōngyú 出现/chūxiàn 了/le 。',
+}
+_HANZI = re.compile('[\u4e00-\u9fff]')
+
+
+def _pinyin_line_hanzi(line: str | None) -> str:
+    """拼音行「我/wǒ 想/xiǎng 。」里的汉字：「我想」"""
+    return ''.join(_HANZI.findall(''.join(t.partition('/')[0] for t in (line or '').split())))
+
+
+def fixed_example_pinyin(sentence: str, pinyin: str | None) -> str:
+    """第 7 类勘误后的例句拼音行；没有要改的就原样返回"""
+    line = pinyin or ''
+    full = EXAMPLE_PINYIN_LINES.get(sentence)
+    if full and _pinyin_line_hanzi(line) != ''.join(_HANZI.findall(sentence)):
+        line = full
+    for bad, good in EXAMPLE_TOKEN_FIXES.get(sentence, []):
+        line = re.sub(f'(?<!\\S){re.escape(bad)}(?!\\S)', good, line)
+    return line
+
 
 # setup_confusable_data.py 早期写入的无声调词拼音
 SEED_WORD_PINYIN = {
@@ -140,9 +195,10 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
                                   'INSERT INTO collocation (collocation, translation, audio, word_id) VALUES (?, ?, ?, ?)',
                                   (col['collocation'], col['translation'], '', wid)))
                 for ex in source['examples']:
+                    # 补入时就套用第 7 类勘误：同一轮里第 7 类看不到这些新行，否则要到下次启动才改
                     fixes.append((f'词 {wid}（{hanzi}）补例句 {ex["sentence"]!r}',
                                   'INSERT INTO example (sentence, pinyin, translation, audio, word_id) VALUES (?, ?, ?, ?, ?)',
-                                  (ex['sentence'], ex['pinyin'], ex['translation'], '', wid)))
+                                  (ex['sentence'], fixed_example_pinyin(ex['sentence'], ex['pinyin']), ex['translation'], '', wid)))
 
     # 6. 孤立测试词。引用检查只针对库里存在的表；任何一处有引用都不删
     references = [
@@ -163,6 +219,28 @@ def plan_fixes(conn: sqlite3.Connection) -> list[tuple[str, str, tuple]]:
                 fixes.append((f'删除指向孤立词 {wid} 的 {stale} 条推荐日志',
                               'DELETE FROM adaptive_recommendation WHERE target_word_id = ?', (wid,)))
         fixes.append((f'删除孤立词 {wid}（{pinyin}）', 'DELETE FROM word WHERE id = ?', (wid,)))
+
+    # 7. 论文课件素材的拼音勘误。字按 id 顺序拼成词（与页面显示一致）
+    word_chars: dict[int, list[tuple[int, str, str]]] = {}
+    for cid, wid, char, pinyin in conn.execute('SELECT id, word_id, character, pinyin FROM character ORDER BY word_id, id'):
+        word_chars.setdefault(wid, []).append((cid, char, pinyin))
+    hanzi_of = {wid: ''.join(c for _, c, _ in cs) for wid, cs in word_chars.items()}
+    for wid, pinyin in conn.execute('SELECT id, pinyin FROM word').fetchall():
+        fixed = WORD_PINYIN_FIXES.get((hanzi_of.get(wid), pinyin))
+        if fixed:
+            fixes.append((f'词 {wid}（{hanzi_of[wid]}）拼音 {pinyin} -> {fixed}',
+                          'UPDATE word SET pinyin = ? WHERE id = ?', (fixed, wid)))
+    for wid, cs in word_chars.items():
+        for cid, char, pinyin in cs:
+            fixed = CHAR_PINYIN_FIXES.get((hanzi_of[wid], char, pinyin))
+            if fixed:
+                fixes.append((f'字 {cid}（{hanzi_of[wid]}的{char}）拼音 {pinyin} -> {fixed}',
+                              'UPDATE character SET pinyin = ? WHERE id = ?', (fixed, cid)))
+    for eid, sentence, pinyin in conn.execute('SELECT id, sentence, pinyin FROM example').fetchall():
+        line = fixed_example_pinyin(sentence, pinyin)
+        if line != (pinyin or ''):
+            fixes.append((f'例句 {eid}「{sentence[:12]}…」拼音勘误',
+                          'UPDATE example SET pinyin = ? WHERE id = ?', (line, eid)))
 
     return fixes
 

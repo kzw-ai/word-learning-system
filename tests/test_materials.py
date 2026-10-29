@@ -105,6 +105,33 @@ class TestCleanMaterials:
         clean_materials.clean_database(db)
         assert clean_materials.clean_database(db) == 0
 
+    def test_thesis_pinyin_errata(self, tmp_path):
+        """第 7 类：论文课件素材的拼音错误，只改仍是错的值"""
+        db = str(tmp_path / 'm.db')
+        make_db(db)
+        conn = sqlite3.connect(db)
+        conn.executescript("""
+            INSERT INTO word VALUES (11, 'dàngshí', 'then'), (12, 'tōngguò', 'pass');
+            INSERT INTO character VALUES (21, '当', 'dàng', 'when', '', 11), (22, '时', 'shí', 'time', '', 11),
+                                         (23, '通', 'tòng', 'through', '', 12), (24, '过', 'guò', 'pass', '', 12);
+            INSERT INTO example VALUES
+                (31, '经理：小王，卫生间怎么那么脏啊？', '经理/jīnglǐ 小/xiǎo 王/wàng 卫生间/wèishēngjiān 怎么/zěnme 那么/nàme 脏/zàng 啊/a', 't', '', 11),
+                (32, '生意就这样成了。', '生意/shēngyì 就/jiù 这样/zhèyàng 成/chéng', 't', '', 11),
+                (33, '不愿意发生的事情终于出现了。', '不/bù 愿意/yuànyì 发生/fāshēng 的/de 事情/shìqíng 终于/zhōngyú 出现/chūxiàn 了/le 。', 't', '', 11);
+        """)
+        conn.commit()
+        conn.close()
+        clean_materials.clean_database(db)
+        conn = sqlite3.connect(db)
+        assert conn.execute('SELECT pinyin FROM word WHERE id = 11').fetchone()[0] == 'dāngshí'
+        assert [r[0] for r in conn.execute('SELECT pinyin FROM character WHERE id IN (21, 23) ORDER BY id')] == ['dāng', 'tōng']
+        line = dict(conn.execute('SELECT id, pinyin FROM example WHERE id >= 31'))
+        assert '王/wáng' in line[31] and '脏/zāng' in line[31] and 'wàng' not in line[31]
+        assert line[32].endswith('成/chéng 了/le 。'), '缺的句尾补上'
+        assert line[33].endswith('出现/chūxiàn 了/le 。') and 'shìqíng' in line[33], '本来完整的一行不动'
+        conn.close()
+        assert clean_materials.clean_database(db) == 0
+
 
 class TestSupplementMaterials:
     """data/learning_materials/supplement_confusable_words.json：课件里没有的词按论文规则补写"""
