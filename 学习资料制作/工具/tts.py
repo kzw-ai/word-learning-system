@@ -1,8 +1,9 @@
 """Azure 语音合成（第 8 步用）：晓晓女声、语速慢 10%（作者试听后选定），多音字按校对过的拼音指定读音。
 
 Key 放在 工具/azure_speech_key.txt（第一行 Key，第二行区域，如 eastus；不提交）。
-免费档（F0）每分钟最多 20 次请求、每月 50 万字符（一个汉字计 2 个字符，SSML 标签也计费）；
-额度用完只拒绝、不收费。出错直接报错退出，不自动重试；已生成的文件保留，重新运行从这里继续。
+免费档（F0）每分钟最多 20 次请求、每月 50 万字符（一个汉字计 2 个字符，SSML 标签也计费），额度用完只拒绝、不收费；
+按量付费（S0）每秒 200 次，按字符计费（作者 2026-10-29 改为 S0，一次生成全部批次）。两次请求的间隔默认按免费档，
+S0 用环境变量 AZURE_TTS_INTERVAL=0 去掉间隔，几批同时跑。出错直接报错退出，不自动重试；已生成的文件保留，重新运行从这里继续。
 
 读音标注（SSML phoneme，alphabet="sapi"，如「得」→ dei 3）只加在需要的字上：
 标注会让引擎完全照标的读，「一」「不」的变调、轻声就由不得它了，而且标签也计费。
@@ -11,6 +12,7 @@ Key 放在 工具/azure_speech_key.txt（第一行 Key，第二行区域，如 e
 """
 import hashlib
 import html
+import os
 import re
 import time
 import unicodedata
@@ -24,7 +26,7 @@ KEY_FILE = Path(__file__).resolve().parent / 'azure_speech_key.txt'
 VOICE = 'zh-CN-XiaoxiaoNeural'
 RATE = '-10%'
 FORMAT = 'audio-24khz-48kbitrate-mono-mp3'
-MIN_INTERVAL = 3.2  # 免费档每分钟 20 次
+MIN_INTERVAL = float(os.environ.get('AZURE_TTS_INTERVAL', 3.2))  # 免费档每分钟 20 次；S0 设 0
 TONE_MARKS = {'̄': 1, '́': 2, '̌': 3, '̀': 4}
 SANDHI = set('一不')
 # 不标注的字：「一」「不」的变调交给引擎；儿化的「儿」在 sapi 里要和前一个音节合写（「一会儿」hui r 4），不单独标
@@ -144,7 +146,7 @@ def synthesize(doc, path):
     if not data:
         raise SystemExit('Azure 返回了空音频，已停止')
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + '.tmp')
+    tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')  # 几批同时跑时可能生成同一个文件，临时文件不能共用
     tmp.write_bytes(data)
     tmp.replace(path)
     return True

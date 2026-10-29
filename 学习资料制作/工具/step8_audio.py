@@ -1,8 +1,9 @@
 """第 8 步　发音音频（论文 5.3：字、词、搭配、句子都配发音，见附录 O；这里改用 Azure 语音，见 tts.py）。
 
-用法：学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py 第01批
-        给这一批的整词、每个字、每条搭配、每条例句各生成一个 mp3，音频地址写回 3_审核/<批>/素材.json，
+用法：学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py 第01批 [第02批 …]
+        给这些批的整词、每个字、每条搭配、每条例句各生成一个 mp3，音频地址写回 3_审核/<批>/素材.json，
         并生成 3_审核/<批>/试听.html 供审核。第 7 步重跑后要再跑这一步（已生成的不重复请求）。
+        几批一起给时先合并去重（不同批次里同一个字、同一句话只生成一次）；AZURE_TTS_INTERVAL=0（按量付费 S0）时并行请求。
       学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py --thesis [--db 路径]
         论文词库（默认 words_extended.db；本地库比服务器旧时，用跑过启动初始化的副本）里已有材料的词：生成音频，清单写到 data/learning_materials/audio/论文词库.json，
         后端启动时按清单补进库里（scripts/apply_audio_manifest.py）。
@@ -11,6 +12,7 @@
 拼音：整词、字用校对过的拼音；例句用第 6 步校对过的分词拼音（「我/wǒ 得/děi …」）；
 搭配没有单独校对的拼音，只给其中的目标词按整词拼音标注，其余交给引擎按上下文读。
 """
+import concurrent.futures
 import html
 import json
 import re
@@ -25,6 +27,7 @@ URL = '/api/audio/'
 THESIS_DB = common.W.parent / 'words_extended.db'
 THESIS_MANIFEST = AUDIO / '论文词库.json'
 LEVEL_NOTE = re.compile(r'（[一二三四五六]级）')
+PARALLEL = 8  # S0 每秒 200 次，8 个同时发远低于上限
 
 
 def clean_collocation(text):
@@ -109,11 +112,15 @@ class Generator:
         todo = {n: d for n, d in self.jobs.items() if not (AUDIO / n).exists()}
         chars = sum(billable(d) for d in todo.values())
         print(f'共 {len(self.jobs)} 个音频，要新生成 {len(todo)} 个，约 {chars} 个计费字符'
-              f'（免费档每月 50 万），约 {len(todo) * tts.MIN_INTERVAL / 60:.0f} 分钟', flush=True)
-        for i, (name, doc) in enumerate(todo.items(), 1):
-            tts.synthesize(doc, AUDIO / name)
-            if i % 20 == 0 or i == len(todo):
-                print(f'  {i}/{len(todo)}', flush=True)
+              f'（免费档每月 50 万），请求间隔 {tts.MIN_INTERVAL} 秒', flush=True)
+        # 免费档要按间隔一个一个来；S0 没有间隔，几个请求同时发
+        workers = 1 if tts.MIN_INTERVAL > 0 else PARALLEL
+        with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+            futures = [pool.submit(tts.synthesize, doc, AUDIO / name) for name, doc in todo.items()]
+            for i, f in enumerate(concurrent.futures.as_completed(futures), 1):
+                f.result()  # 出错（SystemExit）在这里抛出，停止
+                if i % 100 == 0 or i == len(todo):
+                    print(f'  {i}/{len(todo)}', flush=True)
 
 
 def add_word(gen, w):
@@ -146,16 +153,19 @@ def listening_page(batch, words):
             + ''.join(parts))
 
 
-def batch_main(batch):
-    path = common.REVIEW / batch / '素材.json'
-    data = json.loads(path.read_text(encoding='utf-8'))
-    gen = Generator()
-    for w in data['words']:
-        add_word(gen, w)
+def batch_main(batches):
+    gen, loaded = Generator(), []
+    for batch in batches:
+        path = common.REVIEW / batch / '素材.json'
+        data = json.loads(path.read_text(encoding='utf-8'))
+        for w in data['words']:
+            add_word(gen, w)
+        loaded.append((batch, path, data))
     gen.run()
-    common.write_json(path, data)
-    (common.REVIEW / batch / '试听.html').write_text(listening_page(batch, data['words']), encoding='utf-8')
-    print(f'音频地址已写回 {path}；试听：{common.REVIEW / batch / "试听.html"}')
+    for batch, path, data in loaded:
+        common.write_json(path, data)
+        (common.REVIEW / batch / '试听.html').write_text(listening_page(batch, data['words']), encoding='utf-8')
+        print(f'音频地址已写回 {path}；试听：{common.REVIEW / batch / "试听.html"}')
 
 
 def thesis_words(db=THESIS_DB):
@@ -199,4 +209,4 @@ if __name__ == '__main__':
     if args and args[0] == '--thesis':
         thesis_main(args[args.index('--db') + 1] if '--db' in args else THESIS_DB)
     else:
-        batch_main(args[0])
+        batch_main(args)

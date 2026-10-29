@@ -10,8 +10,14 @@
 采用的复制成 <目标词>-<易混淆词>.辨析.json。辨析例句优先用两个词各自学习资料里的例句，不用语料库里学习者写的句子。
 
 拼音先由 pypinyin 按结巴分词自动标注（格式同现有材料「我/wǒ 认为/rènwéi …」），大模型只负责改错（轻声、多音字）。
+
+翻译检查之前先截短长句（作者 2026-10-29：例句要短）：例句、填字题的句子超过 30 字的，交给大模型截出含目标词、
+能独立成句的一段，任务 <词>-截短.任务.json，回答 <词>-截短.截短.<来源>.json。截出的必须是原句里按标点断开的连续一段
+（只删前后的分句，不改字、不删中间的字），程序核对；截不出的保留原句。截短写回第 5 步的取舍结果（原句记在 original），
+后面的翻译、拼音、练习题和第 7、8 步都用截短后的句子。
 """
 import json
+import re
 import sys
 
 import jieba
@@ -199,6 +205,52 @@ def confusable_pairs(batch, home=None):
     return pairs
 
 
+PINYIN_SYLLABLE = re.compile(r'[a-zü' + 'āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ' + ']+')  # 拼音只有小写
+
+
+def join_split_pinyin(answer):
+    """「一个/yí ge」：大模型在一个词的拼音里加了空格，按空格分词时「ge」成了单独一项，字就对不上原句。
+    并回前一个词（「一个/yíge」，同 pypinyin 的写法）。只并不带「/」、全是拼音字母的项"""
+    for e in answer.get('examples', []):
+        if not (isinstance(e, dict) and isinstance(e.get('pinyin'), str)):
+            continue
+        if hanzi_of(e['pinyin']) == str(e.get('sentence', '')).replace(' ', ''):
+            continue  # 字对得上就不动
+        tokens = []
+        for t in e['pinyin'].split():
+            if tokens and '/' in tokens[-1] and '/' not in t and PINYIN_SYLLABLE.fullmatch(t):
+                tokens[-1] += t
+            else:
+                tokens.append(t)
+        e['pinyin'] = ' '.join(tokens)
+
+
+def drop_stray_conflicts(answer, task):
+    """冲突列表只该列选项和备用词里也说得通的；大模型有时顺带列出能填进空里、却不是选项的词（「( ) 音乐」列了「听」）。
+    这些词后面用不到，去掉；正确答案本身也去掉"""
+    conflicts = answer.get('distractor_conflicts')
+    if not isinstance(conflicts, dict):
+        return
+    for key, q in task['exercises'].items():
+        if isinstance(conflicts.get(key), list):
+            allowed = set(q.get('options', []) + q.get('spares', [])) - {q['correct_answer']}
+            conflicts[key] = list(dict.fromkeys(w for w in conflicts[key] if w in allowed))
+
+
+def restore_collocation_spaces(answer, task):
+    """搭配原文是「收 好」（两个词之间有空格），大模型有时写成「收好」，按原文对不上就当成漏答。去掉空格后能对上的改回原文"""
+    by_bare = {c.replace(' ', ''): c for c in task['collocations']}
+    for c in answer.get('collocations', []):
+        if isinstance(c, dict) and isinstance(c.get('collocation'), str) and c['collocation'] not in task['collocations']:
+            c['collocation'] = by_bare.get(c['collocation'].replace(' ', ''), c['collocation'])
+
+
+def tidy_check(answer, task):
+    join_split_pinyin(answer)
+    drop_stray_conflicts(answer, task)
+    restore_collocation_spaces(answer, task)
+
+
 def hanzi_of(pinyin_line):
     """「我/wǒ 想/xiǎng 。」→「我想。」，用来核对标注后的拼音没有漏词、改字。"""
     return ''.join(t.split('/')[0] for t in pinyin_line.split())
@@ -235,6 +287,130 @@ def validate(answer, task):
     return problems
 
 
+TRIM_INSTRUCTIONS = """下面的句子是教材原句，要给学习新 HSK 四级词汇的外国学习者（中级）当例句，但太长了。
+请从每句里截出包含目标词 word 的一段，要求：
+1. 是原句里连续的一段，只能去掉开头或结尾的分句：不能改字、不能加字、不能删掉中间的字；断开的地方必须是原句里的逗号、分号、冒号等标点；
+2. 这一段本身意思完整、语法通顺，离开上下文也看得懂（不能以「所以」「但是」「而且」这类承接上文的词开头，除非意思仍然完整）；
+3. 目标词在这一段里的意思和用法与原句相同；
+4. 尽量短，最好在 30 字以内，但完整、自然更重要。
+截出的一段末尾如果是逗号、分号，改成句号。截不出满足条件的一段就填 null，并在 notes 里简述原因。
+只按下面的 JSON 格式回答，不要输出别的内容。"""
+
+TRIM_FORMAT = {'trims': {'1': '工资三千来块，试用期一个月。', '2': None}, 'notes': {'2': '去掉前半句后意思不完整'}}
+CLAUSE_BREAK = '，；：。！？…—,;:'
+
+
+def trim_key(word):
+    return f'{word}-截短'
+
+
+def long_sentences(sel):
+    """要截短的句子：保留义项的例句和填字题的句子里超过 SHORT 字的（已经截过的按原句算）"""
+    sents = [s['example'].get('original') or s['example']['sentence'] for s in sel['senses'] if s['example']]
+    fill = (sel['exercises'] or {}).get('fill_word')
+    if fill:
+        sents.append(fill.get('original') or fill['sentence'])
+    return [x for x in dict.fromkeys(sents) if len(x) > step5_select.SHORT]
+
+
+def trim_task(word, sentences):
+    return {'word': word, 'instructions': TRIM_INSTRUCTIONS, 'answer_format': TRIM_FORMAT,
+            'sentences': {str(i): s for i, s in enumerate(sentences, 1)}}
+
+
+def is_clause_of(original, short):
+    """short 是不是原句里按标点断开的连续一段（末尾的逗号、分号可以改成句号），而且比原句短"""
+    core = short[:-1] if short[-1:] in '。！？' else short
+    i = original.find(core) if core else -1
+    if i < 0 or len(short) >= len(original):
+        return False
+    end = i + len(core)
+    return (i == 0 or original[i - 1] in CLAUSE_BREAK) and (end == len(original) or original[end] in CLAUSE_BREAK)
+
+
+def validate_trim(answer, task):
+    trims = answer.get('trims')
+    if not isinstance(trims, dict):
+        return ['trims 缺失']
+    problems = []
+    if missing := [k for k in task['sentences'] if k not in trims]:
+        problems.append(f'trims 漏答 {missing}')
+    for k, v in trims.items():
+        if k not in task['sentences']:
+            problems.append(f'trims 多出不存在的编号 {k}')
+        elif v is not None and not (isinstance(v, str) and is_clause_of(task['sentences'][k], v)):
+            problems.append(f'{k} 截出的不是原句里按标点断开的连续一段：{v}')
+    return problems
+
+
+def drop_bad_trims(answer, task):
+    """截出的不是原句里按标点断开的连续一段（大模型删了中间的字或改了字）：这一句不截，保留原句；
+    截错的记在 rejected 里，不因为一句截错停下整批"""
+    trims = answer.get('trims')
+    if not isinstance(trims, dict):
+        return
+    for k, v in list(trims.items()):
+        if v is not None and k in task['sentences'] and not (isinstance(v, str) and is_clause_of(task['sentences'][k], v)):
+            answer.setdefault('rejected', {})[k] = v
+            trims[k] = None
+
+
+def apply_trims(word, sel, trims, levels, complexity):
+    """把截短写进取舍结果。截出的一段里目标词要作为完整的词出现（填字题还要只出现一次），否则保留原句。
+    返回截短了几句。重复运行结果不变（按原句查截短）"""
+    n = 0
+    for s in sel['senses']:
+        e = s['example']
+        if not e:
+            continue
+        original = e.get('original') or e['sentence']
+        short = trims.get(original)
+        tokens = common.tokenize(short) if short else []
+        if short and word in tokens:
+            others = [t for t in common.without_punctuation(tokens) if t != word]
+            s['example'] = dict(e, sentence=short, tokens=tokens, original=original,
+                                complexity=round(common.sentence_complexity(tokens, complexity), 4),
+                                hsk4_6_words=[t for t in others if levels.get(t, 0) >= 4])
+            n += 1
+    fill = (sel['exercises'] or {}).get('fill_word')
+    if fill:
+        original = fill.get('original') or fill['sentence']
+        short = trims.get(original)
+        at = step5_select.blank_position(short, common.tokenize(short), word) if short else None
+        if at is not None:
+            fill.update(sentence=short, original=original, correct_answer=short[at],
+                        stem=(short[:at] + step5_select.BLANK + short[at + 1:]).strip())
+            n += 1
+    return n
+
+
+def trim_long_sentences(batch, words, model):
+    """截短这一批的长句，写回取舍结果（见文件开头）。没给 model 时只生成任务，用已采用的 <词>-截短.截短.json"""
+    src = common.OUT / '取舍' / batch
+    outdir = common.OUT / '检查' / batch
+    tasks = {}
+    for word in words:
+        sel = json.loads((src / f'{word}.json').read_text(encoding='utf-8'))
+        if sents := long_sentences(sel):
+            tasks[word] = trim_task(word, sents)
+            common.write_json(outdir / f'{trim_key(word)}.任务.json', tasks[word])
+    if model:
+        step4_semantic_tasks.answer_with(model, outdir, [trim_key(w) for w in tasks], kind='截短', check=validate_trim,
+                                         tidy=drop_bad_trims)
+    levels, complexity = common.hsk_levels(), common.word_complexity()
+    n = 0
+    for word, task in tasks.items():
+        path = outdir / (f'{trim_key(word)}.截短.{model}.json' if model else f'{trim_key(word)}.截短.json')
+        if not path.exists():
+            continue
+        answer = common.load_answer(path, task, validate_trim)
+        trims = {task['sentences'][k]: v for k, v in answer['trims'].items() if v}
+        sel = json.loads((src / f'{word}.json').read_text(encoding='utf-8'))
+        n += apply_trims(word, sel, trims, levels, complexity)
+        common.write_json(src / f'{word}.json', sel)
+    print(f'长句截短：{len(tasks)} 个词有超过 {step5_select.SHORT} 字的句子，截短了 {n} 句', flush=True)
+
+
 def main(batch, model=None):
     words = step2_confusables.words_from_args([batch])
     pair_only = step2_confusables.pair_only_words(batch)
@@ -242,6 +418,7 @@ def main(batch, model=None):
     src = common.OUT / '取舍' / batch
     outdir = common.OUT / '检查' / batch
     outdir.mkdir(parents=True, exist_ok=True)
+    trim_long_sentences(batch, checked, model)
     for word in checked:
         sel = json.loads((src / f'{word}.json').read_text(encoding='utf-8'))
         ex = sel['exercises'] or {}
@@ -269,7 +446,7 @@ def main(batch, model=None):
         common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, home))
     print(f'已生成 {len(checked)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
     if model:
-        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate)
+        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate, tidy=tidy_check)
         step4_semantic_tasks.answer_with(model, outdir, [pair_key(w, o) for w, o, _ in pairs], kind='辨析', check=validate_pair)
 
 

@@ -44,12 +44,31 @@ ANSWER_FORMAT = {
 }
 
 
+# 另有一至三级条目的四级词（600 个里只有这两个）：汉办词表的四级条目只指一个义项，学习材料只做这个义项，
+# 不然教材里多见的低级义项（「过得很开心」的结构助词 de）会按句数被选为主义项。只加在这两个词的任务里，
+# 不改 INSTRUCTIONS：改了它，所有词的任务指纹都会变、已有回答全部作废
+HSK4_ENTRY = {
+    '得': '汉办词表里「得」另有二级条目（助词 de，「过得很开心」）；四级条目是助动词 děi（to have to; must; need to）。'
+          'senses 只列助动词 děi 这一个义项；例句、搭配里用的是别的意思的，一律填 null，sentence_notes 写「不是四级义项」；'
+          'characters 只有一项，读音、释义按 děi。',
+    '等': '汉办词表里「等」另有二级条目（动词 děng，to wait）；四级条目是助词（and so on; etc.，如「北京、上海等城市」）。'
+          'senses 只列这个助词义项；例句、搭配里用的是别的意思的，一律填 null，sentence_notes 写「不是四级义项」；'
+          'characters 只有一项，读音、释义按这个助词。',
+}
+
+# 单字多音词（呀 yā / ya）大模型会按读音把这个字列成几项。同样只加在单字词的任务里
+SINGLE_CHAR = ('这个词只有一个字：characters 只写一项，是这个字作为这个词、用于 senses 第一个义项时的读音和意思；'
+               '不要按不同读音分列多项。')
+
+
 def validate(answer, task):
     """检查语义判断的结构：义项编号唯一，每个例句、每条搭配都有回答且引用的义项存在，每个字都有释义。"""
     problems = []
     senses = answer.get('senses')
     if not isinstance(senses, list) or not senses:
         return ['senses 为空']
+    if task.get('hsk4_entry') and len(senses) != 1:
+        problems.append(f'只该列四级条目的一个义项，回答列了 {len(senses)} 个')
     ids = [s.get('id') for s in senses if isinstance(s, dict)]
     if len(ids) != len(senses) or not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids):
         problems.append(f'义项编号缺失、不是字符串或重复：{ids}')
@@ -75,14 +94,31 @@ def validate(answer, task):
     return problems
 
 
-def answer_with(model, outdir, words, kind='判断', check=validate):
+def reuse(out, task, check, tidy):
+    """已有回答能用就不再调用。同一版任务的回答（含存下的 .不合格），整理（tidy）后能通过检查的也用，
+    免得只因格式小问题重复付费"""
+    for path in (out, out.with_name(out.name + '.不合格')):
+        if not path.exists():
+            continue
+        answer = json.loads(path.read_text(encoding='utf-8'))
+        if answer.get('_task') == common.task_hash(task) and tidy:
+            tidy(answer, task)
+        if not common.answer_problems(answer, task, check):
+            if path != out or tidy:
+                common.write_json(out, answer)
+            return True
+    return False
+
+
+def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
     """读 <词>.任务.json，调用接口，把回答存为 <词>.<kind>.<model>.json（第 6 步也用它）。
-    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。"""
+    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。
+    tidy(answer, task)：检查之前先整理回答里不影响内容的格式问题。"""
     log = outdir / f'用量.{model}.jsonl'
     for word in words:
         out = outdir / f'{word}.{kind}.{model}.json'
         task = json.loads((outdir / f'{word}.任务.json').read_text(encoding='utf-8'))
-        if out.exists() and not common.answer_problems(json.loads(out.read_text(encoding='utf-8')), task, check):
+        if reuse(out, task, check, tidy):
             continue
         payload = {k: v for k, v in task.items() if k not in ('instructions', 'answer_format')}
         system = task['instructions'] + '\n\n回答格式（JSON）示例：\n' + json.dumps(task['answer_format'], ensure_ascii=False)
@@ -90,6 +126,8 @@ def answer_with(model, outdir, words, kind='判断', check=validate):
         with open(log, 'a', encoding='utf-8') as f:
             f.write(json.dumps({'word': word, 'task': common.task_hash(task), **usage}, ensure_ascii=False) + '\n')
         answer['_task'] = common.task_hash(task)
+        if tidy:
+            tidy(answer, task)
         if problems := check(answer, task):
             bad = out.with_name(out.name + '.不合格')
             common.write_json(bad, answer)
@@ -131,6 +169,10 @@ def main(batch, model=None):
         # 键的顺序与以前相同，任务文件和指纹不变
         task = {'word': word, 'instructions': INSTRUCTIONS, 'answer_format': ANSWER_FORMAT,
                 **{k: inputs[k] for k in INPUT_KEYS[1:]}}
+        if word in HSK4_ENTRY:
+            task['hsk4_entry'] = HSK4_ENTRY[word]
+        elif len(word) == 1:
+            task['single_char'] = SINGLE_CHAR
         common.write_json(outdir / f'{word}.任务.json', task)
     print(f'已生成 {len(words)} 个判断任务：{outdir}')
     if model:

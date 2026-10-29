@@ -77,11 +77,26 @@ def pick_quiz(key, word, other, candidates, checks):
     return questions, notes
 
 
+def characters(word, sel, check, senses):
+    """字的读音和释义。单字词的字就是这个词本身：读音用第 6 步校对过的整词拼音，释义用保留下来的主义项。
+    第 4 步的字释义按第 4 步的第一个义项写，第 5 步保留的可能是另一个义项（「转」保留 zhuàn 旋转，字却写了 zhuǎn）"""
+    if len(word) == 1 and senses:
+        return [{'character': word, 'pinyin': check.get('word_pinyin', '') or sel['characters'][0]['pinyin'],
+                 'definition': f"{senses[0]['pos']} {senses[0]['definition']}"}]
+    return [{'character': c['character'], 'pinyin': c['pinyin'], 'definition': f"{c['pos']} {c['definition']}"}
+            for c in sel['characters']]
+
+
 def build(word, sel, check):
     examples = {e['sentence']: e for e in check['examples']}
     coll_tr = {c['collocation']: c['translation'] for c in check['collocations']}
     notes, exercises = [], []
     ex = sel['exercises'] or {}
+    # 第 6 步截短过的句子：审核时对照原句看截得对不对
+    notes += [f"例句截自原句：{s['example']['original']}" for s in sel['senses'] if s['example'] and s['example'].get('original')]
+    if (ex.get('fill_word') or {}).get('original') and ex['fill_word']['original'] not in \
+            [s['example'].get('original') for s in sel['senses'] if s['example']]:
+        notes.append(f"填字题截自原句：{ex['fill_word']['original']}")
     conflicts = check.get('distractor_conflicts', {})
     choice = ([('definition', '释义题', ex['definition'])] if ex.get('definition') else []) + \
              [(f'collocation{i}', f'搭配题 {i}', c) for i, c in enumerate(ex.get('collocation', []), 1)]
@@ -124,8 +139,7 @@ def build(word, sel, check):
         'hanzi': word,
         'pinyin': check.get('word_pinyin', ''),
         'definition': ' | '.join(f"{s['pos']} {s['definition']}" for s in senses),
-        'characters': [{'character': c['character'], 'pinyin': c['pinyin'], 'definition': f"{c['pos']} {c['definition']}"}
-                       for c in sel['characters']],
+        'characters': characters(word, sel, check, senses),
         'collocations': [c for s in senses for c in s['collocations']],
         'examples': [s['example'] for s in senses if s['example']],
         'senses': senses,

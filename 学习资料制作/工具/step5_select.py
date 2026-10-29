@@ -9,6 +9,8 @@
    第二个义项句数 ≥ 2 且占可用例句 ≥ 30% 时也保留。最多 2 个。句数相同时，最简单的那句例句排在前面的义项优先，
    并在 problems 里提醒。没被保留的义项写进 dropped_senses，审核时可以看到。
 2. 例句（5.3.2）：每个保留的义项取复杂度最低的一句可用例句（候选清单已按复杂度、四至六级词个数排好序）。
+   有 SHORT 字以内的可用例句时先从这些短句里取（作者 2026-10-29：例句要短，论文词库的例句中位数 16 字、最长 27 字）；
+   复杂度是各词之和，一般句子越长越高，但常用词多的长句也可能比生僻词多的短句低。第 6 步再把仍然过长的句子截短。
 3. 搭配（5.3.4）：每个义项取成立的搭配里互信息最高的两条，先用分级阅读库，不够再用维基库；同一个搭配词不重复。
    两道搭配题：有两个义项时各取一条，再从剩下的搭配里补足。
 4. 练习（附录 AD）：
@@ -33,6 +35,7 @@ SECOND_SENSE_MIN_SENTENCES = 2
 SECOND_SENSE_MIN_SHARE = 0.3
 BLANK = ' ( ) '
 SPARES = 8
+SHORT = 30  # 例句超过这么多字算长：先选短句，第 6 步截短
 
 
 def pick_senses(judgment, sentences):
@@ -161,6 +164,7 @@ def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混
     used_others = set()
     for s in kept:
         mine = sentences_of(s['id'], judgment, candidates)
+        mine = [c for c in mine if len(c['sentence']) <= SHORT] + [c for c in mine if len(c['sentence']) > SHORT]
         s['example'] = mine[0] if mine else None
         s['other_sentences'] = mine[1:]
         s['collocations'] = collocations_of(s['id'], judgment, candidates, used_others)

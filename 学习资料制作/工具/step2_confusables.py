@@ -28,6 +28,16 @@ REPORT = common.OUT / '易混淆词报告'
 FIELDS = ['target', 'sentences', 'target_errors', 'confused_with', 'times', 'share', 'hsk_level', 'selected']
 
 
+def no_data(word):
+    """网站补试过仍回答「没有匹配到数据」的词，下载目录里有一个空的 <词>.无数据 文件：按 0 句语料处理，
+    没有易混淆词，学习材料照做（如「打折」「登机牌」，作文语料里没人写过）"""
+    if not (RAW / f'{word}.无数据').exists():
+        return False
+    if (RAW / f'{word}.csv').exists():
+        raise SystemExit(f'「{word}」既有下载的语料又有 .无数据 标记：补下了语料就删掉 {word}.无数据')
+    return True
+
+
 def corpus_file(word):
     path = RAW / f'{word}.csv'
     if not path.exists():
@@ -41,6 +51,8 @@ def errors_of(word):
 
     「检索原句」是改正后的句子，标注写作「正确的词{CC学习者写的词}」，如「继续{CC续继}」是学习者把「继续」写成了「续继」。
     """
+    if no_data(word):
+        return [], []
     rows = list(csv.DictReader(open(corpus_file(word), encoding='utf-8-sig')))
     pattern = re.compile(re.escape(word) + r'\{CC\d*([一-龥]+)\[?[A-Z]*\]?\}')
     return rows, [(m.group(1), r) for r in rows if (m := pattern.search(r['检索原句']))]
