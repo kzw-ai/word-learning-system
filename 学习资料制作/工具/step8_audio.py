@@ -3,8 +3,8 @@
 用法：学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py 第01批
         给这一批的整词、每个字、每条搭配、每条例句各生成一个 mp3，音频地址写回 3_审核/<批>/素材.json，
         并生成 3_审核/<批>/试听.html 供审核。第 7 步重跑后要再跑这一步（已生成的不重复请求）。
-      学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py --thesis
-        论文词库（words_extended.db）里已有材料的词：生成音频，清单写到 data/learning_materials/audio/论文词库.json，
+      学习资料制作/.venv/bin/python 学习资料制作/工具/step8_audio.py --thesis [--db 路径]
+        论文词库（默认 words_extended.db；本地库比服务器旧时，用跑过启动初始化的副本）里已有材料的词：生成音频，清单写到 data/learning_materials/audio/论文词库.json，
         后端启动时按清单补进库里（scripts/apply_audio_manifest.py）。
 产出：data/learning_materials/audio/<内容指纹>.mp3（不提交，部署时连同批次素材复制到服务器）。
 
@@ -156,9 +156,9 @@ def batch_main(batch):
     print(f'音频地址已写回 {path}；试听：{common.REVIEW / batch / "试听.html"}')
 
 
-def thesis_words():
+def thesis_words(db=THESIS_DB):
     """论文词库里有字的词（没有字的是早期种子留下的空壳，不配音），字段同批次素材"""
-    conn = sqlite3.connect(THESIS_DB)
+    conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     words = []
     for w in conn.execute('SELECT id, pinyin FROM word ORDER BY id'):
@@ -174,8 +174,8 @@ def thesis_words():
     return words
 
 
-def thesis_main():
-    words = thesis_words()
+def thesis_main(db=THESIS_DB):
+    words = thesis_words(db)
     gen = Generator()
     for w in words:
         add_word(gen, w)
@@ -194,4 +194,7 @@ def thesis_main():
 
 if __name__ == '__main__':
     args = sys.argv[1:]
-    thesis_main() if args == ['--thesis'] else batch_main(args[0])
+    if args and args[0] == '--thesis':
+        thesis_main(args[args.index('--db') + 1] if '--db' in args else THESIS_DB)
+    else:
+        batch_main(args[0])
