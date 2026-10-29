@@ -174,7 +174,12 @@ def main(batch, source=None):
     materials, md = [], [f'# 审核清单　{batch}', '',
                          '请逐词核对：义项是否恰当、例句是否适合学习者、翻译与拼音是否准确、搭配是否常用、练习题有没有两个正确答案。',
                          '标 ⚠ 的是程序发现需要特别看一下的地方。', '']
+    pair_only = step2_confusables.pair_only_words(batch)
+    if pair_only:
+        md += [f"只做辨析（论文词库已有学习材料，不重做）：{'、'.join(sorted(pair_only))}", '']
     for word in step2_confusables.words_from_args([batch]):
+        if word in pair_only:
+            continue
         sel = json.loads((sel_dir / f'{word}.json').read_text(encoding='utf-8'))
         name = f'{word}.检查.{source}.json' if source else f'{word}.检查.json'
         task = json.loads((check_dir / f'{word}.任务.json').read_text(encoding='utf-8'))

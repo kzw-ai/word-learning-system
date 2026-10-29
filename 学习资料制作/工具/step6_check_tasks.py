@@ -104,8 +104,8 @@ def quiz_candidates(words, batch):
     目标词作为完整的词只出现一次的，整词挖空。返回 {'q1': {'stem', 'answer', 'sentence'}}。"""
     out = {}
     for w in words:
-        cand_path = common.OUT / '候选清单' / batch / f'{w}.json'
-        judge_path = common.OUT / '判断' / batch / f'{w}.判断.json'
+        cand_path = common.batch_file('候选清单', batch, f'{w}.json')
+        judge_path = common.batch_file('判断', batch, f'{w}.判断.json')
         if not (cand_path.exists() and judge_path.exists()):
             continue
         cand = json.loads(cand_path.read_text(encoding='utf-8'))
@@ -124,9 +124,9 @@ def quiz_candidates(words, batch):
     return out
 
 
-def pair_task(word, other, src, stats, batch):
+def pair_task(word, other, stats, batch):
     def side(w):
-        path = src / f'{w}.json'
+        path = common.batch_file('取舍', batch, f'{w}.json')
         if not path.exists():
             return {'word': w}
         sel = json.loads(path.read_text(encoding='utf-8'))
@@ -209,10 +209,12 @@ def validate(answer, task):
 
 def main(batch, model=None):
     words = step2_confusables.words_from_args([batch])
+    pair_only = step2_confusables.pair_only_words(batch)
+    checked = [w for w in words if w not in pair_only]  # 只做辨析的词已有学习材料，不用翻译检查
     src = common.OUT / '取舍' / batch
     outdir = common.OUT / '检查' / batch
     outdir.mkdir(parents=True, exist_ok=True)
-    for word in words:
+    for word in checked:
         sel = json.loads((src / f'{word}.json').read_text(encoding='utf-8'))
         ex = sel['exercises'] or {}
         exercises = {}
@@ -235,10 +237,10 @@ def main(batch, model=None):
         common.write_json(outdir / f'{word}.任务.json', task)
     pairs = confusable_pairs(words)
     for word, other, stats in pairs:
-        common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, src, stats, batch))
-    print(f'已生成 {len(words)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
+        common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, batch))
+    print(f'已生成 {len(checked)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
     if model:
-        step4_semantic_tasks.answer_with(model, outdir, words, kind='检查', check=validate)
+        step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate)
         step4_semantic_tasks.answer_with(model, outdir, [pair_key(w, o) for w, o, _ in pairs], kind='辨析', check=validate_pair)
 
 

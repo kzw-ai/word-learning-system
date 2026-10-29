@@ -102,22 +102,37 @@ def selected(word):
     return [r['confused_with'] for r in sorted(rows, key=lambda r: -float(r['share']))]
 
 
+# 词表注释里写着它的词：论文词库已有学习材料，只为易混淆词辨析走第 3–5 步（出辨析题要用它的例句），
+# 第 6 步不做翻译检查，第 7 步不放进学习材料
+PAIR_ONLY = '只做辨析'
+
+
+def batch_notes(batch):
+    """3_审核/<批>/词表.txt → {词: 注释}，按词表顺序"""
+    path = common.REVIEW / batch / '词表.txt'
+    if not path.exists():
+        raise SystemExit(f'找不到 {path}：请先写好这一批的词表')
+    notes, words = {}, []
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        word, _, note = line.partition('#')
+        word = word.strip()
+        if word:
+            words.append(word)
+            notes[word] = note.strip()
+    if dup := [w for w, n in collections.Counter(words).items() if n > 1]:
+        raise SystemExit(f'{path} 里有重复的词：{"、".join(dup)}')
+    return notes
+
+
+def pair_only_words(batch):
+    return {w for w, note in batch_notes(batch).items() if PAIR_ONLY in note}
+
+
 def words_from_args(args, skip_confusables=False):
     """批次名（如「第01批」）→ 3_审核/<批>/词表.txt 里的词；也可以直接给词。
     skip_confusables：跳过注释里写着「易混淆词」的行。"""
     if len(args) == 1 and re.fullmatch(r'第\d+批', args[0]):
-        path = common.REVIEW / args[0] / '词表.txt'
-        if not path.exists():
-            raise SystemExit(f'找不到 {path}：请先写好这一批的词表')
-        words = []
-        for line in path.read_text(encoding='utf-8-sig').splitlines():
-            word, _, note = line.partition('#')
-            word = word.strip()
-            if word and not (skip_confusables and '易混淆词' in note):
-                words.append(word)
-        if dup := [w for w, n in collections.Counter(words).items() if n > 1]:
-            raise SystemExit(f'{path} 里有重复的词：{"、".join(dup)}')
-        return words
+        return [w for w, note in batch_notes(args[0]).items() if not (skip_confusables and '易混淆词' in note)]
     return args
 
 
