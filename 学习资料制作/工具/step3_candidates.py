@@ -9,6 +9,7 @@
 - 搭配（附录 N）：先列分级阅读库，再列维基库；搭配词限一至三级，按互信息降序，各列前 20 条。
 - 词典：CC-CEDICT 里这个词和每个字的全部读音与义项。
 """
+import collections
 import json
 import re
 import sys
@@ -22,23 +23,50 @@ TOP = 20
 
 # 句首杂质（教材录入、切句时混进来的）：对话的说话人「王静：」、上一句落下的右引号「”」、题号「2黄色代表……」。
 # 去掉以后句子本身常常是好例句（「朋友：她去年秋天出生的，刚过完一岁生日。」），不去掉就被大模型当成片段判掉
-# （作者同意，2026-10-29）。「我想：」「朋友说：」这类冒号前是说话动作的不去；冒号前含目标词的不去
+# （作者同意，2026-10-29；作者论文词库的例句也有带说话人的）。宁可少删，不误删：
+# - 说话人只认课文里当说话人出现过至少 3 次的标签（小丽、王静、同事、高老师……）；「我决定：」「国家规定：」这类
+#   只出现一两次的是句子内容，不去；以说话动作结尾的（罗伟说：、我想：）不去。标签里有目标词也去
+#   （「记者：请问您怎么看？」没有用「记者」造句，去掉后正文里没有目标词，下面按分词就筛掉了）
+# - 数字只去明确的题号：带分隔符的（「2、」「2.」），或者紧跟着正文（「6如果你……」）；后面是单位、量词、
+#   标点的是句子的一部分（「20世纪」「3天后」「8:00」「20~30人」「2.5倍」），不去。五位以上的数字串是录入杂质
 SPEAKER = re.compile(r'^([一-龥A-Za-z·]{1,4})[：:]')
 SPEECH_VERBS = ('说', '想', '是', '道', '问', '答', '写', '认为')
+SPEAKER_MIN = 3
 STRAY_CLOSE = re.compile(r'^[”’」』）)]+')
-LEADING_NUMBER = re.compile(r'^[0-9０-９]+[、.．]?')
-# 数字后面是这些字时，数字是句子的一部分（「20世纪」「28岁」「800万」「16点」），不去
-NUMBER_UNITS = set('年月日号点时分秒岁世纪万千百亿元块角个位名次倍层米斤克件本张只条辆家所门期届级度%％多余来后前半')
+DIGITS = re.compile(r'^[0-9０-９]+')
+NUMBER_UNITS = set('年月日号点时分秒岁世纪万千百亿元块角个位名次倍层米斤克件本张只条辆家所门期届级度多余来后前半'
+                   '天周遍趟口声步种样些成折项份篇句段页课题道行排组对双台部'
+                   '公厘毫美英欧节场首封座棵朵盒袋匹群代楼路班室类人至到')
 
 
-def clean_start(s, word):
+def speaker_labels(sentences):
+    """课文里当说话人出现过至少 SPEAKER_MIN 次的标签"""
+    head = re.compile(r'^[”’」』）)]*[0-9０-９]*([一-龥A-Za-z·]{1,4})[：:]')
+    counts = collections.Counter(m.group(1) for _, s in sentences if (m := head.match(s)))
+    return {k for k, n in counts.items() if n >= SPEAKER_MIN and not k.endswith(SPEECH_VERBS)}
+
+
+def strip_number(t):
+    m = DIGITS.match(t)
+    if not m:
+        return t
+    rest = t[m.end():]
+    if not rest:
+        return t
+    if len(m.group()) >= 5:  # 「13797915397002000“那妻子的字条……」
+        return re.sub(r'^[0-9０-９\-]+', '', t)
+    if rest[0] in '、' or (rest[0] in '.．' and not rest[1:2].isdigit()):
+        return rest[1:]
+    if ('一' <= rest[0] <= '鿿' or rest[0] in '“"') and rest[0] not in NUMBER_UNITS:
+        return rest
+    return t
+
+
+def clean_start(s, word, speakers):
     while True:
-        t = STRAY_CLOSE.sub('', s, count=1)
-        m = LEADING_NUMBER.match(t)
-        if m and m.end() < len(t) and t[m.end()] not in NUMBER_UNITS and not t[m.end()].isdigit():
-            t = t[m.end():]
+        t = strip_number(STRAY_CLOSE.sub('', s, count=1))
         m = SPEAKER.match(t)
-        if m and not m.group(1).endswith(SPEECH_VERBS) and word not in m.group(1):
+        if m and m.group(1) in speakers:
             t = t[m.end():]
         t = t.lstrip()
         if not t:
@@ -48,13 +76,13 @@ def clean_start(s, word):
         s = t
 
 
-def sentences_with(word, sentences, complexity, levels):
+def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
     def find():
         found, seen = [], set()
         for book, s in sentences:
             if word not in s:
                 continue
-            s = clean_start(s, word)
+            s = clean_start(s, word, speakers)
             if s in seen:
                 continue
             tokens = common.tokenize(s)
@@ -84,11 +112,12 @@ def main(batch):
     complexity = common.word_complexity()
     dictionary = common.cedict()
     sentences = [(book, s) for book, text in common.textbook_texts() for s in common.split_sentences(text) if s.strip()]
+    speakers = speaker_labels(sentences)
     edu, wiki = common.load_collocation_rows()
     outdir = common.OUT / '候选清单' / batch
     outdir.mkdir(parents=True, exist_ok=True)
     for word in words:
-        found, note = sentences_with(word, sentences, complexity, levels)
+        found, note = sentences_with(word, sentences, complexity, levels, speakers)
         data = {
             'word': word,
             'hsk_level': levels.get(word),

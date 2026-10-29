@@ -94,6 +94,22 @@ def validate(answer, task):
     return problems
 
 
+def reuse(out, task, check, tidy):
+    """已有回答能用就不再调用。同一版任务的回答（含存下的 .不合格），整理（tidy）后能通过检查的也用，
+    免得只因格式小问题重复付费"""
+    for path in (out, out.with_name(out.name + '.不合格')):
+        if not path.exists():
+            continue
+        answer = json.loads(path.read_text(encoding='utf-8'))
+        if answer.get('_task') == common.task_hash(task) and tidy:
+            tidy(answer, task)
+        if not common.answer_problems(answer, task, check):
+            if path != out or tidy:
+                common.write_json(out, answer)
+            return True
+    return False
+
+
 def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
     """读 <词>.任务.json，调用接口，把回答存为 <词>.<kind>.<model>.json（第 6 步也用它）。
     已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。
@@ -102,7 +118,7 @@ def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
     for word in words:
         out = outdir / f'{word}.{kind}.{model}.json'
         task = json.loads((outdir / f'{word}.任务.json').read_text(encoding='utf-8'))
-        if out.exists() and not common.answer_problems(json.loads(out.read_text(encoding='utf-8')), task, check):
+        if reuse(out, task, check, tidy):
             continue
         payload = {k: v for k, v in task.items() if k not in ('instructions', 'answer_format')}
         system = task['instructions'] + '\n\n回答格式（JSON）示例：\n' + json.dumps(task['answer_format'], ensure_ascii=False)

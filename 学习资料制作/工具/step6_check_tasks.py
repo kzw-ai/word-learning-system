@@ -200,7 +200,7 @@ def confusable_pairs(batch, home=None):
     return pairs
 
 
-PINYIN_SYLLABLE = re.compile(r'[a-zü' + 'āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ' + ']+', re.I)
+PINYIN_SYLLABLE = re.compile(r'[a-zü' + 'āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ' + ']+')  # 拼音只有小写
 
 
 def join_split_pinyin(answer):
@@ -209,6 +209,8 @@ def join_split_pinyin(answer):
     for e in answer.get('examples', []):
         if not (isinstance(e, dict) and isinstance(e.get('pinyin'), str)):
             continue
+        if hanzi_of(e['pinyin']) == str(e.get('sentence', '')).replace(' ', ''):
+            continue  # 字对得上就不动
         tokens = []
         for t in e['pinyin'].split():
             if tokens and '/' in tokens[-1] and '/' not in t and PINYIN_SYLLABLE.fullmatch(t):
@@ -227,7 +229,7 @@ def drop_stray_conflicts(answer, task):
     for key, q in task['exercises'].items():
         if isinstance(conflicts.get(key), list):
             allowed = set(q.get('options', []) + q.get('spares', [])) - {q['correct_answer']}
-            conflicts[key] = [w for w in conflicts[key] if w in allowed]
+            conflicts[key] = list(dict.fromkeys(w for w in conflicts[key] if w in allowed))
 
 
 def restore_collocation_spaces(answer, task):

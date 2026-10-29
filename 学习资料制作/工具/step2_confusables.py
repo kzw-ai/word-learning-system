@@ -31,7 +31,11 @@ FIELDS = ['target', 'sentences', 'target_errors', 'confused_with', 'times', 'sha
 def no_data(word):
     """网站补试过仍回答「没有匹配到数据」的词，下载目录里有一个空的 <词>.无数据 文件：按 0 句语料处理，
     没有易混淆词，学习材料照做（如「打折」「登机牌」，作文语料里没人写过）"""
-    return (RAW / f'{word}.无数据').exists()
+    if not (RAW / f'{word}.无数据').exists():
+        return False
+    if (RAW / f'{word}.csv').exists():
+        raise SystemExit(f'「{word}」既有下载的语料又有 .无数据 标记：补下了语料就删掉 {word}.无数据')
+    return True
 
 
 def corpus_file(word):

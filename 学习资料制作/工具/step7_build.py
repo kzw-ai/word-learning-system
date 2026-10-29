@@ -77,6 +77,16 @@ def pick_quiz(key, word, other, candidates, checks):
     return questions, notes
 
 
+def characters(word, sel, check, senses):
+    """字的读音和释义。单字词的字就是这个词本身：读音用第 6 步校对过的整词拼音，释义用保留下来的主义项。
+    第 4 步的字释义按第 4 步的第一个义项写，第 5 步保留的可能是另一个义项（「转」保留 zhuàn 旋转，字却写了 zhuǎn）"""
+    if len(word) == 1 and senses:
+        return [{'character': word, 'pinyin': check.get('word_pinyin', '') or sel['characters'][0]['pinyin'],
+                 'definition': f"{senses[0]['pos']} {senses[0]['definition']}"}]
+    return [{'character': c['character'], 'pinyin': c['pinyin'], 'definition': f"{c['pos']} {c['definition']}"}
+            for c in sel['characters']]
+
+
 def build(word, sel, check):
     examples = {e['sentence']: e for e in check['examples']}
     coll_tr = {c['collocation']: c['translation'] for c in check['collocations']}
@@ -124,8 +134,7 @@ def build(word, sel, check):
         'hanzi': word,
         'pinyin': check.get('word_pinyin', ''),
         'definition': ' | '.join(f"{s['pos']} {s['definition']}" for s in senses),
-        'characters': [{'character': c['character'], 'pinyin': c['pinyin'], 'definition': f"{c['pos']} {c['definition']}"}
-                       for c in sel['characters']],
+        'characters': characters(word, sel, check, senses),
         'collocations': [c for s in senses for c in s['collocations']],
         'examples': [s['example'] for s in senses if s['example']],
         'senses': senses,
