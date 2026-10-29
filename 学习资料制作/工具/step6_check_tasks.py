@@ -11,7 +11,6 @@
 
 拼音先由 pypinyin 按结巴分词自动标注（格式同现有材料「我/wǒ 认为/rènwéi …」），大模型只负责改错（轻声、多音字）。
 """
-import csv
 import json
 import sys
 
@@ -99,17 +98,24 @@ def pair_key(word, other):
     return f'{word}-{other}'
 
 
-def quiz_candidates(words, batch):
+def word_outputs(word, home):
+    """一个词第 3–5 步的产出（候选清单、判断、取舍），都取它所在的那一批（home_batches），
+    不混用不同批次的文件：判断里的句子编号对应的是同一批的候选清单。缺了就报错，要先把那一批跑完。"""
+    batch = home.get(word)
+    paths = {sub: common.OUT / sub / str(batch) / name for sub, name in
+             (('候选清单', f'{word}.json'), ('判断', f'{word}.判断.json'), ('取舍', f'{word}.json'))}
+    if batch is None or not all(p.exists() for p in paths.values()):
+        raise SystemExit(f'「{word}」在 {batch or "任何一批的词表"} 里还没有第 3–5 步的产出：先把那一批跑到第 5 步')
+    return {sub: json.loads(p.read_text(encoding='utf-8')) for sub, p in paths.items()}
+
+
+def quiz_candidates(words, home):
     """辨析题候选（论文 3.2.4：句子来自学习材料里的例句）：两个词各自可用的例句，按复杂度从低到高，
     目标词作为完整的词只出现一次的，整词挖空。返回 {'q1': {'stem', 'answer', 'sentence'}}。"""
     out = {}
     for w in words:
-        cand_path = common.batch_file('候选清单', batch, f'{w}.json')
-        judge_path = common.batch_file('判断', batch, f'{w}.判断.json')
-        if not (cand_path.exists() and judge_path.exists()):
-            continue
-        cand = json.loads(cand_path.read_text(encoding='utf-8'))
-        senses = json.loads(judge_path.read_text(encoding='utf-8'))['sentence_senses']
+        outputs = word_outputs(w, home)
+        cand, senses = outputs['候选清单'], outputs['判断']['sentence_senses']
         n = 0
         for i, c in enumerate(cand['sentences'], 1):
             if n == QUIZ_PER_WORD:
@@ -124,17 +130,14 @@ def quiz_candidates(words, batch):
     return out
 
 
-def pair_task(word, other, stats, batch):
+def pair_task(word, other, stats, home):
     def side(w):
-        path = common.batch_file('取舍', batch, f'{w}.json')
-        if not path.exists():
-            return {'word': w}
-        sel = json.loads(path.read_text(encoding='utf-8'))
+        sel = word_outputs(w, home)['取舍']
         return {'word': w, 'hsk_level': sel['hsk_level'],
                 'senses': [f"{s['pos']} {s['definition']}" for s in sel['senses']],
                 'examples': [s['example']['sentence'] for s in sel['senses'] if s['example']],
                 'collocations': [c['collocation'] for s in sel['senses'] for c in s['collocations']]}
-    quiz = quiz_candidates([word, other], batch)
+    quiz = quiz_candidates([word, other], home)
     return {'word': pair_key(word, other), 'instructions': PAIR_INSTRUCTIONS, 'answer_format': PAIR_FORMAT,
             'word1': side(word), 'word2': side(other), 'corpus': stats,
             'learner_errors': step2_confusables.error_sentences(word, other),
@@ -163,12 +166,27 @@ def validate_pair(answer, task):
     return problems
 
 
-def confusable_pairs(words):
-    """这一批里入选的易混淆词对：[(目标词, 易混淆词, 语料库统计)]。"""
-    rows = list(csv.DictReader(open(step2_confusables.RESULT, encoding='utf-8'))) if step2_confusables.RESULT.exists() else []
-    return [(r['target'], r['confused_with'], {'wrote_word2': int(r['times']), 'word1_errors': int(r['target_errors']),
-                                                'share': float(r['share'])})
-            for r in rows if r['target'] in words and r['selected'] == 'yes']
+def confusable_pairs(batch, home=None):
+    """这一批要做的易混淆词对：[(目标词, 易混淆词, 语料库统计)]。
+    - 两个方向都入选的（四级词之间，如「经历 → 经验」「经验 → 经历」）是同一对，只做一次：
+      保留学习者写错次数多的方向，另一个方向的统计也写进讲解。
+    - 一对放在两个词里靠后出现的那一批做：那时两个词第 3–5 步的产出都有了（易混淆词排在目标词后面或前面的批次）。
+      两个词有一个不在任何一批的词表里时不做。"""
+    home = home if home is not None else step2_confusables.home_batches()
+    rows = sorted(step2_confusables.selected_rows(), key=lambda r: (-int(r['times']), -float(r['share'])))
+    order = {b: i for i, b in enumerate(sorted(set(home.values())))}
+    pairs, seen = [], {}
+    for r in rows:
+        word, other = r['target'], r['confused_with']
+        stats = {'wrote_word2': int(r['times']), 'word1_errors': int(r['target_errors']), 'share': float(r['share'])}
+        key = frozenset((word, other))
+        if key in seen:
+            seen[key]['reverse'] = stats  # 另一个方向：该用 other 的地方写成了 word
+            continue
+        seen[key] = stats
+        if word in home and other in home and max(home[word], home[other], key=order.get) == batch:
+            pairs.append((word, other, stats))
+    return pairs
 
 
 def hanzi_of(pinyin_line):
@@ -235,9 +253,10 @@ def main(batch, model=None):
             'exercises': exercises,
         }
         common.write_json(outdir / f'{word}.任务.json', task)
-    pairs = confusable_pairs(words)
+    home = step2_confusables.home_batches()
+    pairs = confusable_pairs(batch, home)
     for word, other, stats in pairs:
-        common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, batch))
+        common.write_json(outdir / f'{pair_key(word, other)}.任务.json', pair_task(word, other, stats, home))
     print(f'已生成 {len(checked)} 个检查任务、{len(pairs)} 个易混淆词辨析任务：{outdir}')
     if model:
         step4_semantic_tasks.answer_with(model, outdir, checked, kind='检查', check=validate)

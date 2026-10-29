@@ -246,6 +246,8 @@ class ConfusablePair(db.Model):
     difficulty_level = db.Column(db.Integer, default=1)
     # 辨析题（论文 3.2.4）：JSON 数组 [{stem, options, correct_answer}]，由 scripts/import_hsk4_batches.py 导入
     questions = db.Column(db.Text)
+    # 易混淆词（word2）的 HSK 等级：4 是另一个四级词，两个词都要学习期复习完才辨析；空值按一至三级
+    word2_level = db.Column(db.Integer)
 
 class ConfusableExerciseRecord(db.Model):
     __tablename__ = 'confusable_exercise_records'
@@ -493,8 +495,10 @@ def remaining_review_types(user_id, word_id):
 
 def word_ready_for_contrast(user_id, word_id, is_target):
     """论文 2.2.4：目标词与易混淆词先分开学，「分别掌握到一定程度后」再对比学习。「一定程度」（作者确定）：
-    - 四级目标词：学习期复习完（表 4.2 的次数达标，即交给 SM-2 巩固的时候），按档位是学后 3–14 天；
-    - 一至三级易混淆词：学习者以前学过，学过并复习过一次即可。
+    - 四级词（目标词，以及四级的易混淆词）：学习期复习完（表 4.2 的次数达标，即交给 SM-2 巩固的时候），
+      按档位是学后 3–14 天；
+    - 一至三级易混淆词：学习者以前学过，学过并复习过一次即可。只有释义题、第一次就答对的词第一次练习就达标，
+      所以看实际复习过的节数（学习期的复习加上达标以后的练习），不看是否达标。
     一次请求里同一个词的复习进度只算一次（一个词可能属于好几对）。"""
     cache = g.setdefault('contrast_state', {})
     key = (str(user_id), word_id)
@@ -503,7 +507,9 @@ def word_ready_for_contrast(user_id, word_id, is_target):
     state = cache[key]
     if not state:
         return False
-    return state['completed'] or (not is_target and state['reviews_done'] >= 1)
+    if is_target:
+        return state['completed']
+    return state['reviews_done'] + state['after_completion'] >= 1
 
 
 def contrast_passed(user_id, pair_id, questions):
@@ -522,13 +528,14 @@ def contrast_passed(user_id, pair_id, questions):
     return all(latest.get(i) for i in range(len(questions)))
 
 
-def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions):
+def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions, word2_level=None):
     """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast（word1 是四级目标词、word2 是易混淆词，
-    批次导入的词对都是这个顺序），且这一对还没练过关（contrast_passed）；答错的下次练这两个词时再带出。
+    批次导入的词对都是这个顺序；word2_level 为 4 时 word2 也按四级词要求），且这一对还没练过关（contrast_passed）；
+    答错的下次练这两个词时再带出。
     没有辨析题的旧词对没有作答可看，解锁后都算到期，但 for-word 接口会优先带出有题、还没过关的词对。
     辨析题不计入论文表 4.2 的复习次数。"""
     if not (word_ready_for_contrast(user_id, word1_id, is_target=True)
-            and word_ready_for_contrast(user_id, word2_id, is_target=False)):
+            and word_ready_for_contrast(user_id, word2_id, is_target=word2_level == 4)):
         return False
     return not questions or not contrast_passed(user_id, pair_id, questions)
 
@@ -2391,14 +2398,14 @@ CONTRAST_SCHEMA_READY = False
 
 
 def ensure_confusable_pair_columns():
-    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions，
+    """为旧数据库补齐辨析题相关的列和索引：confusable_pairs.questions、word2_level，
     confusable_exercise_records 的题号、版本号、所选答案、作答编号，以及作答编号的唯一索引。
     必须在第一次查询这两个模型之前执行。加列失败（如别的进程正持有写锁）时再看一次列是否已由别的进程加上。
     做不完时不中断启动（后面还有认证迁移、推荐引擎等初始化），只把 CONTRAST_SCHEMA_READY 置为假：
     辨析不再带出，作答接口返回 503。"""
     global CONTRAST_SCHEMA_READY
     wanted = {
-        'confusable_pairs': [('questions', 'TEXT')],
+        'confusable_pairs': [('questions', 'TEXT'), ('word2_level', 'INTEGER')],
         'confusable_exercise_records': [('question_index', 'INTEGER'), ('question_version', 'VARCHAR(16)'),
                                         ('user_answer', 'VARCHAR(50)'), ('attempt_id', 'VARCHAR(64)')],
     }

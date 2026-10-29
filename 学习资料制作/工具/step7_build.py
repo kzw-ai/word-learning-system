@@ -188,20 +188,24 @@ def main(batch, source=None):
         materials.append(material)
         md += checklist_entry(material, sel, notes)
     pairs = []
-    for word, other, stats in step6_check_tasks.confusable_pairs(step2_confusables.words_from_args([batch])):
+    levels = common.hsk_levels()
+    for word, other, stats in step6_check_tasks.confusable_pairs(batch):
         key = step6_check_tasks.pair_key(word, other)
         name = f'{key}.辨析.{source}.json' if source else f'{key}.辨析.json'
         task = json.loads((check_dir / f'{key}.任务.json').read_text(encoding='utf-8'))
         a = common.load_answer(check_dir / name, task, step6_check_tasks.validate_pair)
         corpus = (f"In the HSK Dynamic Composition Corpus, learners made {stats['word1_errors']} mistakes where "
                   f"{word} was needed; {stats['wrote_word2']} of them ({stats['share']:.0%}) used {other} instead.")
+        if back := stats.get('reverse'):
+            corpus += (f" The other way round, of {back['word1_errors']} mistakes where {other} was needed, "
+                       f"{back['wrote_word2']} ({back['share']:.0%}) used {word}.")
         reason = '\n'.join([a['reason'].rstrip(), corpus, 'Common mistakes:'] + [f'· {x}' for x in a['confusion_points']])
         difference = '\n'.join([a['english'].rstrip(), a['difference'].rstrip(), 'Collocations:']
                                 + [f'· {x}' for x in a['collocation_contrast']])
         questions, quiz_notes = pick_quiz(key, word, other, task['quiz_candidates'], a['quiz_checks'])
         pairs.append({'word1': word, 'word2': other, 'reason': reason, 'difference': difference,
                       'examples': '\n'.join(a['examples']), 'tips': a['tips'], 'difficulty_level': a['difficulty_level'],
-                      'questions': questions, 'corpus': stats})
+                      'questions': questions, 'corpus': stats, 'word2_level': levels.get(other)})
         md += [f'## 易混淆词辨析：{word} / {other}', '', '为什么容易混：', ''] + [f'> {x}' for x in reason.splitlines()]
         md += ['', '区别：', ''] + [f'> {x}' for x in difference.splitlines()]
         md += ['', '例句：', ''] + [f'- {x}' for x in a['examples']] + ['', f'提示：{a["tips"]}　难度：{a["difficulty_level"]}', '', '辨析题：', '']

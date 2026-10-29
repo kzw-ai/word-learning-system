@@ -5,7 +5,11 @@
 且这个词是一至三级词。以前手写的词对（论文课件的近义词、开发时补的）用语料库核对后只有「发生 / 发现」
 符合，它也要按流水线重新生成讲解和辨析题；所以凡是不归属任何 HSK4 批次（hsk4_batch_owner）的词对都删掉。
 
-删除前把词对和它们的辨析作答记录存成 JSON（数据库同目录的 backups/ 下）。词本身不动。
+删除前把词对和它们的辨析作答记录存成 JSON（数据库同目录的 backups/ 下，文件名带数据库名和随机编号，
+不覆盖已有文件），留档写完才删除。词本身不动。
+
+在生产库上运行时**先停后端**（pm2 stop learn-backend），删完再启动：作答接口先查词对、后写记录，
+后端运行时删除可能和一条在途的作答交错，留下指向已删词对、又不在留档里的记录。
 
 用法：
     python3 scripts/prune_confusable_pairs.py            # 只列出会删什么
@@ -15,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import sys
 from datetime import datetime
@@ -62,8 +67,10 @@ def prune(db_path=DB_PATH, apply=False):
                 return pairs, None
             backup_dir = Path(db_path).resolve().parent / 'backups'
             backup_dir.mkdir(exist_ok=True)
-            archive = backup_dir / f"confusable_pairs_removed.{datetime.now():%Y%m%d-%H%M%S}.json"
-            archive.write_text(json.dumps(pairs, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+            archive = backup_dir / (f"confusable_pairs_removed.{Path(db_path).stem}."
+                                    f"{datetime.now():%Y%m%d-%H%M%S}.{secrets.token_hex(3)}.json")
+            with open(archive, 'x', encoding='utf-8') as f:  # 独占创建：同名文件已存在就报错，不覆盖
+                json.dump(pairs, f, ensure_ascii=False, indent=2, default=str)
             ids = [(p['id'],) for p in pairs]
             conn.executemany('DELETE FROM confusable_exercise_records WHERE pair_id = ?', ids)
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hsk4_batch_owner'").fetchone():

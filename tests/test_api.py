@@ -1137,6 +1137,43 @@ class TestConfusableContrast:
                 mod.db.session.delete(mod.db.session.get(mod.Character, char_id))
                 mod.db.session.commit()
 
+    def test_confusable_word_done_on_first_practice_still_needs_a_review(self, anon_client, pair):
+        # 没有素材的词第一次练习就达标（没有要复习的题型），但还没复习过
+        pair_id, other = pair
+        learner = _learner('contrastnoreview')
+        for n in range(3):
+            self._practise(anon_client, learner, 1, f's-contrast-n{n}')
+        self._practise(anon_client, learner, other, 's-contrast-n3')
+        assert self._offered(anon_client, learner) is None, '易混淆词达标了，但一次都没复习'
+        self._practise(anon_client, learner, other, 's-contrast-n4')
+        assert self._offered(anon_client, learner) == pair_id, '达标以后又练过一次，算复习过'
+
+    def test_hsk4_confusable_must_finish_its_learning_phase(self, app, anon_client, pair):
+        import app_phase as mod
+        pair_id, other = pair
+        with app.app_context():
+            mod.db.session.get(mod.ConfusablePair, pair_id).word2_level = 4
+            # 有了字才出得了释义题；第一次答错要复习 6 次
+            char = mod.Character(character='想', pinyin='xiǎng', definition='to think', audio='', word_id=other)
+            mod.db.session.add(char)
+            mod.db.session.commit()
+            char_id = char.id
+        try:
+            learner = _learner('contrasthsk4')
+            for n in range(3):
+                self._practise(anon_client, learner, 1, f's-contrast-h{n}')
+            self._practise(anon_client, learner, other, 's-contrast-h3', correct=False)
+            for n in range(4, 9):
+                self._practise(anon_client, learner, other, f's-contrast-h{n}')
+            assert self._offered(anon_client, learner) is None, '四级的易混淆词复习了 5 次，还差 1 次'
+            self._practise(anon_client, learner, other, 's-contrast-h9')
+            assert self._offered(anon_client, learner) == pair_id, '两个四级词都学习期复习完'
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.Character, char_id))
+                mod.db.session.get(mod.ConfusablePair, pair_id).word2_level = None
+                mod.db.session.commit()
+
     def test_passing_the_quiz_stops_offering_until_a_wrong_answer(self, anon_client, pair):
         pair_id, other = pair
         learner = _learner('contrastpass')
@@ -1324,7 +1361,7 @@ class TestHsk4BatchImport:
         q = [{'question_type': 'confusable', 'stem': '我 ( ) 。', 'options': ['甲乙', '丙丁'], 'correct_answer': '甲乙'}]
         old_pair = {'word1': '甲乙', 'word2': '丙丁', 'reason': 'new', 'difference': 'd', 'examples': 'e', 'tips': 't',
                     'difficulty_level': 2, 'questions': q}
-        new_pair = dict(old_pair, word1='揣摩', word2='推敲', reason='batch')
+        new_pair = dict(old_pair, word1='揣摩', word2='推敲', reason='batch', word2_level=4)
         words = [self._word('揣摩', '揣摩'), self._word('推敲', '推敲')]
         write = lambda: path.write_text(json.dumps({'batch': '辨析批', 'status': imp.APPROVED, 'words': words,
                                                     'confusable_pairs': [old_pair, new_pair]}, ensure_ascii=False),
@@ -1365,7 +1402,8 @@ class TestHsk4BatchImport:
             reason, questions = conn.execute('SELECT reason, questions FROM confusable_pairs WHERE word1_id = ?', (ids[0],)).fetchone()
             assert (reason, json.loads(questions)) == ('old', [])
             known = imp.hanzi_map(conn)
-            assert conn.execute('SELECT reason FROM confusable_pairs WHERE word1_id = ?', (known['揣摩'],)).fetchone() == ('batch v2',)
+            assert conn.execute('SELECT reason, word2_level FROM confusable_pairs WHERE word1_id = ?',
+                                (known['揣摩'],)).fetchone() == ('batch v2', 4), '易混淆词等级一起写入'
         finally:
             conn.close()
 

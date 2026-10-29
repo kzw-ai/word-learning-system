@@ -172,7 +172,8 @@ def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混
             problems.append(f"义项「{s['definition']}」成立的搭配不足两条（{len(s['collocations'])} 条）")
     exercises = None
     if usable:
-        exercises, notes = build_exercises(word, kept, confusables, pool)
+        # 释义题的干扰项只用一至三级的易混淆词（pool 就是一至三级词）：四级的易混淆词学习者可能还没学
+        exercises, notes = build_exercises(word, kept, [c for c in confusables if c in pool], pool)
         problems += notes
     return {
         'word': word, 'hsk_level': candidates['hsk_level'], 'rank': rank, 'tier': tier,

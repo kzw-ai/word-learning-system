@@ -232,15 +232,6 @@ def task_hash(task):
     return hashlib.sha256(json.dumps(task, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def batch_file(sub, batch, name):
-    """2_加工结果/<sub>/<批>/<name>；本批没有时用别的批次里的（易混淆词只在第一次出现的那批做，后面的批次辨析时要用它）"""
-    path = OUT / sub / batch / name
-    if path.exists():
-        return path
-    others = sorted((OUT / sub).glob(f'*/{name}'))
-    return others[0] if others else path
-
-
 def write_json(path, data):
     """先写临时文件再改名，中途出错不会留下写了一半的文件。"""
     tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')

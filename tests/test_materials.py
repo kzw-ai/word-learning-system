@@ -135,8 +135,8 @@ class TestSupplementMaterials:
 class TestPruneConfusablePairs:
     """辨析词对只来自学习资料流水线：不归属批次的旧词对留档后删除"""
 
-    def _db(self, tmp_path):
-        db = tmp_path / 'words_extended.db'
+    def _db(self, tmp_path, name='words_extended.db'):
+        db = tmp_path / name
         conn = sqlite3.connect(db)
         conn.executescript('''
             CREATE TABLE word (id INTEGER PRIMARY KEY, pinyin TEXT, definition TEXT);
@@ -174,3 +174,8 @@ class TestPruneConfusablePairs:
         assert conn.execute('SELECT pair_id FROM confusable_exercise_records').fetchall() == [(3,)]
         assert conn.execute('SELECT kind, ref_id FROM hsk4_batch_owner').fetchall() == [('pair', 3)]
         assert prune_confusable_pairs.prune(db, apply=True) == ([], None), '再运行没有要删的'
+
+    def test_archives_of_two_databases_do_not_overwrite_each_other(self, tmp_path):
+        import prune_confusable_pairs  # pyrefly: ignore
+        archives = [prune_confusable_pairs.prune(self._db(tmp_path, name), apply=True)[1] for name in ('a.db', 'b.db')]
+        assert archives[0] != archives[1] and all(a.exists() for a in archives), '同一秒、同一目录也各留一份'

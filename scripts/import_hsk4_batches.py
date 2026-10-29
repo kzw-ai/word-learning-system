@@ -39,12 +39,14 @@ def load_batches(include_unreviewed=False):
 
 
 def ensure_schema(conn):
-    """归属表；confusable_pairs 加 questions 列（辨析题，论文 3.2.4）。应用启动时已补过列，这里给单独运行时兜底。"""
+    """归属表；confusable_pairs 加 questions（辨析题，论文 3.2.4）、word2_level（易混淆词等级）列。
+    应用启动时已补过列，这里给单独运行时兜底。"""
     conn.execute('''CREATE TABLE IF NOT EXISTS hsk4_batch_owner (
         kind TEXT NOT NULL, ref_id INTEGER NOT NULL, batch TEXT NOT NULL, PRIMARY KEY (kind, ref_id))''')
     columns = {row[1] for row in conn.execute('PRAGMA table_info(confusable_pairs)')}
-    if columns and 'questions' not in columns:
-        conn.execute('ALTER TABLE confusable_pairs ADD COLUMN questions TEXT')
+    for column, ddl in (('questions', 'TEXT'), ('word2_level', 'INTEGER')):
+        if columns and column not in columns:
+            conn.execute(f'ALTER TABLE confusable_pairs ADD COLUMN {column} {ddl}')
 
 
 def owners(conn, kind):
@@ -119,13 +121,14 @@ def sync_exercises(conn, word_id, deck, exercises, now):
 def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
     """返回 'inserted' / 'updated' / None"""
     questions = json.dumps(p.get('questions', []), ensure_ascii=False)
-    fields = (p['reason'], p['difference'], p['examples'], p['tips'], p['difficulty_level'], questions)
-    row = conn.execute('''SELECT id, reason, difference, examples, tips, difficulty_level, questions FROM confusable_pairs
+    fields = (p['reason'], p['difference'], p['examples'], p['tips'], p['difficulty_level'], questions, p.get('word2_level'))
+    row = conn.execute('''SELECT id, reason, difference, examples, tips, difficulty_level, questions, word2_level
+        FROM confusable_pairs
         WHERE (word1_id = ? AND word2_id = ?) OR (word1_id = ? AND word2_id = ?)''', (id1, id2, id2, id1)).fetchone()
     if row is None:
         pair_id = conn.execute('''INSERT INTO confusable_pairs
-            (word1_id, word2_id, reason, difference, examples, tips, difficulty_level, questions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (id1, id2, *fields)).lastrowid
+            (word1_id, word2_id, reason, difference, examples, tips, difficulty_level, questions, word2_level)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (id1, id2, *fields)).lastrowid
         claim(conn, 'pair', pair_id, batch)
         pair_owners[pair_id] = batch
         return 'inserted'
@@ -134,7 +137,7 @@ def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
     if owner == batch:
         if tuple(row[1:]) != fields:
             conn.execute('''UPDATE confusable_pairs SET reason = ?, difference = ?, examples = ?, tips = ?,
-                difficulty_level = ?, questions = ? WHERE id = ?''', (*fields, pair_id))
+                difficulty_level = ?, questions = ?, word2_level = ? WHERE id = ?''', (*fields, pair_id))
             return 'updated'
         return None
     if owner is not None:
