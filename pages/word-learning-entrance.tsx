@@ -328,7 +328,8 @@ export default function Component() {
 
           {/* 题目卡和按钮是一组，在剩下的高度里上下居中；放不下时这一块滚动 */}
           <div className="flex-1 min-h-0 px-5 overflow-y-auto custom-scrollbar scroll-fade flex flex-col">
-            <div className="my-auto pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+            {/* 全部学完时卡片靠上（只有一张卡，居中会悬在半空）；平时题目组居中 */}
+            <div className={`${caughtUp ? 'mt-2' : 'my-auto'} pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]`}>
               {caughtUp ? (
                 <div className="glass-panel p-5 rounded-3xl space-y-2">
                   <p className="text-lg font-bold text-slate-900 leading-snug">You’re all caught up</p>
@@ -337,6 +338,13 @@ export default function Component() {
                       ? `Your next review is ${formatReviewTime(caughtUp.nextReviewAt)}.`
                       : 'There are no new words to learn right now.'}
                   </p>
+                  {/* 不能停在这里没路走：去看板看进度 */}
+                  <Button
+                    onClick={() => router.push('/learning-dashboard')}
+                    className="w-full h-12 mt-3 rounded-2xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white text-base font-bold shadow-md shadow-indigo-500/20"
+                  >
+                    See my progress
+                  </Button>
                 </div>
               ) : (
                 <>

@@ -25,7 +25,8 @@ export default function Document() {
         {/* 视口设置 */}
         {/* 允许双指缩放（看清汉字笔画、无障碍）；viewport-fit=cover 才能让 iOS 上的
             env(safe-area-inset-*) 取到真实的刘海/底部安全区 */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        {/* interactive-widget：安卓 Chrome 弹出键盘时页面高度跟着缩短，吸底的按钮（如练习的 CHECK）停在键盘上方；iOS 不认，不受影响 */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
       </Head>
       <body>
         <Main />

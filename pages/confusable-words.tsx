@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Lightbulb, PenLine, Search, Star } from 'lucide-react';
 import AudioPlayer from '@/components/AudioPlayer';
 import { buildApiUrl } from '@/src/lib/apiClient';
 import { authenticatedPost } from '@/src/lib/authClient';
@@ -330,7 +330,7 @@ export default function ConfusableWordsPage() {
     }
 
     return (
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-5 space-y-4 pb-4">
+      <div className="flex-1 overflow-y-auto custom-scrollbar scroll-fade px-5 space-y-4 pb-4">
         {/* 词对比较 */}
         <div className="grid grid-cols-2 gap-3">
           {/* 词1 */}
@@ -380,7 +380,7 @@ export default function ConfusableWordsPage() {
 
         {/* 混淆原因 */}
         <div className="glass-panel rounded-2xl p-4 bg-amber-50/70">
-          <h4 className="text-sm font-semibold text-amber-800 mb-1.5">💡 Why they get mixed up</h4>
+          <h4 className="text-sm font-semibold text-amber-800 mb-1.5 flex items-center gap-1.5"><Lightbulb size={15} aria-hidden="true" /> Why they get mixed up</h4>
           <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{currentPair.reason}</p>
         </div>
 
@@ -388,7 +388,7 @@ export default function ConfusableWordsPage() {
         {!showAnswer && (
           <Button
             onClick={showComparison}
-            className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
+            className="w-full h-12 rounded-2xl border-none text-white font-bold text-base bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] shadow-md shadow-indigo-500/20 transition-all duration-200"
           >
             <Search size={16} className="mr-2" /> See the full comparison
           </Button>
@@ -398,7 +398,7 @@ export default function ConfusableWordsPage() {
         {showAnswer && (
           <>
             <div className="glass-panel rounded-2xl p-4">
-              <h4 className="text-sm font-semibold text-gray-800 mb-1.5">📖 The difference</h4>
+              <h4 className="text-sm font-semibold text-slate-800 mb-1.5 flex items-center gap-1.5"><BookOpen size={15} aria-hidden="true" /> The difference</h4>
               <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
                 {currentPair.difference}
               </pre>
@@ -406,7 +406,7 @@ export default function ConfusableWordsPage() {
 
             {currentPair.examples && (
               <div className="glass-panel rounded-2xl p-4 bg-emerald-50/70">
-                <h4 className="text-sm font-semibold text-emerald-800 mb-1.5">📝 Example sentences</h4>
+                <h4 className="text-sm font-semibold text-emerald-800 mb-1.5 flex items-center gap-1.5"><PenLine size={15} aria-hidden="true" /> Example sentences</h4>
                 <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
                   {currentPair.examples}
                 </pre>
@@ -415,7 +415,7 @@ export default function ConfusableWordsPage() {
 
             {currentPair.tips && (
               <div className="glass-panel rounded-2xl p-4 bg-indigo-50/70">
-                <h4 className="text-sm font-semibold text-indigo-800 mb-1.5">💡 Memory tip</h4>
+                <h4 className="text-sm font-semibold text-indigo-800 mb-1.5 flex items-center gap-1.5"><Lightbulb size={15} aria-hidden="true" /> Memory tip</h4>
                 <p className="text-sm text-gray-700 leading-relaxed">{currentPair.tips}</p>
               </div>
             )}
@@ -425,8 +425,11 @@ export default function ConfusableWordsPage() {
         )}
 
         {/* 难度标识 */}
-        <div className="text-center text-sm text-gray-400">
-          Difficulty: {'⭐'.repeat(currentPair.difficulty_level)}
+        <div className="flex items-center justify-center gap-1 text-sm text-slate-600" aria-label={`Difficulty ${currentPair.difficulty_level}`}>
+          Difficulty
+          {Array.from({ length: currentPair.difficulty_level }, (_, i) => (
+            <Star key={i} size={14} className="text-amber-500 fill-amber-400" aria-hidden="true" />
+          ))}
         </div>
       </div>
     );
@@ -435,25 +438,24 @@ export default function ConfusableWordsPage() {
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] flex flex-col relative z-20">
-          {/* Header */}
-          <div className="px-5 mb-4">
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
+          {/* 顶栏和其他页一样 */}
+          <div className="px-5 mb-3">
             <div className="flex items-center justify-between">
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => window.history.back()}
-                className="h-9 px-3 rounded-xl text-gray-600 bg-white/50 hover:bg-white/80 border border-white/60"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
               >
                 <ArrowLeft size={16} className="mr-1" /> Back
               </Button>
-              <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
-                Easily confused words
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                Easily confused
               </h1>
-              <div className="w-[72px]" />
+              <div className="w-[76px]" />
             </div>
             {!loading && !error && pairs.length > 0 && (
-              <p className="text-sm text-center text-indigo-500 font-medium mt-2">
+              <p className="text-sm text-center text-slate-600 font-medium mt-2 tabular-nums">
                 Pair {currentIndex + 1} of {pairs.length}
               </p>
             )}
@@ -464,11 +466,12 @@ export default function ConfusableWordsPage() {
 
           {/* Navigation */}
           {!loading && !error && pairs.length > 0 && (
-            <div className="px-5 pt-3 space-y-2.5">
+            <div className="px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)] space-y-2.5 bg-slate-100/95 border-t border-slate-200/70 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.25)]">
               {fromExercise && (
+                // 展开对比之前「See the full comparison」是主按钮，这里是次要的；展开以后它才是主按钮
                 <Button
                   onClick={() => router.push(afterWordRoute(session))}
-                  className="w-full h-12 rounded-2xl border-none text-white font-bold tracking-wide text-sm bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-200 transition-all duration-300"
+                  className={showAnswer ? 'w-full h-12 rounded-2xl border-none text-white font-bold text-base bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] shadow-md shadow-indigo-500/20 transition-all duration-200' : 'w-full h-12 rounded-2xl bg-white/80 hover:bg-white border border-slate-200 text-indigo-700 font-semibold text-base shadow-none'}
                 >
                   {session.reviewMode ? 'Done · continue reviewing' : 'Done · see my progress'} <ArrowRight size={16} className="ml-1.5" />
                 </Button>
@@ -476,7 +479,7 @@ export default function ConfusableWordsPage() {
               <div className="flex gap-3">
                 <Button
                   variant="ghost"
-                  className="flex-1 h-11 rounded-2xl text-gray-700 bg-white/60 hover:bg-white/90 border border-white/60 disabled:opacity-40 transition-all"
+                  className="flex-1 h-11 rounded-2xl text-slate-700 bg-white/80 hover:bg-white border border-slate-200/70 disabled:opacity-40 transition-all"
                   onClick={handlePrevious}
                   disabled={currentIndex === 0}
                 >
@@ -484,7 +487,7 @@ export default function ConfusableWordsPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  className="flex-1 h-11 rounded-2xl text-gray-700 bg-white/60 hover:bg-white/90 border border-white/60 disabled:opacity-40 transition-all"
+                  className="flex-1 h-11 rounded-2xl text-slate-700 bg-white/80 hover:bg-white border border-slate-200/70 disabled:opacity-40 transition-all"
                   onClick={handleNext}
                   disabled={currentIndex === pairs.length - 1}
                 >
