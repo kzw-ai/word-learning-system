@@ -26,6 +26,15 @@ import step5_select
 import step6_check_tasks
 import step7_build
 
+# 作者审核后定下的个别题（2026-10-30，见 .review/填字题预审-可疑题.md）：学习页例句做出的填字题不合适时，
+# PREVIOUS 保留原来的填字题（这一步不再改它）；给一句句子的，用这句出题（挖空规则不变，同样要问 other_fits）
+PREVIOUS = 'previous'
+OVERRIDES = {
+    '各': (PREVIOUS, '例句「大家各付各的钱」里答案就是前一个字'),
+    '印象': (PREVIOUS, '例句前半句就有「第一印象」'),
+    '页': ('每天花半个小时来读书，一个月就可以读300页，差不多就是一本书了。', '学习页例句和原来的题里都另有「页」字；改用候选清单里的句子'),
+}
+
 INSTRUCTIONS = """下面是一道给学习新 HSK 四级词汇的外国学习者（中级）做的填字题：句子里挖掉了目标词 word 的一个字，括号 ( ) 处
 就是挖掉的位置，正确答案是 answer。请判断：
 1. other_fits：除了 answer，还有哪些常用汉字放进括号也能组成通顺、自然的句子（意思可以不同）。没有就空列表；只列单个汉字，不要列 answer。
@@ -61,16 +70,27 @@ def tidy(answer, task):
 
 
 def fill_from_example(word, sel):
-    """主义项的例句出的填字题（同第 5 步）；例句里目标词不是只出现一次的完整词时 None"""
-    e = sel['senses'][0]['example'] if sel['senses'] else None
-    if not e:
+    """主义项的例句出的填字题（同第 5 步）；例句里目标词不是只出现一次的完整词时 None。
+    OVERRIDES 里保留原题的词也是 None；指定了句子的用那句出题（override 记下理由）"""
+    override = OVERRIDES.get(word)
+    if override and override[0] == PREVIOUS:
         return None
-    s, tokens = e['sentence'], e.get('tokens') or common.tokenize(e['sentence'])
+    if override:
+        s = override[0]
+        tokens = common.tokenize(s)
+    else:
+        e = sel['senses'][0]['example'] if sel['senses'] else None
+        if not e:
+            return None
+        s, tokens = e['sentence'], e.get('tokens') or common.tokenize(e['sentence'])
     at = step5_select.blank_position(s, tokens, word)
     if at is None:
         return None
-    return {'question_type': 'fill_word', 'stem': (s[:at] + step5_select.BLANK + s[at + 1:]).strip(), 'correct_answer': s[at],
-            'sentence': s, 'same_as_example': True, 'from_example': True}
+    fill = {'question_type': 'fill_word', 'stem': (s[:at] + step5_select.BLANK + s[at + 1:]).strip(), 'correct_answer': s[at],
+            'sentence': s, 'same_as_example': not override, 'from_example': True}
+    if override:
+        fill['override'] = override[1]
+    return fill
 
 
 def task_name(word):
@@ -82,9 +102,10 @@ def task_for(word, fill):
             'stem': fill['stem'], 'answer': fill['correct_answer']}
 
 
-def question(fill, check):
-    """素材里的填字题（同第 7 步）"""
-    q = {'question_type': 'fill_word', 'stem': fill['stem'], 'correct_answer': fill['correct_answer'], 'options': []}
+def question(fill, check, word=''):
+    """素材里的填字题（同第 7 步；options 放判分时也算对的另一种写法，见 step7_build.ALSO_CORRECT）"""
+    q = {'question_type': 'fill_word', 'stem': fill['stem'], 'correct_answer': fill['correct_answer'],
+         'options': list(step7_build.ALSO_CORRECT.get(word, []))}
     if check.get('other_fits'):
         q['hint'] = step7_build.fill_hint(q['correct_answer'], check['hint'], check['other_fits'])
         q['stem'] = q['stem'].replace('( )', f"( {q['hint']} )", 1)
@@ -118,7 +139,8 @@ def main(batch, model=None, apply=False, source='deepseek-flash'):
         if new is None or (old and old['sentence'] == new['sentence']):
             kept.append(word)
             continue
-        new['previous'] = {k: old[k] for k in ('stem', 'sentence') if old and k in old}
+        # 原来的题（第 5 步出的）一直记在 previous 里，改过几次都不丢
+        new['previous'] = (old or {}).get('previous') or {k: old[k] for k in ('stem', 'sentence', 'original') if old and k in old}
         sel['exercises']['fill_word'] = new
         common.write_json(path, sel)
         common.write_json(check_dir / f'{task_name(word)}.任务.json', task_for(word, new))
@@ -150,10 +172,11 @@ def apply_batch(batch, words, source):
     for word in words:
         sel = json.loads((sel_dir / f'{word}.json').read_text(encoding='utf-8'))
         fill = (sel['exercises'] or {}).get('fill_word')
-        if not fill or not fill.get('from_example'):
+        # 改用了例句的，和作者定下保留原题的（素材里可能还是之前改过的例句题，要换回来）
+        if not fill or not (fill.get('from_example') or OVERRIDES.get(word, ('',))[0] == PREVIOUS):
             continue
         check = load_check(batch, word, fill, source)
-        q = question(fill, check)
+        q = question(fill, check, word)
         for doc in docs.values():
             for w in doc['words']:
                 if w['hanzi'] != word:
@@ -162,10 +185,15 @@ def apply_batch(batch, words, source):
                     if item['question_type'] == 'fill_word':
                         w['exercises'][i] = q
         n += 1
-        prev = fill.get('previous', {}).get('stem', '（原来没有填字题）')
+        prev = fill.get('previous', {}).get('stem', '（原来没有填字题）') if fill.get('from_example') else fill['stem']
         fits = '、'.join(check.get('other_fits') or []) or '无'
         md += [f'## {word}', '', f'- 原来：{prev}', f"- 现在：{q['stem']}　答案 {q['correct_answer']}",
-               f'- 括号里也能填：{fits}' + (f"（已给提示 {q['hint']}）" if q.get('hint') else ''), '']
+               f'- 括号里也能填：{fits}' + (f"（已给提示 {q['hint']}）" if q.get('hint') else '')]
+        if word in OVERRIDES:
+            md.append(f'- 作者审核后改：{OVERRIDES[word][1]}' + ('，保留原来的题' if OVERRIDES[word][0] == PREVIOUS else ''))
+        if q['options']:
+            md.append(f"- 判分时也算对：{'、'.join(q['options'])}")
+        md.append('')
     for p, doc in docs.items():
         common.write_json(p, doc)
     (common.REVIEW / batch / '填字题改用例句.md').write_text('\n'.join(md) + '\n', encoding='utf-8')

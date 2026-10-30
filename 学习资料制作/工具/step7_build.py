@@ -52,11 +52,17 @@ def initial(syllable_char):
     return pinyin(syllable_char, style=Style.INITIALS, strict=False)[0][0]
 
 
+# 填字题里另一种也对的写法，判分时也算对：素材里填字题的 options 放的就是这些字（选择题的 options 才是选项）。
+# 作者 2026-10-30 定：「师傅」「师父」读音相同（shīfu），换什么句子「父」都能填
+ALSO_CORRECT = {'师傅': ['父']}
+
+
 def fill_hint(answer, full_pinyin, other_fits):
     """论文 3.2.4：填字题括号里能填不止一个字时，给出答案那个字的声母，保证只能填这一个字。
-    别的能填的字声母相同（如「原 ( ) 」的「因 yīn / 由 yóu」）或答案是零声母时，声母区分不开，改给完整拼音。"""
+    别的能填的字声母相同（如「原 ( ) 」的「因 yīn / 由 yóu」）或答案是零声母时，声母区分不开，改给完整拼音。
+    学习者看到的提示是「拼音以 z 开头」，所以别的字的声母以它开头也算相同（「租 z」和「找 zh」都以 z 开头）。"""
     ini = initial(answer)
-    if ini and all(initial(c) != ini for c in other_fits):
+    if ini and all(not initial(c).startswith(ini) for c in other_fits):
         return ini
     return full_pinyin
 
@@ -117,7 +123,7 @@ def build(word, sel, check):
     if ex.get('fill_word'):
         fill = check.get('fill_word') or {}
         q = {k: ex['fill_word'][k] for k in ('question_type', 'stem', 'correct_answer')}
-        q['options'] = []
+        q['options'] = list(ALSO_CORRECT.get(word, []))
         if fill.get('other_fits'):
             q['hint'] = fill_hint(q['correct_answer'], fill['hint'], fill['other_fits'])
             q['stem'] = q['stem'].replace('( )', f"( {q['hint']} )", 1)

@@ -174,6 +174,23 @@ class TestFillFromExample:
         assert q['stem'] == '人 ( y ) 人之间应该多一些宽容。' and q['hint'] == 'y'
         # 别的能填的字声母相同时给完整拼音（论文 3.2.4）
         assert s6b.question({'stem': '原 ( ) 是什么？', 'correct_answer': '因'}, {'other_fits': ['由'], 'hint': 'yīn'})['hint'] == 'yīn'
+        # 提示写的是「拼音以 z 开头」：zh 也以 z 开头，区分不开（租 / 找）；反过来 zh 能和 z 区分开
+        assert s6b.question({'stem': '他们就 ( ) 了一个房间。', 'correct_answer': '租'}, {'other_fits': ['找'], 'hint': 'zū'})['hint'] == 'zū'
+        assert s6b.question({'stem': '他们就 ( ) 了一个房间。', 'correct_answer': '找'}, {'other_fits': ['租'], 'hint': 'zhǎo'})['hint'] == 'zh'
+
+    def test_author_overrides(self):
+        # 作者定下保留原题的：这一步不改
+        assert s6b.fill_from_example('各', self.sel('大家各付各的钱。', ['大家', '各', '付', '各', '的', '钱', '。'])) is None
+        # 指定了句子的：用那句出题，不用学习页例句，并记下理由
+        fill = s6b.fill_from_example('页', self.sel('如果3分钟读一页书，半个小时就可以读10页。', ['如果']))
+        assert fill['stem'] == '每天花半个小时来读书，一个月就可以读300 ( ) ，差不多就是一本书了。'
+        assert fill['correct_answer'] == '页' and fill['override'] and not fill['same_as_example']
+
+    def test_also_correct_goes_into_options(self):
+        # 「师傅」「师父」同音：判分时「父」也算对，放在填字题的 options 里
+        fill = {'stem': '我师 ( ) 教我怎么用这个机器。', 'correct_answer': '傅'}
+        assert s6b.question(fill, {'other_fits': ['父'], 'hint': 'fu'}, '师傅')['options'] == ['父']
+        assert s6b.question({'stem': '原 ( ) 是什么？', 'correct_answer': '因'}, {'other_fits': []}, '原因')['options'] == []
 
     def test_validate_and_tidy(self):
         task = {'answer': '与'}
