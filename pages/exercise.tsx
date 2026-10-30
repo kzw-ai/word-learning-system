@@ -542,7 +542,7 @@ const Exercise = () => {
           <div className="flex-1 px-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
                 <div className="space-y-3">
                   {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
-                  {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
+                  {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} currentWordId={learningSession.wordId} />}
                   
                 {/* 题目卡：上面一行小字是题型说明和题号，题干放大，拼音提示跟在题干下面 */}
                 <div className="glass-panel rounded-2xl p-4 short:p-3">

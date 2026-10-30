@@ -8,9 +8,11 @@ import { Clock, X } from 'lucide-react';
 interface ReviewReminderProps {
   userId: string;
   showInline?: boolean;
+  /** 正在学的词：练到一半时它也算「到期」（好让中途退出后能接着练），不该提醒学习者去复习它 */
+  currentWordId?: number | null;
 }
 
-const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = false }) => {
+const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = false, currentWordId = null }) => {
   const router = useRouter();
   const [dueCount, setDueCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -19,16 +21,17 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
   useEffect(() => {
     if (!userId) return;
     fetchDueReviews();
-  }, [userId]);
+  }, [userId, currentWordId]);
 
   const fetchDueReviews = async () => {
     try {
       setLoading(true);
-      const response = await fetch(buildApiUrl(`/api/review/user/${userId}/due?limit=1`));
+      // 要数个数，不能只取 1 条（以前 limit=1，几个词到期都显示「1 个」）
+      const response = await fetch(buildApiUrl(`/api/review/user/${userId}/due?limit=100`));
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setDueCount(result.data.length);
+        setDueCount(result.data.filter((review: { word_id: number }) => review.word_id !== currentWordId).length);
       }
     } catch (err) {
       console.error('获取复习提醒失败:', err);
