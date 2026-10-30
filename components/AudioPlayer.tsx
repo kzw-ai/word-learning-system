@@ -49,6 +49,19 @@ export default function AudioPlayer({
     }
   }, [autoPlay, text]);
 
+  // 同一个按钮换了地址（换题后同一位置的选项）：丢掉旧的音频，下次播放按新地址重建
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        const audio = audioRef.current;
+        audio.oncanplay = audio.onplay = audio.onended = audio.onerror = null;
+        audio.pause();
+        audioRef.current = null;
+        setIsPlaying(false);
+      }
+    };
+  }, [audioUrl]);
+
   // 清理：卸载后迟到的媒体事件不能再去朗读（会读出上一页的内容、打断新页面的朗读）
   useEffect(() => {
     mountedRef.current = true;

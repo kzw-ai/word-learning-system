@@ -36,6 +36,16 @@ const normaliseAnswer = (value: string): string =>
     .replace(/　/g, ' ')
     .toLowerCase();
 
+/** 再考时选项换个顺序，不能靠记位置 */
+const shuffled = <T,>(items: T[]): T[] => {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+};
+
 const Exercise = () => {
   const router = useRouter();
   const isReviewMode = router.query.mode === 'review';
@@ -91,6 +101,15 @@ const Exercise = () => {
     if (showFeedback) feedbackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [showFeedback]);
   const [questionIndex, setQuestionIndex] = useState(0);
+  // 答错再练：选择题第一次选错先不揭晓，划掉选错的项再选一次（eliminated）；填字题揭晓后可以照着再写一遍
+  // （copyMode）；第一次就答错的题在这一轮最后再考一次（repeatQueue，选项换顺序）。
+  // 同一道题每交一次都记一条作答（attemptCount），复习日程只看第一次（后端 session_first_answers）
+  const [baseCount, setBaseCount] = useState(0);
+  const [eliminated, setEliminated] = useState<string[]>([]);
+  const [copyMode, setCopyMode] = useState(false);
+  const attemptsRef = useRef<Record<string, number>>({});
+  const repeatQueueRef = useRef<ExerciseQuestion[]>([]);
+  const isRepeat = questionIndex >= baseCount && baseCount > 0;
   const [sessionStartTime] = useState(new Date());
   const [wordId, setWordId] = useState(initialWordId);
   const [wordLabel, setWordLabel] = useState(initialWordLabel);
@@ -155,6 +174,9 @@ const Exercise = () => {
       setWordLabel(effectiveWordLabel);
       setWordDefinition(data.definition ?? '');
       setExerciseQuestions(normalizedQuestions);
+      setBaseCount(normalizedQuestions.length);
+      attemptsRef.current = {};
+      repeatQueueRef.current = [];
       setQuestionIndex(0);
       setCurrentQuestion(normalizedQuestions[0]);
       setSelectedOption('');
@@ -206,8 +228,9 @@ const Exercise = () => {
     updateConfig({ userId });
   }, [updateConfig, userId]);
 
+  // 按本轮原有的题数：一轮最后补上再考的题时题数变了，不能当成又开始了一节
   useEffect(() => {
-    if (!exerciseQuestions.length) {
+    if (!baseCount) {
       return;
     }
 
@@ -215,14 +238,14 @@ const Exercise = () => {
     trackEvent('exercise_session_start', 'exercise', {
       wordId,
       word: wordLabel,
-      totalQuestions: exerciseQuestions.length,
+      totalQuestions: baseCount,
       startTime: sessionStartTime.toISOString()
     });
 
     return () => {
       trackPageLeave('exercise');
     };
-  }, [exerciseQuestions.length, trackEvent, trackPageEnter, trackPageLeave, sessionStartTime, wordId, wordLabel]);
+  }, [baseCount, trackEvent, trackPageEnter, trackPageLeave, sessionStartTime, wordId, wordLabel]);
 
   useEffect(() => {
     if (!exerciseQuestions.length) {
@@ -240,15 +263,18 @@ const Exercise = () => {
     setHandStrokes([]);
     setShowFeedback(false);
     setIsCorrect(false);
+    setEliminated([]);
+    setCopyMode(false);
     startTimer();
 
     trackEvent('question_display', 'exercise', {
       questionId: nextQuestion.id,
       questionType: nextQuestion.type,
       questionIndex: questionIndex + 1,
-      totalQuestions: exerciseQuestions.length
+      totalQuestions: exerciseQuestions.length,
+      repeat: questionIndex >= baseCount
     });
-  }, [exerciseQuestions, questionIndex, startTimer, trackEvent]);
+  }, [exerciseQuestions, questionIndex, baseCount, startTimer, trackEvent]);
 
   // 发音由 AudioPlayer 负责，这里只记录埋点
   const playAudio = (id: string) => {
@@ -342,8 +368,27 @@ const Exercise = () => {
       correct = selectedOption === currentQuestion.correctAnswer;
     }
 
-    setIsCorrect(correct);
-    setShowFeedback(true);
+    const attemptCount = (attemptsRef.current[currentQuestion.id] ?? 0) + 1;
+    attemptsRef.current[currentQuestion.id] = attemptCount;
+    // 第一次就答错的题（再练、再选都不算）一轮最后再考一次；再考的题本身不再排队
+    if (!correct && attemptCount === 1 && !isRepeat) {
+      const repeat = currentQuestion.type === 'fill_word'
+        ? currentQuestion
+        : { ...currentQuestion, options: shuffled(currentQuestion.options) };
+      repeatQueueRef.current = [...repeatQueueRef.current, repeat];
+    }
+    // 选择题第一次选错：先不揭晓，划掉这一项再选（剩下至少两项才有得选）
+    const isChoice = currentQuestion.type !== 'fill_word';
+    const canChooseAgain = isChoice && !correct && eliminated.length === 0
+      && currentQuestion.options.length - 1 >= 2;
+    if (canChooseAgain) {
+      setEliminated([selectedOption]);
+      setSelectedOption('');
+      startTimer();
+    } else {
+      setIsCorrect(correct);
+      setShowFeedback(true);
+    }
 
     const confidenceLevel = currentHesitations === 0 ? 5 : Math.max(1, 5 - currentHesitations);
 
@@ -357,7 +402,8 @@ const Exercise = () => {
       startTime: questionStartTime,
       endTime,
       hesitationCount: currentHesitations,
-      confidenceLevel
+      confidenceLevel,
+      attemptCount
     });
 
     const responseTime = (endTime.getTime() - questionStartTime.getTime()) / 1000;
@@ -369,8 +415,24 @@ const Exercise = () => {
       responseTime,
       hesitationCount: currentHesitations,
       selectedAnswer: userAnswer,
-      correctAnswer: currentQuestion.correctAnswer
+      correctAnswer: currentQuestion.correctAnswer,
+      attemptCount,
+      copy: copyMode,
+      repeat: isRepeat
     });
+  };
+
+  // 填字题答错后照着再写（打）一遍：收起反馈，答案字放在题目卡里对照
+  const handleCopyAgain = () => {
+    trackButtonClick('copy-again-button', fillMode === 'write' ? 'Write it again' : 'Type it again', {
+      questionId: currentQuestion?.id
+    });
+    setCopyMode(true);
+    setShowFeedback(false);
+    setIsCorrect(false);
+    setHandStrokes([]);
+    setFillInAnswer('');
+    startTimer();
   };
 
   const handleContinue = async () => {
@@ -378,6 +440,16 @@ const Exercise = () => {
       questionIndex: questionIndex + 1,
       totalQuestions: exerciseQuestions.length
     });
+
+    // 一轮做完：第一次答错的题接在后面再考一次
+    if (questionIndex === exerciseQuestions.length - 1 && repeatQueueRef.current.length > 0) {
+      const repeats = repeatQueueRef.current;
+      repeatQueueRef.current = [];
+      trackEvent('repeat_round', 'continue-button', { questionIds: repeats.map(q => q.id) });
+      setExerciseQuestions([...exerciseQuestions, ...repeats]);
+      setQuestionIndex(questionIndex + 1);
+      return;
+    }
 
     if (questionIndex < exerciseQuestions.length - 1) {
       trackEvent('next_question', 'continue-button', {
@@ -568,26 +640,34 @@ const Exercise = () => {
                         `${fillMode === 'write' ? 'Write' : 'Type'} the missing character of the word you just learned.`
                       }
                     </h2>
-                    <span className="text-sm font-semibold text-slate-500 shrink-0 tabular-nums" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
-                      {questionIndex + 1} / {exerciseQuestions.length}
-                    </span>
+                    {isRepeat ? (
+                      // 一轮最后再考的题：不接着原来的题号往上数，单独标出来
+                      <span className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 shrink-0 tabular-nums"
+                        aria-label={`Once more: ${questionIndex - baseCount + 1} of ${exerciseQuestions.length - baseCount}`}>
+                        Once more · {questionIndex - baseCount + 1}/{exerciseQuestions.length - baseCount}
+                      </span>
+                    ) : (
+                      <span className="text-sm font-semibold text-slate-500 shrink-0 tabular-nums" aria-label={`Question ${questionIndex + 1} of ${baseCount}`}>
+                        {questionIndex + 1} / {baseCount}
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-2 items-center">
+                    {/* 释义题的题干是英文释义，学习者自己读；不给朗读（以前用浏览器朗读，iPhone 静音时不出声，对学中文也帮助不大） */}
                     <p className="text-lg short:text-base font-bold text-slate-900 leading-snug">{fillHint ? fillHint.stem : currentQuestion.question}</p>
-                    {currentQuestion.type === 'definition' && (
-                      <AudioPlayer
-                        text={currentQuestion.question}
-                        language="en-US"
-                        buttonSize="sm"
-                        onPlay={() => playAudio('question')}
-                      />
-                    )}
                   </div>
                   {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
                   {fillHint?.hint && (
                     <p className="mt-1.5 text-sm text-slate-600">
                       Hint: the pinyin {fillHint.initialOnly ? 'starts with' : 'is'}{' '}
                       <span className="font-semibold text-indigo-700">“{fillHint.hint}”</span>
+                    </p>
+                  )}
+                  {/* 照着再写：答案字放在这里对照（反馈卡已收起） */}
+                  {copyMode && currentQuestion.type === 'fill_word' && !showFeedback && (
+                    <p className="mt-2 flex items-center gap-3 text-sm font-semibold text-slate-700">
+                      {fillMode === 'write' ? 'Copy this character:' : 'Type this character:'}
+                      <span className="text-4xl font-bold text-slate-900 leading-none" lang="zh-CN">{currentQuestion.correctAnswer}</span>
                     </p>
                   )}
                 </div>
@@ -664,10 +744,14 @@ const Exercise = () => {
                     {currentQuestion.options.map((option, index) => {
                       // 答完只留选中的和正确的选项（字母保持原来的位置），题干、答案和反馈小屏上也能同时看到
                       if (showFeedback && option !== currentQuestion.correctAnswer && option !== selectedOption) return null;
-                      let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-2xl transition-colors duration-200 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
+                      let btnClass = `w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-2xl transition-colors duration-200 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 `;
                       const isSelected = selectedOption === option;
-                      
-                      if (showFeedback) {
+                      // 第一次选错的那项：划掉，不能再选
+                      const isEliminated = !showFeedback && eliminated.includes(option);
+
+                      if (isEliminated) {
+                        btnClass += "bg-rose-50/70 border border-rose-200 text-rose-900/70 font-semibold line-through decoration-rose-400";
+                      } else if (showFeedback) {
                         if (option === currentQuestion.correctAnswer) {
                           btnClass += "bg-emerald-700 border border-emerald-700 shadow-sm z-10 text-white font-bold";
                         } else if (isSelected) {
@@ -690,25 +774,33 @@ const Exercise = () => {
                       return (
                         <div key={index} className="relative">
                           <button
-                            disabled={showFeedback}
+                            disabled={showFeedback || isEliminated}
                             onClick={() => handleOptionChange(option)}
                             className={btnClass}
+                            aria-label={isEliminated ? `${letter}. ${option}: not this one` : undefined}
                           >
                             <span className="text-base leading-snug break-words flex items-center">
                               <span className={`mr-3 ${showFeedback && isCorrectOption ? 'text-white' : 'text-indigo-600'}`}>{letter}.</span>
                               <span>{option}</span>
                             </span>
+                            {isEliminated && (
+                              <span className="text-lg font-bold text-rose-700 no-underline" aria-hidden="true">✗</span>
+                            )}
                             {showFeedback && (isCorrectOption || isSelected) && (
                               <span className="text-lg font-bold" aria-label={isCorrectOption ? 'Correct answer' : 'Your answer'}>
                                 {isCorrectOption ? '✓' : '✗'}
                               </span>
                             )}
                           </button>
-                          {/* 与选项按钮并列而非嵌套：<button> 里不能再放 <button> */}
-                          {isHanziOption && !showFeedback && (
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20">
+                          {/* 与选项按钮并列而非嵌套：<button> 里不能再放 <button>。
+                              答完才给发音（正确答案和自己选的那项）：答题前能听，释义题就能凭读音选、绕过认字，
+                              第一次作答的正确率偏高，复习次数跟着变少。先凭字形作答，答完再把音和形连起来 */}
+                          {isHanziOption && showFeedback && (isCorrectOption || isSelected) && (
+                            // 正确答案是深绿底，灰色喇叭看不清：垫一块白底
+                            <div className={`absolute right-3 top-1/2 -translate-y-1/2 z-20 ${isCorrectOption ? 'rounded-xl bg-white/90' : ''}`}>
                               <AudioPlayer
-                                text={option}
+                                text={option.replace(/（[^）]*）/g, '')}
+                                audioUrl={currentQuestion.optionAudio?.[option]}
                                 language="zh-CN"
                                 buttonSize="sm"
                                 onPlay={() => playAudio(`option-${index}`)}
@@ -718,6 +810,11 @@ const Exercise = () => {
                         </div>
                       );
                     })}
+                    {eliminated.length > 0 && !showFeedback && (
+                      <p className="text-sm font-semibold text-rose-800" role="status">
+                        Not quite. Think again and choose another one.
+                      </p>
+                    )}
                   </div>
                 )}
                 
@@ -730,7 +827,7 @@ const Exercise = () => {
                             <span className="text-white text-lg font-bold">{isCorrect ? '✓' : '✗'}</span>
                           </div>
                           <span className={`font-extrabold text-lg ${isCorrect ? 'text-emerald-800' : 'text-rose-800'}`}>
-                             {isCorrect ? 'Excellent!' : 'Incorrect'}
+                             {isCorrect ? ((attemptsRef.current[currentQuestion.id] ?? 1) > 1 ? 'That’s it!' : 'Excellent!') : 'Incorrect'}
                           </span>
                        </div>
                        
@@ -815,16 +912,36 @@ const Exercise = () => {
                          </div>
                        )}
 
-                       {/* 将原本外部底部的CONTINUE按钮嵌入到面板深处 */}
-                       <Button 
-                         onClick={handleContinue}
-                         data-feedback-continue
-                         className={`w-full h-12 short:h-11 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
-                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
-                         }`}
-                       >
-                         CONTINUE
-                       </Button>
+                       {/* 填字题答错：先照着再写一遍（主按钮），也可以直接往下 */}
+                       {!isCorrect && currentQuestion.type === 'fill_word' ? (
+                         <div className="flex flex-col gap-2">
+                           <Button
+                             onClick={handleCopyAgain}
+                             data-copy-again
+                             className="w-full h-12 short:h-11 rounded-2xl border-none font-bold text-base text-white shadow-md bg-rose-600 hover:bg-rose-700 shadow-rose-600/20 active:scale-[0.99]"
+                           >
+                             {fillMode === 'write' ? 'Write it again' : 'Type it again'}
+                           </Button>
+                           <Button
+                             onClick={handleContinue}
+                             data-feedback-continue
+                             variant="ghost"
+                             className="w-full h-11 rounded-2xl bg-white border border-rose-200 text-rose-800 font-bold tracking-wider text-base hover:bg-rose-50"
+                           >
+                             CONTINUE
+                           </Button>
+                         </div>
+                       ) : (
+                         <Button
+                           onClick={handleContinue}
+                           data-feedback-continue
+                           className={`w-full h-12 short:h-11 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
+                              isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
+                           }`}
+                         >
+                           CONTINUE
+                         </Button>
+                       )}
                     </div>
                 )}
               </div>

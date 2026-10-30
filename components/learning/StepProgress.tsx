@@ -1,7 +1,6 @@
 import React from 'react';
-import { Check } from 'lucide-react';
 
-// 五个标签要在 390px 宽的屏幕上排成一行：用短标签，各页标题仍用全称
+// 五个标签要在 375px 宽的屏幕上排成一行：用短标签，各页标题仍用全称
 const ALL_STEPS = [
   { key: 'character', label: 'Chars' },
   { key: 'word', label: 'Word' },
@@ -25,6 +24,9 @@ interface StepProgressProps {
 /**
  * 学习链路的步骤进度：字 → 词 → 搭配 → 例句 → 练习。只用于显示位置，不可点击——
  * 跳转仍由页面顶部的上一步 / 下一步按钮负责。
+ *
+ * 每一步占等宽的一格、标签一直显示，状态只改颜色：左右滑动换页时标签和进度条都不挪位置
+ * （以前已完成的步骤收成对勾、当前步骤放大成胶囊，每换一页整行都在动）。
  */
 export default function StepProgress({ current, entry, skipCharacter = false }: StepProgressProps) {
   const STEPS = skipCharacter ? ALL_STEPS.filter(step => step.key !== 'character') : ALL_STEPS;
@@ -34,7 +36,11 @@ export default function StepProgress({ current, entry, skipCharacter = false }: 
   const startIndex = Math.min(entryIndex, Math.max(currentIndex, 0));
 
   return (
-    <ol className="flex items-center gap-0.5" aria-label="Learning steps">
+    <ol
+      className="grid gap-1"
+      style={{ gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))` }}
+      aria-label="Learning steps"
+    >
       {STEPS.map((step, index) => {
         const skipped = index < startIndex;
         const done = index >= startIndex && index < currentIndex;
@@ -43,32 +49,30 @@ export default function StepProgress({ current, entry, skipCharacter = false }: 
         return (
           <li
             key={step.key}
-            // flex-auto：按标签实际宽度分配，剩下的给连接线。flex-1 会平均分，标签宽时溢出
-            className={index === 0 ? 'flex items-center shrink-0' : 'flex items-center gap-0.5 flex-auto'}
+            className="flex flex-col items-center gap-1"
             aria-current={active ? 'step' : undefined}
+            aria-label={`${step.label}: ${state}`}
           >
-            {index > 0 && (
-              <span
-                className={`h-px flex-1 ${index > startIndex && index <= currentIndex ? 'bg-indigo-400' : 'bg-gray-300'}`}
-                aria-hidden="true"
-              />
-            )}
-            {/* 已完成的步骤只留对勾：英文标签比中文宽，五个都带字在 390px 宽的屏幕上排不下 */}
             <span
-              className={`inline-flex items-center justify-center rounded-full h-7 text-sm font-semibold whitespace-nowrap shrink-0 ${
+              className={`text-sm leading-5 whitespace-nowrap ${
                 active
-                  ? 'px-2.5 short:px-2 bg-indigo-600 text-white shadow-sm'
+                  ? 'font-bold text-indigo-800'
                   : done
-                    ? 'w-7 bg-indigo-100 text-indigo-700'
+                    ? 'font-semibold text-indigo-600'
                     : skipped
-                      ? 'px-1 text-slate-500 line-through decoration-slate-400'
-                      : 'px-1.5 bg-white/80 text-slate-600'
+                      ? 'font-semibold text-slate-500 line-through decoration-slate-400'
+                      : 'font-semibold text-slate-500'
               }`}
-              aria-label={`${step.label}: ${state}`}
-              title={done ? step.label : undefined}
+              aria-hidden="true"
             >
-              {done ? <Check size={14} strokeWidth={3} aria-hidden="true" /> : step.label}
+              {step.label}
             </span>
+            <span
+              className={`h-1 w-full rounded-full ${
+                active ? 'bg-indigo-600' : done ? 'bg-indigo-300' : 'bg-slate-200'
+              }`}
+              aria-hidden="true"
+            />
           </li>
         );
       })}

@@ -81,8 +81,27 @@ class Walk:
         self.d.swipe(a, h * 0.55, b, h * 0.55)
         time.sleep(1.8)
 
-    def audio_requests(self):
-        return self.d.eval("() => performance.getEntriesByType('resource').filter(e => e.name.includes('/api/audio/')).length")
+    def audio_played(self, css):
+        """点 css 指的播放按钮，看音频文件是不是真的开始播放（playing 事件），没有退回到浏览器朗读。
+        以前只看有没有请求音频文件：文件取到了不等于放出声来，退回朗读时 iPhone 静音也不出声"""
+        self.d.eval("""() => {
+          window.__played = null; window.__spoke = false;
+          if (!window.__probe) {
+            window.__probe = true;
+            const play = HTMLMediaElement.prototype.play;
+            HTMLMediaElement.prototype.play = function () {
+              this.addEventListener('playing', () => { window.__played = this.currentSrc || this.src; }, {once: true});
+              return play.apply(this, arguments);
+            };
+            if (window.speechSynthesis) {
+              const speak = speechSynthesis.speak.bind(speechSynthesis);
+              speechSynthesis.speak = (u) => { window.__spoke = true; return speak(u); };
+            }
+          }
+        }""")
+        self.tap('css', css, 2.5)
+        result = self.d.eval('() => ({played: window.__played, spoke: window.__spoke})')
+        return bool(result['played'] and '/api/audio/' in result['played'] and not result['spoke']), str(result)
 
     def run(self):
         d = self.d
@@ -125,9 +144,7 @@ class Walk:
         self.check('swipe left through to sentences', self.path() == '/sentence-learning', self.path())
         self.shot('05-sentences')
 
-        before = self.audio_requests()
-        self.tap('css', 'button[title="Play audio"]', 2.5)
-        self.check('example audio plays', self.audio_requests() > before)
+        self.check('example audio plays', *self.audio_played('button[title="Play audio"]'))
         self.swipe('left')
         self.check('swipe left -> practice', self.path() == '/exercise', self.path())
         time.sleep(1)
@@ -135,6 +152,7 @@ class Walk:
         questions = d.eval("(id) => fetch(`/api/learning/word/${id}/exercises?limit=5`).then(r => r.json()).then(r => r.data.questions)",
                            word_id)
         fill = None
+        option_audio_checked = False
         for q in questions:
             if q['type'] == 'fill_word':
                 fill = q
@@ -142,6 +160,11 @@ class Walk:
             self.tap('text', r'^(\w\. )?' + re.escape(q['correctAnswer']) + '$', 0.8)
             self.tap('text', r'^CHECK$', 1.5)
             self.check(f"{q['type']} question answered", 'Excellent' in self.body())
+            # 答完以后正确答案旁边才有发音（选项是中文词时）；查第一个有发音的选项
+            option_audio = 'div.relative > div.absolute button[title="Play audio"]'
+            if not option_audio_checked and d.eval('(css) => !!document.querySelector(css)', option_audio):
+                option_audio_checked = True
+                self.check('option audio plays after answering', *self.audio_played(option_audio))
             self.tap('text', r'^CONTINUE$', 1.5)
         if not fill:
             self.check('fill-in question present', False, str([q['type'] for q in questions]))

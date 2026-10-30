@@ -1581,6 +1581,43 @@ class TestAudio:
         for bad in ('secret.txt', '0123456789abcdef.wav', 'ABCDEF0123456789.mp3', 'fedcba9876543210.mp3'):
             assert client.get(f'/api/audio/{bad}').status_code == 404, bad
 
+    def test_exercise_options_carry_audio(self, client, tmp_path, monkeypatch):
+        """中文选项按清单（第 8b 步）带上发音；清单里没有的选项不带，前端改用浏览器朗读"""
+        import json
+        import app_phase as mod
+        monkeypatch.setattr(mod, 'OPTION_AUDIO_MANIFEST', str(tmp_path / '选项.json'))
+        monkeypatch.setattr(mod, '_option_audio_cache', {'mtime': None, 'options': {}})
+        url = '/api/learning/word/1/exercises?limit=10'
+        questions = client.get(url).get_json()['data']['questions']
+        assert all(q['optionAudio'] == {} for q in questions), '没有清单时都不带'
+        options = next(q['options'] for q in questions if len(q['options']) >= 2)
+        (tmp_path / '选项.json').write_text(json.dumps({'options': {options[0]: self._url(7)}}), encoding='utf-8')
+        questions = client.get(url).get_json()['data']['questions']
+        q = next(q for q in questions if q['options'] == options)
+        assert q['optionAudio'] == {options[0]: self._url(7)}
+
+    def test_confusable_words_carry_audio(self, app, client):
+        import app_phase as mod
+        with app.app_context():
+            w1 = mod.Word(pinyin='tūrán', definition='suddenly', audio=self._url(8))
+            w2 = mod.Word(pinyin='hūrán', definition='suddenly')
+            mod.db.session.add_all([w1, w2])
+            mod.db.session.flush()
+            row = mod.ConfusablePair(word1_id=w1.id, word2_id=w2.id, reason='r', difference='d', examples='e',
+                                     tips='t', difficulty_level=1)
+            mod.db.session.add(row)
+            mod.db.session.commit()
+            ids = (row.id, w1.id, w2.id)
+        try:
+            pair = client.get(f'/api/confusable/pair/{ids[0]}').get_json()['pair']
+            assert (pair['word1']['audio'], pair['word2']['audio']) == (self._url(8), None)
+        finally:
+            with app.app_context():
+                mod.db.session.delete(mod.db.session.get(mod.ConfusablePair, ids[0]))
+                for word_id in ids[1:]:
+                    mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
+                mod.db.session.commit()
+
     def test_word_detail_includes_audio(self, app, client):
         import app_phase as mod
         with app.app_context():
