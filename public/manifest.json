@@ -24,13 +24,6 @@
   "categories": ["education", "productivity"],
   "lang": "en",
   "dir": "ltr",
-  "scope": "/",
-  "screenshots": [
-    {
-      "src": "/screenshot1.png",
-      "sizes": "540x720",
-      "type": "image/png"
-    }
-  ]
+  "scope": "/"
 }
 
