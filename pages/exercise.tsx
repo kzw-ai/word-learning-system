@@ -485,14 +485,14 @@ const Exercise = () => {
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
         {/* Content */}
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-6 flex flex-col relative z-20">
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] short:pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
           <div className="px-5 mb-3 short:mb-1">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center">
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={!previous}
-                className="h-9 px-3 bg-transparent hover:bg-white/20 text-indigo-900 rounded-xl text-sm font-semibold shadow-none border border-transparent"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 onClick={() => {
                   if (!previous) return;
                   trackEvent('nav_previous', 'navigation', { targetModule: previous.key });
@@ -501,14 +501,14 @@ const Exercise = () => {
               >
                 ← {previous ? previous.label : 'Back'}
               </Button>
-              <h1 className="text-xl font-extrabold text-gray-800 tracking-tight pt-1 leading-none">
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight pt-1 leading-none">
                 {isTestMode ? 'Test' : (isReviewMode ? 'Review' : 'Practice')}
               </h1>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={!next && !learningSession.reviewMode}
-                className="h-9 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-sm shadow-none border border-transparent"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 onClick={() => {
                   // 复习模式下这个出口回复习列表，否则会绕过剩下的到期词
                   if (learningSession.reviewMode) {
@@ -534,10 +534,10 @@ const Exercise = () => {
                   {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
                   {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
                   
-                {/* Title and Audio play */}
-                <div>
-                  <div className="flex items-baseline justify-between gap-3 mb-3">
-                    <h2 className="text-xl short:text-lg font-extrabold text-gray-900 leading-snug tracking-wide">
+                {/* 题目卡：上面一行小字是题型说明和题号，题干放大，拼音提示跟在题干下面 */}
+                <div className="glass-panel rounded-2xl p-4 short:p-3">
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <h2 className="text-sm font-semibold text-indigo-700 leading-snug">
                       {currentQuestion.type === 'definition' ?
                         'Choose the word that matches the meaning.' :
                         currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
@@ -546,12 +546,12 @@ const Exercise = () => {
                         `${fillMode === 'write' ? 'Write' : 'Type'} the missing character of the word you just learned.`
                       }
                     </h2>
-                    <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
+                    <span className="text-sm font-semibold text-slate-500 shrink-0 tabular-nums" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
                       {questionIndex + 1} / {exerciseQuestions.length}
                     </span>
                   </div>
-                  <div className="mb-6 short:mb-3 flex gap-2 items-center">
-                    <p className="text-lg font-bold text-gray-800">{fillHint ? fillHint.stem : currentQuestion.question}</p>
+                  <div className="flex gap-2 items-center">
+                    <p className="text-lg short:text-base font-bold text-slate-900 leading-snug">{fillHint ? fillHint.stem : currentQuestion.question}</p>
                     {currentQuestion.type === 'definition' && (
                       <AudioPlayer
                         text={currentQuestion.question}
@@ -563,7 +563,7 @@ const Exercise = () => {
                   </div>
                   {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
                   {fillHint?.hint && (
-                    <p className="-mt-3 mb-5 text-base text-gray-600">
+                    <p className="mt-1.5 text-sm text-slate-600">
                       Hint: the pinyin {fillHint.initialOnly ? 'starts with' : 'is'}{' '}
                       <span className="font-semibold text-indigo-700">“{fillHint.hint}”</span>
                     </p>
@@ -581,15 +581,15 @@ const Exercise = () => {
                     />
                     {!showFeedback && (
                       <div className="flex gap-2">
-                        <Button variant="ghost" className="h-9 px-3 text-sm text-gray-600" disabled={handStrokes.length === 0}
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-white border border-slate-200 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40" disabled={handStrokes.length === 0}
                           onClick={() => setHandStrokes(handStrokes.slice(0, -1))}>
                           Undo
                         </Button>
-                        <Button variant="ghost" className="h-9 px-3 text-sm text-gray-600" disabled={handStrokes.length === 0}
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-white border border-slate-200 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40" disabled={handStrokes.length === 0}
                           onClick={() => setHandStrokes([])}>
                           Clear
                         </Button>
-                        <Button variant="ghost" className="h-9 px-3 text-sm text-indigo-700" onClick={() => chooseFillMode('type')}>
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-semibold text-indigo-700 hover:bg-indigo-100" onClick={() => chooseFillMode('type')}>
                           Type instead
                         </Button>
                       </div>
@@ -624,7 +624,7 @@ const Exercise = () => {
                       )}
                     </div>
                     {!showFeedback && (
-                      <Button variant="ghost" className="h-9 px-3 text-sm text-indigo-700" onClick={() => chooseFillMode('write')}>
+                      <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-semibold text-indigo-700 hover:bg-indigo-100" onClick={() => chooseFillMode('write')}>
                         Write instead
                       </Button>
                     )}
@@ -633,21 +633,21 @@ const Exercise = () => {
                   // Multiple Choice Selection
                   <div className="space-y-3 short:space-y-2 mt-2 short:mt-0">
                     {currentQuestion.options.map((option, index) => {
-                      let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-[18px] transition-all duration-300 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
+                      let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-2xl transition-colors duration-200 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
                       const isSelected = selectedOption === option;
                       
                       if (showFeedback) {
                         if (option === currentQuestion.correctAnswer) {
-                          btnClass += "bg-emerald-700 border-none shadow-[0_4px_14px_0_rgba(4,120,87,0.35)] z-10 text-white font-bold";
+                          btnClass += "bg-emerald-700 border border-emerald-700 shadow-sm z-10 text-white font-bold";
                         } else if (isSelected) {
                           btnClass += "bg-rose-50 border-rose-300 shadow-sm text-rose-900 border font-bold";
                         } else {
-                          btnClass += "glass-card text-gray-700 border-white/40 border font-bold";
+                          btnClass += "glass-card text-slate-500 font-semibold";
                         }
                       } else {
                         btnClass += isSelected 
-                          ? "bg-indigo-50 border-indigo-300 shadow-md ring-1 ring-indigo-200 z-10 text-indigo-900 border font-bold" 
-                          : "glass-card hover:-translate-y-0.5 text-gray-700 border-white/40 border font-bold";
+                          ? "bg-indigo-50 border border-indigo-500 ring-1 ring-indigo-500/20 z-10 text-indigo-950 font-bold" 
+                          : "glass-card hover:border-indigo-200 text-slate-800 font-semibold";
                       }
                       
                       const letter = String.fromCharCode(65 + index);
@@ -692,19 +692,19 @@ const Exercise = () => {
                 
                 {/* 统一的大画幅知识点嵌入式反馈面板 */}
                 {showFeedback && (
-                    <div ref={feedbackRef} className={`mt-5 px-5 py-5 -mx-5 border-t animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-[#def6cd] border-[#baecbc]' : 'bg-[#ffe4e6] border-[#fbbabf]'}`}>
+                    <div ref={feedbackRef} className={`mt-4 p-4 short:p-3 rounded-2xl border animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
                        
                        <div className="flex items-center gap-2 mb-3">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-red-600'}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-rose-600'}`}>
                             <span className="text-white text-lg font-bold">{isCorrect ? '✓' : '✗'}</span>
                           </div>
-                          <span className={`font-extrabold text-[18px] tracking-wide ${isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
+                          <span className={`font-extrabold text-lg ${isCorrect ? 'text-emerald-800' : 'text-rose-800'}`}>
                              {isCorrect ? 'Excellent!' : 'Incorrect'}
                           </span>
                        </div>
                        
                        {!isCorrect && (
-                          <div className="text-red-700 font-extrabold text-[14px] mb-3">
+                          <div className="text-rose-800 font-bold text-base mb-3">
                              Correct answer: {currentQuestion.type === 'fill_word'
                                ? currentQuestion.correctAnswer
                                : `${String.fromCharCode(65 + currentQuestion.options.indexOf(currentQuestion.correctAnswer))}. ${currentQuestion.correctAnswer}`}
@@ -713,7 +713,7 @@ const Exercise = () => {
 
                        {/* 内嵌知识点（取当前词的真实例句/搭配） */}
                        {word && (
-                         <div className="mb-6">
+                         <div className="mb-4">
                            {fillHint ? (
                               // 填字题：显示刚填完的这一句（不是学习页上那句例句），再给这个词的拼音和释义
                               <>
@@ -722,7 +722,7 @@ const Exercise = () => {
                                  </p>
                                  <p className="text-base font-medium text-gray-700 leading-snug mb-3">
                                    <span className="mr-2 text-indigo-700">{wordLabel}</span>{word.pinyin}
-                                   <span className="text-gray-500"> · {wordDefinition}</span>
+                                   <span className="text-slate-600"> · {wordDefinition}</span>
                                  </p>
                                  {/* 这个字的标准写法和笔顺 */}
                                  <StrokeOrderAnimation character={currentQuestion.correctAnswer} />
@@ -759,8 +759,9 @@ const Exercise = () => {
                        {/* 将原本外部底部的CONTINUE按钮嵌入到面板深处 */}
                        <Button 
                          onClick={handleContinue}
-                         className={`w-full h-[48px] rounded-[14px] border-none font-extrabold tracking-widest text-[14px] transition-all duration-300 text-white shadow-xl mb-[calc(env(safe-area-inset-bottom)+1.5rem)] ${
-                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/30' : 'bg-red-600 hover:bg-red-700 shadow-red-600/30'
+                         data-feedback-continue
+                         className={`w-full h-12 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
+                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
                          }`}
                        >
                          CONTINUE
@@ -769,17 +770,17 @@ const Exercise = () => {
                 )}
               </div>
               
-              {/* Spacer to guarantee scroll reaching the bottom properly */}
-              <div className="h-6 w-full shrink-0"></div>
+              {/* 反馈卡和底部安全区之间留点空，滚到底时卡片不贴屏幕边 */}
+              <div className="h-[calc(env(safe-area-inset-bottom)+1rem)] w-full shrink-0"></div>
 
 
               {/* 仅在未反馈时才在底部显示唯一的SUBMIT类提交按钮 */}
               {!showFeedback && (
-                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 short:pt-3 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+                <div className="sticky bottom-0 bg-slate-100/95 backdrop-blur-sm border-t border-slate-200/70 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.25)] pt-3 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
                   <Button 
                     onClick={handleSubmit}
                     disabled={currentQuestion.type === 'fill_word' ? (fillMode === 'write' ? handStrokes.length === 0 : !fillInAnswer.trim()) : !selectedOption}
-                    className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:opacity-100 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
+                    className="w-full h-12 rounded-2xl border-none shadow-md shadow-indigo-500/20 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] disabled:opacity-100 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none text-white font-bold tracking-wider text-base transition-all duration-200"
                   >
                     CHECK
                   </Button>

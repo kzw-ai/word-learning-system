@@ -9,8 +9,9 @@ module.exports = {
   theme: {
   	extend: {
   		// 矮屏（iPhone SE 这类，Safari 里可见高度不到 700px）：练习页、学习页换成紧凑排版，不用滚动就放得下
+  		// 高屏手机（可见高度 ≥ 760px，如 iPhone Pro Max、Pixel 7）：手写框大一号，用上多出来的高度
   		// 高屏（桌面浏览器等，可见高度 ≥ 860px）：才放得下自评页顶上的学习统计栏
-  		screens: { short: { raw: '(max-height: 700px)' }, tall: { raw: '(min-height: 860px)' } },
+  		screens: { short: { raw: '(max-height: 700px)' }, roomy: { raw: '(min-height: 760px)' }, tall: { raw: '(min-height: 860px)' } },
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',

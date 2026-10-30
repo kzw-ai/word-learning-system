@@ -3,10 +3,12 @@
  * E2E 学习旅程测试：完整走一遍主学习流程
  *   入口 VKS（推荐词）→ 字学习 → 练习（含手写题）→ 易混淆词辨析 → 学习分析
  *
- * 前置条件与 smoke.test.js 相同（前端 :3000 + 后端 :5004）。
+ * 前置条件与 smoke.test.js 相同（前端 :3000 + 后端 :5004）；环境变量 BASE_URL 同 smoke.test.js。
  * 运行: npm run test:e2e:journey
  */
 const puppeteer = require('puppeteer-core');
+
+const BASE = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -19,18 +21,16 @@ const puppeteer = require('puppeteer-core');
   page.on('pageerror', (e) => errors.push(e.message.split('\n')[0]));
 
   // 用全新用户，保证走 new_learning 路径
-  await page.goto('http://localhost:3000/', { waitUntil: 'networkidle2' });
+  await page.goto(BASE + '/', { waitUntil: 'networkidle2' });
   await page.evaluate(() => {
     localStorage.setItem('learningSystem.userId', 'journey_tester');
   });
 
   // 1. 入口页：VKS 问题应显示推荐词（非硬编码发生也可能恰好是；记录它）
-  await page.goto('http://localhost:3000/word-learning-entrance', { waitUntil: 'networkidle2' });
+  await page.goto(BASE + '/word-learning-entrance', { waitUntil: 'networkidle2' });
   await new Promise((r) => setTimeout(r, 2500));
-  const question = await page.evaluate(() =>
-    [...document.querySelectorAll('p')].map((p) => p.innerText).find((t) => t.includes('How about'))
-  );
-  console.log('1. VKS 问题:', question);
+  const question = await page.evaluate(() => document.querySelector('[data-target-word]')?.innerText);
+  console.log('1. 自评的词:', question);
 
   // 2. 选择 A（没见过）→ CONTINUE → 应进入字学习
   await page.evaluate(() => {
@@ -66,7 +66,7 @@ const puppeteer = require('puppeteer-core');
     );
   }, bianhuaId);
 
-  await page.goto('http://localhost:3000/exercise', { waitUntil: 'networkidle2' });
+  await page.goto(BASE + '/exercise', { waitUntil: 'networkidle2' });
   await new Promise((r) => setTimeout(r, 2500));
 
   // 逐题作答直到完成（最多 10 轮）
@@ -75,7 +75,7 @@ const puppeteer = require('puppeteer-core');
     // 若在答题态：作答并提交
     const state = await page.evaluate(() => {
       const feedbackBtn = [...document.querySelectorAll('button')]
-        .find((b) => /CONTINUE/i.test(b.innerText) && b.className.includes('rounded-[14px]'));
+        .find((b) => b.hasAttribute('data-feedback-continue'));
       if (feedbackBtn) { feedbackBtn.click(); return 'feedback-continue'; }
       const optionBtn = [...document.querySelectorAll('button')]
         .find((b) => /^[A-D]\.\s/.test(b.innerText.trim()) && !b.disabled);

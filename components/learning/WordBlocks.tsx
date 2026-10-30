@@ -12,13 +12,13 @@ import type { WordData } from '@/hooks/useWordData';
  * 摆出来，后面三页又各自重复其中一部分，学习者走五步看到的几乎是同一批内容。
  */
 
-const SECTION_CARD = 'glass-card p-5 rounded-2xl border border-white/40';
+const SECTION_CARD = 'glass-card p-5 short:p-4 rounded-2xl';
 
 export function WordHero({ word }: { word: WordData }) {
   return (
     <div className="flex flex-col items-center mb-2">
-      <h2 className="text-[54px] font-extrabold text-gray-900 leading-none mb-2 mt-2">{word.hanzi}</h2>
-      <div className="flex items-center gap-2 bg-indigo-50/80 px-4 py-1.5 rounded-full">
+      <h2 className="text-5xl short:text-4xl font-extrabold text-slate-900 leading-none mb-2 mt-2">{word.hanzi}</h2>
+      <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 px-4 py-1.5 rounded-full">
         <span className="text-sm font-medium text-indigo-700 tracking-widest">{word.pinyin}</span>
         <AudioPlayer text={word.hanzi} audioUrl={word.audio || undefined} language="zh-CN" buttonSize="sm" />
       </div>
@@ -110,14 +110,15 @@ export function ExampleList({ word, limit }: { word: WordData; limit?: number })
         <div className={`${SECTION_CARD} space-y-6`}>
           {examples.map((ex, index) => (
             <div key={index} className="flex flex-col relative">
-              <p className="text-lg font-semibold text-gray-800 leading-relaxed pr-10">{ex.sentence}</p>
+              <p className="text-lg short:text-base font-semibold text-slate-900 leading-relaxed pr-10">{ex.sentence}</p>
               <div className="absolute top-0 right-0">
                 <AudioPlayer text={ex.sentence} audioUrl={ex.audio} language="zh-CN" buttonSize="sm" />
               </div>
+              {/* 素材里的拼音是「对/duì 我/wǒ」，汉字上一行已经有了，只留拼音；词之间的空格保留分词 */}
               {ex.pinyin && (
-                <p className="text-base text-indigo-700 mt-2 font-medium tracking-wide leading-relaxed">{ex.pinyin}</p>
+                <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{ex.pinyin.replace(/[\u4e00-\u9fff]+\//g, '')}</p>
               )}
-              <p className="text-base text-gray-600 mt-2 leading-relaxed">{ex.translation}</p>
+              <p className="text-base short:text-sm text-slate-700 mt-2 pt-2 border-t border-slate-100 leading-relaxed">{ex.translation}</p>
             </div>
           ))}
         </div>

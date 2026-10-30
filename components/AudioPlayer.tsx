@@ -223,7 +223,9 @@ export default function AudioPlayer({
       size={buttonSize === 'sm' ? 'sm' : 'default'}
       onClick={handlePlay}
       disabled={isLoading}
+      // 小号也保证 36px 高，手指点得准
       className={`
+        ${buttonSize === 'sm' ? 'h-9 min-w-9 px-2' : ''}
         ${isPlaying ? 'text-blue-500' : hasError ? 'text-red-500' : 'text-gray-500'}
         hover:text-blue-600
         ${isLoading ? 'opacity-50' : ''}

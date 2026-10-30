@@ -84,25 +84,29 @@ const Home = () => {
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] px-5 flex flex-col justify-center relative z-10">
-          {/* Header section with glass effect */}
-          <div className="text-center mb-6 glass-panel py-6 px-5 rounded-3xl mx-1 shadow-lg border border-white/50 backdrop-blur-xl">
-            <div className="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-2xl mx-auto mb-3 flex items-center justify-center shadow-lg shadow-indigo-200">
-              <BookOpen className="text-white" size={28} />
+        {/* 放得下时上下居中，放不下时整页可以滚（小屏上不能把头尾裁掉，Sign in 在最底下） */}
+        <div className="h-full overflow-y-auto relative z-10">
+        <div className="min-h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] px-5 flex flex-col justify-center">
+          {/* 矮屏上标题区改成图标在左的一行，省出高度 */}
+          <div className="text-center mb-6 short:mb-4 glass-panel py-6 short:py-3 px-5 rounded-3xl mx-1 short:flex short:items-center short:gap-3 short:text-left">
+            <div className="w-14 h-14 short:w-11 short:h-11 short:shrink-0 bg-gradient-to-tr from-indigo-500 to-violet-600 rounded-2xl mx-auto short:mx-0 mb-3 short:mb-0 flex items-center justify-center shadow-md shadow-indigo-200">
+              <BookOpen className="text-white" size={26} />
             </div>
-            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 leading-tight mb-2 tracking-tight">
-              Word Learning
-            </h1>
-            <p className="text-sm font-medium text-gray-500 tracking-wide uppercase">
-              Adaptive Chinese vocabulary
-            </p>
+            <div>
+              <h1 className="text-3xl short:text-2xl font-extrabold text-slate-900 leading-tight mb-1.5 short:mb-0.5 tracking-tight">
+                Word Learning
+              </h1>
+              <p className="text-sm font-medium text-slate-500">
+                Adaptive Chinese vocabulary
+              </p>
+            </div>
           </div>
 
           <div className="space-y-4">
             {/* 智能主入口：系统决定“下一步做什么”，用户只需要点它 */}
             <button
               onClick={handleStartLearning}
-              className="w-full relative overflow-hidden rounded-2xl p-5 shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-300 transition-all duration-300 flex items-center justify-between bg-gradient-to-r from-indigo-500 to-purple-600"
+              className="w-full relative overflow-hidden rounded-2xl p-5 short:p-4 shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-all duration-200 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-violet-600"
             >
               <div className="flex items-center relative z-10 gap-4">
                 <div className="bg-white/20 p-3 rounded-xl text-white backdrop-blur-sm">
@@ -124,10 +128,10 @@ const Home = () => {
               onClick={() => setShowOnboarding(true)}
               className="glass-card rounded-2xl px-4 py-3 text-left w-full"
             >
-              <p className="text-xs font-semibold text-gray-500 mb-1.5 tracking-wide">
+              <p className="text-sm font-semibold text-slate-700 mb-1">
                 How it works <span className="text-indigo-700">· see the guide</span>
               </p>
-              <p className="text-sm text-gray-600 leading-relaxed">
+              <p className="text-sm text-slate-600 leading-relaxed">
                 Review due words → rate a new word → start at your level:
                 <span className="text-indigo-600 font-medium"> characters / word / collocations / sentences </span>
                 → practice. Your next review is scheduled for you.
@@ -137,7 +141,7 @@ const Home = () => {
             {/* 数据入口：易混词辨析已融入主学习流程（练习后自动带出），
                 今日复习由主入口按记忆曲线安排，均不再单独设入口 */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 tracking-wide px-1">Your data</p>
+              <p className="text-sm font-semibold text-slate-600 px-1">Your data</p>
               <div className={`grid gap-2 ${process.env.NODE_ENV !== 'production' ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
                   onClick={() => router.push('/learning-dashboard')}
@@ -148,7 +152,7 @@ const Home = () => {
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-gray-700">My progress</p>
-                    <p className="text-xs text-gray-500">Progress & suggestions</p>
+                    <p className="text-sm text-slate-500">Progress & suggestions</p>
                   </div>
                 </button>
 
@@ -163,7 +167,7 @@ const Home = () => {
                     </div>
                     <div className="text-left">
                       <p className="text-sm font-semibold text-gray-700">System stats</p>
-                      <p className="text-xs text-gray-500">For developers</p>
+                      <p className="text-sm text-slate-500">For developers</p>
                     </div>
                   </button>
                 )}
@@ -175,7 +179,7 @@ const Home = () => {
               <Button
                 variant="ghost"
                 onClick={() => router.push('/login')}
-                className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
+                className="flex-1 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-white/60 h-10 rounded-xl"
               >
                 Sign in
               </Button>
@@ -184,13 +188,14 @@ const Home = () => {
                 <Button
                   variant="ghost"
                   onClick={() => router.push('/system-status')}
-                  className="flex-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 h-10 rounded-xl"
+                  className="flex-1 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-white/60 h-10 rounded-xl"
                 >
                   Diagnostics
                 </Button>
               )}
             </div>
           </div>
+        </div>
         </div>
 
         <Onboarding

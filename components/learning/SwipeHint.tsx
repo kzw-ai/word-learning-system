@@ -25,7 +25,7 @@ export default function SwipeHint() {
 
   if (!visible) return null;
   return (
-    <p className="flex items-center justify-center gap-1 text-sm text-gray-500 mb-2" role="status">
+    <p className="flex items-center justify-center gap-1 text-sm text-slate-600 mb-2" role="status">
       <ChevronsLeft size={16} aria-hidden="true" />
       Swipe left for the next step
     </p>

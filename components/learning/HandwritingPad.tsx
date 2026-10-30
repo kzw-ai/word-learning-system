@@ -26,10 +26,11 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const ratio = window.devicePixelRatio || 1;
-    if (canvas.width !== SIZE * ratio) {
-      canvas.width = SIZE * ratio;
-      canvas.height = SIZE * ratio;
+    // 像素缓冲按实际显示大小定（各屏幕上框的大小不同），笔画坐标仍按 SIZE 画
+    const ratio = (window.devicePixelRatio || 1) * ((canvas.clientWidth || SIZE) / SIZE);
+    if (canvas.width !== Math.round(SIZE * ratio)) {
+      canvas.width = Math.round(SIZE * ratio);
+      canvas.height = Math.round(SIZE * ratio);
     }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, SIZE, SIZE);
@@ -79,8 +80,8 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
   const border = result === 'correct' ? 'border-emerald-600' : result === 'wrong' ? 'border-red-500' : 'border-indigo-200';
 
   return (
-    // 显示尺寸：矮屏（iPhone SE 这类）上小一号；笔画坐标始终按 SIZE 记录（point() 按实际显示大小换算）
-    <div className={`relative rounded-2xl border-2 bg-white/90 w-[240px] h-[240px] short:w-[196px] short:h-[196px] ${border}`}>
+    // 显示尺寸：矮屏（iPhone SE 这类）上小一号，高屏手机上大一号；笔画坐标始终按 SIZE 记录（point() 按实际显示大小换算）
+    <div className={`relative rounded-2xl border-2 bg-white w-[240px] h-[240px] short:w-[196px] short:h-[196px] roomy:w-[280px] roomy:h-[280px] ${border}`}>
       {/* 田字格 */}
       <svg className="absolute inset-0 pointer-events-none w-full h-full" viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
         <line x1="0" y1={SIZE / 2} x2={SIZE} y2={SIZE / 2} stroke="#e0e7ff" strokeWidth="1.5" strokeDasharray="6 6" />
