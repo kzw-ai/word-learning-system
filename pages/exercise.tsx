@@ -653,15 +653,8 @@ const Exercise = () => {
                     )}
                   </div>
                   <div className="flex gap-2 items-center">
+                    {/* 释义题的题干是英文释义，学习者自己读；不给朗读（以前用浏览器朗读，iPhone 静音时不出声，对学中文也帮助不大） */}
                     <p className="text-lg short:text-base font-bold text-slate-900 leading-snug">{fillHint ? fillHint.stem : currentQuestion.question}</p>
-                    {currentQuestion.type === 'definition' && (
-                      <AudioPlayer
-                        text={currentQuestion.question}
-                        language="en-US"
-                        buttonSize="sm"
-                        onPlay={() => playAudio('question')}
-                      />
-                    )}
                   </div>
                   {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
                   {fillHint?.hint && (
