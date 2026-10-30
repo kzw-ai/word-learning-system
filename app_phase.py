@@ -816,6 +816,24 @@ def get_word(id):
 # 部署时连同批次素材复制到服务器。库里只存地址，文件按地址从这里读
 AUDIO_DIR = os.path.join(basedir, 'data', 'learning_materials', 'audio')
 AUDIO_NAME = re.compile(r'^[0-9a-f]{16}\.mp3$')
+# 练习题中文选项的发音清单（学习资料制作第 8b 步：{选项原文: 地址}），和音频文件一起复制到服务器。
+# 按修改时间缓存，换了清单不用重启
+OPTION_AUDIO_MANIFEST = os.path.join(AUDIO_DIR, '选项.json')
+_option_audio_cache = {'mtime': None, 'options': {}}
+
+
+def option_audio(options):
+    """选项里有发音的那些：{选项原文: 地址}。清单不在或读不了时为空，前端改用浏览器朗读"""
+    try:
+        mtime = os.path.getmtime(OPTION_AUDIO_MANIFEST)
+        if mtime != _option_audio_cache['mtime']:
+            with open(OPTION_AUDIO_MANIFEST, encoding='utf-8') as f:
+                _option_audio_cache['options'] = json.load(f).get('options', {})
+            _option_audio_cache['mtime'] = mtime
+    except (OSError, ValueError):
+        return {}
+    known = _option_audio_cache['options']
+    return {o: known[o] for o in options if isinstance(o, str) and o in known}
 
 
 @app.route('/api/audio/<name>', methods=['GET'])
@@ -1203,6 +1221,7 @@ def get_word_exercises(word_id):
                 'type': item.question_type,
                 'question': item.stem,
                 'options': options,
+                'optionAudio': option_audio(options),
                 'correctAnswer': item.correct_answer,
                 'feedback': f"正确答案：{item.correct_answer}（选自{item.source_deck}）"
             })

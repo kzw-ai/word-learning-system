@@ -165,6 +165,13 @@ class Audit(Walk):
             except Exception:
                 pass
 
+    def wrong_option(self, right):
+        """页面上还能点的（没被划掉的）选项里，挑一个错的"""
+        return self.d.eval("""(right) => [...document.querySelectorAll('button')].filter(b => !b.disabled)
+          .map(b => b.querySelectorAll('span span'))
+          .filter(s => s.length >= 2 && /^[A-Z]\\.$/.test(s[0].textContent.trim())).map(s => s[1].textContent.trim())
+          .find(t => t !== right)""", right)
+
     def answer(self, text):
         self.tap('text', r'^(\w\. )?' + re.escape(text) + '$', 0.8)
         self.tap('text', r'^CHECK$', 1.8)
@@ -213,17 +220,34 @@ class Audit(Walk):
                 self.capture('12-fill-wrong', '填字题答错')
             elif i == 0:
                 self.capture('08-question', f'选择题（{q["type"]}）')
-                # 干扰项每次请求都重新随机，从页面上的选项里挑一个错的
-                wrong = d.eval("""(right) => [...document.querySelectorAll('button')].map(b => b.querySelectorAll('span span'))
-                  .filter(s => s.length >= 2 && /^[A-Z]\\.$/.test(s[0].textContent.trim())).map(s => s[1].textContent.trim())
-                  .find(t => t !== right)""", q['correctAnswer'])
-                self.answer(wrong)
-                self.capture('09-choice-wrong', '选择题答错')
+                # 第一次选错先不揭晓，划掉再选；再错才揭晓。干扰项每次请求都重新随机，从页面上还能点的选项里挑错的
+                self.answer(self.wrong_option(q['correctAnswer']))
+                self.capture('09-choice-again', '选择题第一次选错：划掉，再选一次')
+                self.answer(self.wrong_option(q['correctAnswer']))
+                self.capture('09-choice-wrong', '选择题第二次还错：揭晓答案')
             else:
                 self.answer(q['correctAnswer'])
                 if not shown_right:
                     self.capture('09b-choice-right', '选择题答对')
                     shown_right = True
+            self.tap('text', r'^CONTINUE$', 2.5)
+        # 第一次答错的题在一轮最后再考一次（Once more）：答对
+        fill = next((q['correctAnswer'] for q in questions if q['type'] == 'fill_word'), None)
+        for k in range(len(questions)):
+            if 'Once more' not in self.body():
+                break
+            if k == 0:
+                self.capture('12b-once-more', '一轮最后再考答错过的题')
+            if d.eval("() => !!document.querySelector('input[data-fill-input]')"):
+                d.eval("""(v) => { const el = document.querySelector('input[data-fill-input]');
+                  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+                  el.dispatchEvent(new Event('input', {bubbles: true})); }""", fill)
+                d.eval(BLUR_JS)
+                self.tap('text', r'^CHECK$', 1.8)
+            else:
+                right = next(q['correctAnswer'] for q in questions if q['type'] != 'fill_word'
+                             and q['correctAnswer'] in self.body() and q['question'][:6] in self.body())
+                self.answer(right)
             self.tap('text', r'^CONTINUE$', 2.5)
         time.sleep(1.5)
         self.capture('13-after-word', '一个词的练习做完之后')

@@ -2,6 +2,7 @@
 // 不用 Hanzi Writer 自带的测验：它要求严格按笔顺一笔一笔写，中级学习者不一定按标准笔顺写，会一直卡住。
 // 这里按「字写出来了、笔画大体对」判：学习者写下的每一笔和答案字的标准笔画（hanzi-writer-data 的笔画中线
 // medians）逐一配对，不看先后、不看正着写还是反着写，大小和位置按各自的外框归一。
+// 连笔：标准笔顺里相邻的两三笔一笔写下来（中间带上笔尖从上一笔末端到下一笔起点的那段），也能和这几笔配上。
 // 写成别的字时笔画对不上，判错。
 
 export type Point = [number, number];
@@ -79,30 +80,49 @@ export const strokeCost = (a: Stroke, b: Stroke) => {
 export const targetStrokes = (data: CharacterData): Stroke[] =>
   data.medians.map(m => m.map(([x, y]) => [x, 900 - y] as Point));
 
+// 连笔最多连几笔（按标准笔顺相邻）
+const MAX_JOIN = 3;
+
 export const gradeHandwriting = (drawn: Stroke[], data: CharacterData): HandwritingResult => {
-  const target = normalise(targetStrokes(data)).map(s => resample(s));
-  const user = normalise(drawn.filter(s => s.length > 0)).map(s => resample(s));
+  const target = normalise(targetStrokes(data));
+  const user = normalise(drawn.filter(s => s.length > 0));
   const expected = target.length;
   if (user.length === 0) return { correct: false, expected, matched: 0, extra: 0, meanCost: 1 };
 
-  // 所有（写的笔, 标准笔）按偏差从小到大配对，每笔只用一次
-  const pairs: { u: number; t: number; cost: number }[] = [];
-  user.forEach((u, ui) => target.forEach((t, ti) => pairs.push({ u: ui, t: ti, cost: strokeCost(u, t) })));
+  // 标准笔画的候选：单独一笔，以及按笔顺相邻的两三笔连成的一笔。连起来的笔更长，取点也按笔数加倍
+  const candidates: { ids: number[]; points: Stroke }[] = [];
+  for (let start = 0; start < expected; start += 1) {
+    for (let k = 1; k <= MAX_JOIN && start + k <= expected; k += 1) {
+      const ids = Array.from({ length: k }, (_, j) => start + j);
+      candidates.push({ ids, points: resample(ids.flatMap(i => target[i]), SAMPLES * k) });
+    }
+  }
+  const userSamples = user.map(u => Array.from({ length: MAX_JOIN }, (_, j) => resample(u, SAMPLES * (j + 1))));
+
+  // 所有（写的笔, 候选）按偏差从小到大配对，每笔只用一次；分开写的笔和单笔候选偏差最小，会先配上
+  const pairs: { u: number; c: number; cost: number }[] = [];
+  userSamples.forEach((samples, ui) =>
+    candidates.forEach((cand, ci) =>
+      pairs.push({ u: ui, c: ci, cost: strokeCost(samples[cand.ids.length - 1], cand.points) }),
+    ),
+  );
   pairs.sort((a, b) => a.cost - b.cost);
   const usedU = new Set<number>();
   const usedT = new Set<number>();
   const costs: number[] = [];
-  for (const { u, t, cost } of pairs) {
+  let matched = 0;
+  for (const { u, c, cost } of pairs) {
     if (cost > MATCH_COST) break;
-    if (usedU.has(u) || usedT.has(t)) continue;
+    const { ids } = candidates[c];
+    if (usedU.has(u) || ids.some(i => usedT.has(i))) continue;
     usedU.add(u);
-    usedT.add(t);
+    ids.forEach(i => usedT.add(i));
     costs.push(cost);
+    matched += ids.length;
   }
-  const matched = costs.length;
-  const extra = user.length - matched;
-  const meanCost = matched ? costs.reduce((a, b) => a + b, 0) / matched : 1;
-  // 宽松：笔画多的字允许一两笔对不上（连笔、把一笔写成两笔、漏一笔）；漏写和多写合起来算。
+  const extra = user.length - usedU.size;
+  const meanCost = costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : 1;
+  // 宽松：笔画多的字允许一两笔对不上（把一笔写成两笔、漏一笔）；漏写和多写合起来算。
   // 笔画少的字不放宽，否则「一」写成「十」、「大」写成「太」也算对
   const allowed = expected >= 11 ? 2 : expected >= 6 ? 1 : 0;
   const correct = (expected - matched) + extra <= allowed && meanCost <= MEAN_COST;

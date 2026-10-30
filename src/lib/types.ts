@@ -43,6 +43,8 @@ export interface ExerciseQuestionPayload {
   type: ExerciseQuestionType;
   question: string;
   options: string[];
+  /** 中文选项的发音地址（晓晓录音，见 学习资料制作/工具/step8b_option_audio.py）；没有的选项用浏览器朗读 */
+  optionAudio?: Record<string, string>;
   correctAnswer: string;
   feedback?: string;
 }

@@ -18,6 +18,8 @@ interface ConfusableWord {
   hanzi: string | null;
   pinyin: string;
   definition: string;
+  /** 整词发音地址；没有时 AudioPlayer 用浏览器朗读 */
+  audio?: string | null;
 }
 
 interface ConfusablePair {
@@ -346,6 +348,7 @@ export default function ConfusableWordsPage() {
               </div>
               <AudioPlayer
                 text={currentPair.word1.hanzi ?? currentPair.word1.pinyin}
+                audioUrl={currentPair.word1.audio || undefined}
                 language="zh-CN"
                 buttonSize="sm"
               />
@@ -368,6 +371,7 @@ export default function ConfusableWordsPage() {
               </div>
               <AudioPlayer
                 text={currentPair.word2.hanzi ?? currentPair.word2.pinyin}
+                audioUrl={currentPair.word2.audio || undefined}
                 language="zh-CN"
                 buttonSize="sm"
               />

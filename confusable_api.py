@@ -58,7 +58,9 @@ def register_confusable_apis(app, db, require_authentication, check_ownership, p
 
     def word_payload(word_id, raw_pinyin, definition):
         hanzi, pinyin = word_display(word_id, raw_pinyin)
-        return {'id': word_id, 'hanzi': hanzi, 'pinyin': pinyin, 'definition': definition}
+        # 整词发音（晓晓录音）。没有时前端用手机自带的朗读，iPhone 静音时不出声
+        audio = db.session.execute(text("SELECT audio FROM word WHERE id = :id"), {'id': word_id}).scalar()
+        return {'id': word_id, 'hanzi': hanzi, 'pinyin': pinyin, 'definition': definition, 'audio': audio or None}
 
     @app.route('/api/confusable/pairs', methods=['GET'])
     def get_confusable_pairs():

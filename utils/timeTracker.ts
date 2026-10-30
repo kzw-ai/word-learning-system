@@ -54,6 +54,8 @@ export interface ExerciseData {
   endTime: Date;
   hesitationCount?: number;
   confidenceLevel?: number;
+  /** 同一道题的第几次作答（答错后再选、照着再写、一轮最后再考都算再一次）；复习日程只看第一次 */
+  attemptCount?: number;
 }
 
 export class TimeTracker {
@@ -252,7 +254,9 @@ export class TimeTracker {
           endTime: exerciseData.endTime.toISOString(),
           responseTimeSeconds: (exerciseData.endTime.getTime() - exerciseData.startTime.getTime()) / 1000,
           hesitationCount: exerciseData.hesitationCount || 0,
-          confidenceLevel: exerciseData.confidenceLevel
+          confidenceLevel: exerciseData.confidenceLevel,
+          attemptCount: exerciseData.attemptCount ?? 1,
+          isFirstAttempt: (exerciseData.attemptCount ?? 1) === 1
         })
       });
 
