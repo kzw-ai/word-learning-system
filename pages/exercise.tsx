@@ -486,7 +486,7 @@ const Exercise = () => {
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
         {/* Content */}
         <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-6 flex flex-col relative z-20">
-          <div className="px-5 mb-3">
+          <div className="px-5 mb-3 short:mb-1">
             <div className="flex justify-between items-center mb-4">
               <Button
                 variant="ghost"
@@ -537,7 +537,7 @@ const Exercise = () => {
                 {/* Title and Audio play */}
                 <div>
                   <div className="flex items-baseline justify-between gap-3 mb-3">
-                    <h2 className="text-xl font-extrabold text-gray-900 leading-snug tracking-wide">
+                    <h2 className="text-xl short:text-lg font-extrabold text-gray-900 leading-snug tracking-wide">
                       {currentQuestion.type === 'definition' ?
                         'Choose the word that matches the meaning.' :
                         currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
@@ -550,7 +550,7 @@ const Exercise = () => {
                       {questionIndex + 1} / {exerciseQuestions.length}
                     </span>
                   </div>
-                  <div className="mb-6 flex gap-2 items-center">
+                  <div className="mb-6 short:mb-3 flex gap-2 items-center">
                     <p className="text-lg font-bold text-gray-800">{fillHint ? fillHint.stem : currentQuestion.question}</p>
                     {currentQuestion.type === 'definition' && (
                       <AudioPlayer
@@ -631,9 +631,9 @@ const Exercise = () => {
                   </div>
                 ) : (
                   // Multiple Choice Selection
-                  <div className="space-y-3 mt-2">
+                  <div className="space-y-3 short:space-y-2 mt-2 short:mt-0">
                     {currentQuestion.options.map((option, index) => {
-                      let btnClass = "w-full text-left min-h-[48px] py-3.5 pl-5 pr-14 rounded-[18px] transition-all duration-300 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
+                      let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-[18px] transition-all duration-300 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
                       const isSelected = selectedOption === option;
                       
                       if (showFeedback) {
@@ -775,7 +775,7 @@ const Exercise = () => {
 
               {/* 仅在未反馈时才在底部显示唯一的SUBMIT类提交按钮 */}
               {!showFeedback && (
-                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 short:pt-3 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
                   <Button 
                     onClick={handleSubmit}
                     disabled={currentQuestion.type === 'fill_word' ? (fillMode === 'write' ? handStrokes.length === 0 : !fillInAnswer.trim()) : !selectedOption}

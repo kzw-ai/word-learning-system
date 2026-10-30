@@ -8,6 +8,8 @@ module.exports = {
   ],
   theme: {
   	extend: {
+  		// 矮屏（iPhone SE 这类，Safari 里可见高度不到 700px）：练习页、学习页换成紧凑排版，不用滚动就放得下
+  		screens: { short: { raw: '(max-height: 700px)' } },
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',

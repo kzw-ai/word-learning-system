@@ -308,7 +308,8 @@ export default function Component() {
                   )}
                 </p>
               )}
-              <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
+              {/* 矮屏上收起这一栏，让自评的五个选项多露出一些 */}
+              <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60 short:hidden">
                 <div className="flex justify-between items-center">
                   {wordsStudied !== null && <span>Words studied: {wordsStudied}</span>}
                   {learningSession.word && (
@@ -321,18 +322,18 @@ export default function Component() {
                   </p>
                 )}
               </div>
-              <div className="mt-4 flex gap-3">
+              <div className="mt-4 short:mt-3 flex gap-3">
                 <Button
                   size="sm"
                   onClick={() => router.push('/learning-dashboard')}
-                  className="flex-1 bg-white/60 text-indigo-700 hover:bg-white/80 text-sm h-11 rounded-xl shadow-sm border border-white/50 font-semibold"
+                  className="flex-1 bg-white/60 text-indigo-700 hover:bg-white/80 text-sm h-11 short:h-9 rounded-xl shadow-sm border border-white/50 font-semibold"
                 >
                   Dashboard
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => router.push('/today-review')}
-                  className="flex-1 bg-white/60 text-rose-600 hover:bg-white/80 text-sm h-11 rounded-xl shadow-sm border border-white/50 font-semibold"
+                  className="flex-1 bg-white/60 text-rose-600 hover:bg-white/80 text-sm h-11 short:h-9 rounded-xl shadow-sm border border-white/50 font-semibold"
                 >
                   Today’s review
                 </Button>
@@ -351,16 +352,16 @@ export default function Component() {
                 </div>
               ) : (
               <div className="space-y-4">
-                  <div className="glass-panel p-5 rounded-2xl">
+                  <div className="glass-panel p-5 short:p-4 rounded-2xl">
                     <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
                     <p className="text-base text-gray-500 font-medium">Choose the answer that fits you best.</p>
                   
-                  <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-3 mt-4">
+                  <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-3 short:space-y-2 mt-4 short:mt-3">
                     {learningOptions.map((option) => (
                       <div 
                         key={option.value} 
                         onClick={() => handleOptionChange(option.value)}
-                        className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all duration-300 border ${
+                        className={`flex items-center p-4 short:p-3 rounded-2xl cursor-pointer transition-all duration-300 border ${
                           selectedOption === option.value 
                             ? 'bg-indigo-50/80 border-indigo-200 shadow-md transform scale-[1.02]' 
                             : 'glass-card'

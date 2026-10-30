@@ -79,9 +79,10 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
   const border = result === 'correct' ? 'border-emerald-600' : result === 'wrong' ? 'border-red-500' : 'border-indigo-200';
 
   return (
-    <div className={`relative rounded-2xl border-2 bg-white/90 ${border}`} style={{ width: SIZE, height: SIZE }}>
+    // 显示尺寸：矮屏（iPhone SE 这类）上小一号；笔画坐标始终按 SIZE 记录（point() 按实际显示大小换算）
+    <div className={`relative rounded-2xl border-2 bg-white/90 w-[240px] h-[240px] short:w-[196px] short:h-[196px] ${border}`}>
       {/* 田字格 */}
-      <svg className="absolute inset-0 pointer-events-none" width={SIZE} height={SIZE} aria-hidden="true">
+      <svg className="absolute inset-0 pointer-events-none w-full h-full" viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
         <line x1="0" y1={SIZE / 2} x2={SIZE} y2={SIZE / 2} stroke="#e0e7ff" strokeWidth="1.5" strokeDasharray="6 6" />
         <line x1={SIZE / 2} y1="0" x2={SIZE / 2} y2={SIZE} stroke="#e0e7ff" strokeWidth="1.5" strokeDasharray="6 6" />
       </svg>
@@ -89,7 +90,7 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
         ref={canvasRef}
         width={SIZE}
         height={SIZE}
-        style={{ width: SIZE, height: SIZE, touchAction: 'none' }}
+        style={{ width: '100%', height: '100%', touchAction: 'none' }}
         className="relative rounded-2xl"
         aria-label="Handwriting area: write the missing character here"
         role="img"
