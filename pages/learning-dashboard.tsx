@@ -341,7 +341,7 @@ const LearningDashboard = () => {
                 </div>
                 <span className="text-base font-bold">Today’s review</span>
                 {dashboardData && dashboardData.dueReviews > 0 && (
-                  <span className="absolute top-2.5 right-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white shadow-sm ring-2 ring-white/50">
+                  <span className="absolute top-2.5 right-2.5 flex h-6 min-w-6 px-1.5 shrink-0 items-center justify-center rounded-full bg-rose-600 text-sm font-bold text-white shadow-sm ring-2 ring-white tabular-nums">
                     {dashboardData.dueReviews > 99 ? '99+' : dashboardData.dueReviews}
                   </span>
                 )}

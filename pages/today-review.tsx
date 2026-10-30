@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
-import { Clock, BookOpen, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { Clock, BookOpen, CheckCircle2 } from 'lucide-react';
 
 interface ReviewItem {
   word_id: number;
@@ -115,9 +115,10 @@ const TodayReview = () => {
   };
 
   const getPriorityBadge = (score: number) => {
-    if (score > 0.8) return <Badge variant="destructive" className="text-sm px-3 py-1">High priority</Badge>;
-    if (score > 0.5) return <Badge className="bg-amber-500 hover:bg-amber-600 text-white border-0 shadow-sm text-sm px-3 py-1">Medium priority</Badge>;
-    return <Badge variant="secondary" className="text-sm px-3 py-1">Low priority</Badge>;
+    // 浅底深字：白字放在橙底上对比度只有 2 左右
+    if (score > 0.8) return <Badge className="bg-rose-50 hover:bg-rose-50 text-rose-800 border border-rose-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">High priority</Badge>;
+    if (score > 0.5) return <Badge className="bg-amber-50 hover:bg-amber-50 text-amber-800 border border-amber-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">Medium priority</Badge>;
+    return <Badge className="bg-slate-100 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">Low priority</Badge>;
   };
 
   const getMasteryColor = (level: number) => {
@@ -150,26 +151,32 @@ const TodayReview = () => {
     );
   }
 
+  // 主动离开即结束本轮复习，下次进来重新开始
+  const leaveReview = () => {
+    updateSession({ reviewMode: null });
+    router.push('/');
+  };
+
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex flex-col relative z-20">
-          {/* Header */}
-          <div className="px-5 pb-5 flex items-center justify-between border-b border-white/30 bg-white/10 mb-2">
-            <h1 className="text-2xl font-bold flex items-center text-indigo-950">
-              <Clock className="mr-2 text-indigo-500" size={24} />
-              Today's Review
-            </h1>
-            <p className="text-base text-indigo-600 font-semibold">
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
+          {/* 顶栏和其他页一样：左回首页（离开即结束本轮复习），中间标题，右边到期个数 */}
+          <div className="px-5 pb-2 flex items-center justify-between">
+            <Button variant="ghost" onClick={leaveReview} className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold">
+              ← Home
+            </Button>
+            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Review</h1>
+            <span className="h-9 px-3 inline-flex items-center rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-semibold text-indigo-700 tabular-nums">
               {reviews.length} due
-            </p>
+            </span>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 custom-scrollbar scroll-fade">
             {error && (
               <div className="glass-card p-5 rounded-2xl border border-red-200 bg-red-50/50 text-center">
-                <p className="text-base text-red-600 mb-4">❌ {error}</p>
+                <p className="text-base text-rose-700 mb-4">{error}</p>
                 <Button 
                   size="sm" 
                   onClick={fetchDueReviews}
@@ -199,18 +206,18 @@ const TodayReview = () => {
             {reviews.map((review, index) => (
               <div 
                 key={`${review.word_id}-${index}`}
-                className="glass-card p-5 rounded-2xl border border-white/60 bg-white/40 hover:bg-white/60 transition-colors shadow-sm cursor-pointer"
+                className="glass-card p-4 rounded-2xl hover:border-indigo-200 cursor-pointer"
                 onClick={() => startReview(review)}
               >
-                <div className="flex items-start justify-between mb-3">
+                <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1">
-                    <h3 className="font-bold text-xl text-indigo-950">
+                    <h3 className="font-bold text-xl text-slate-900">
                       {review.word}
                       {review.pinyin && review.pinyin !== review.word && (
-                        <span className="ml-2 text-sm font-normal text-gray-500">{review.pinyin}</span>
+                        <span className="ml-2 text-sm font-normal text-slate-600">{review.pinyin}</span>
                       )}
                     </h3>
-                    <p className="text-sm text-gray-500 mt-1">
+                    <p className="text-sm text-slate-600 mt-1">
                       Reviewed {review.review_count ?? 0} {(review.review_count ?? 0) === 1 ? 'time' : 'times'}
                     </p>
                     {review.reviews_remaining !== undefined && (
@@ -245,14 +252,15 @@ const TodayReview = () => {
                   </div>
                   
                   {review.days_overdue > 0 && (
-                    <p className="text-sm text-rose-500 font-medium mt-1">
-                      ⚠️ {review.days_overdue} {review.days_overdue === 1 ? 'day' : 'days'} overdue
+                    <p className="text-sm text-rose-700 font-medium mt-1 flex items-center gap-1.5">
+                      <Clock size={14} aria-hidden="true" />
+                      {review.days_overdue} {review.days_overdue === 1 ? 'day' : 'days'} overdue
                     </p>
                   )}
                 </div>
                 
-                <div className="flex items-center justify-between pt-3 border-t border-indigo-50/50">
-                  <span className="text-sm text-gray-500 flex items-center font-medium">
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <span className="text-sm text-slate-600 flex items-center font-medium">
                     <BookOpen size={14} className="mr-1.5" />
                     {getModuleLabel(review.recommended_module)}
                   </span>
@@ -262,41 +270,30 @@ const TodayReview = () => {
                       e.stopPropagation();
                       startReview(review);
                     }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-5 py-2 h-9 rounded-full shadow-md shadow-indigo-600/20"
+                    className="h-9 px-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-indigo-700 text-sm font-semibold shadow-none"
                   >
-                    Start Review
+                    Review
                   </Button>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Bottom Actions */}
-          <div className="px-5 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shrink-0 space-y-3 pt-3">
-            {reviews.length > 0 && (
+          {/* 底栏只留一个主按钮：从第一个到期词开始 */}
+          {reviews.length > 0 && (
+          <div className="px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shrink-0 pt-3 bg-slate-100/95 border-t border-slate-200/70 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.25)]">
               <Button
                 onClick={() => {
                   if (reviews[0]) {
                     startReview(reviews[0]);
                   }
                 }}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-600/20 h-12 text-base font-semibold"
+                className="w-full h-12 rounded-2xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white text-base font-bold shadow-md shadow-indigo-500/20"
               >
-                {session.reviewMode ? `Continue Review (${reviews.length} left)` : 'Start First Review'}
+                {session.reviewMode ? `Continue review (${reviews.length} left)` : 'Start first review'}
               </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => {
-                // 主动离开即结束本轮复习，下次进来重新开始
-                updateSession({ reviewMode: null });
-                router.push('/');
-              }}
-              className="w-full bg-white/80 border-slate-200/70 text-slate-700 hover:bg-white hover:text-indigo-700 h-12 rounded-xl font-semibold text-base"
-            >
-              Back to home
-            </Button>
           </div>
+          )}
         </div>
 
         {/* Decorative blurs */}

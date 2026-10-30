@@ -623,6 +623,7 @@ const Exercise = () => {
                         }}
                         disabled={showFeedback}
                         autoComplete="off"
+                        enterKeyHint="go"
                         aria-label="Type the missing character"
                         placeholder="Type here"
                         data-fill-input
