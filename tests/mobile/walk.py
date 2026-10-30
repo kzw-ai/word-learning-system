@@ -17,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 HANZI = ROOT / 'public' / 'hanzi-data'
 
 # 找到元素、滚到屏幕中间、记在 window 上。文字按 textContent 比（innerText 会被 text-transform 改成大写），
-# 取最里层匹配的元素；收起的 Recap 里的不算
+# 取最里层匹配的元素；收起的 Recap 里的不算（它的标题行算）
 FIND_JS = """(kind, query) => {
-  const usable = e => !e.closest('details:not([open])') && e.getBoundingClientRect().width > 0;
+  const usable = e => { const closed = e.closest('details:not([open])');
+    return (!closed || e.closest('summary')) && e.getBoundingClientRect().width > 0; };
   let el;
   if (kind === 'css') {
     el = [...document.querySelectorAll(query)].filter(usable).pop();
@@ -101,7 +102,7 @@ class Walk:
         self.shot('02-dashboard')
         self.tap('text', r'^Start now$', 2.5)
         word_id = d.eval("() => new URLSearchParams(location.search).get('wordId')")
-        word = (re.search(r'How well do you know (.+?)\?', self.body()) or [None, ''])[1]
+        word = d.eval("() => document.querySelector('[data-target-word]')?.innerText.trim() || ''")
         self.check('dashboard Start now -> self-check', self.path() == '/word-learning-entrance' and bool(word),
                    f'{self.path()} word={word}')
         self.shot('03-self-check')

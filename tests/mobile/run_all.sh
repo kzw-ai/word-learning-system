@@ -1,13 +1,16 @@
 #!/bin/bash
 # 三台手机同时走一遍学新词流程：两台 iOS 模拟器（小屏、大屏）+ 安卓模拟器。
-# 前置准备与人工检查项见 docs/core/测试文档.md「手机兼容性测试」。
+#   tests/mobile/run_all.sh          功能走查（walk.py）
+#   tests/mobile/run_all.sh audit    版面检查（audit.py）：每页每个状态截图、量版面和美学指标，汇总成 .review/layout/报告.md
+# 前置准备与人工检查项见 docs/core/测试文档.md「手机兼容性测试」，检查标准和记录见 docs/core/界面检查记录.md。
 #   IOS_DEVICES   iOS 模拟器名字，逗号分隔（默认 "WL iPhone SE,iPhone 17 Pro Max"）
 #   ANDROID_PYTHON  装了 playwright 的 Python（默认 python3）
 #   BASE_URL      前端地址（默认 http://localhost:3100）；MOBILE_OUT 截图和日志目录（默认 .review/mobile）
 set -u
 cd "$(dirname "$0")/../.."
 BASE_URL=${BASE_URL:-http://localhost:3100}
-OUT=${MOBILE_OUT:-.review/mobile}
+MODE=${1:-walk}
+if [ "$MODE" = audit ]; then OUT=${MOBILE_OUT:-.review/layout}; else OUT=${MOBILE_OUT:-.review/mobile}; fi
 IOS_DEVICES=${IOS_DEVICES:-WL iPhone SE,iPhone 17 Pro Max}
 ANDROID_PYTHON=${ANDROID_PYTHON:-python3}
 ADB=${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}
@@ -37,7 +40,7 @@ for ds in json.load(sys.stdin)['devices'].values():
     sleep 2
   fi
   name=$(echo "$device" | tr 'A-Z ' 'a-z-')
-  WD_PORT=$port python3 tests/mobile/walk.py ios "$udid" "$name" > "$OUT/$name.log" 2>&1 & pids+=($!) names+=("$name")
+  WD_PORT=$port python3 tests/mobile/$MODE.py ios "$udid" "$name" > "$OUT/$name.log" 2>&1 & pids+=($!) names+=("$name")
   port=$((port + 1))
 done
 
@@ -51,7 +54,7 @@ if "$ADB" get-state >/dev/null 2>&1; then
   "$ADB" shell am start -a android.intent.action.VIEW -d "$BASE_URL/" com.android.chrome >/dev/null
   for _ in $(seq 10); do "$ADB" shell cat /proc/net/unix | grep -q chrome_devtools_remote && break; sleep 1; done
   "$ADB" forward tcp:9333 localabstract:chrome_devtools_remote >/dev/null
-  "$ANDROID_PYTHON" tests/mobile/walk.py android android > "$OUT/android.log" 2>&1 & pids+=($!) names+=(android)
+  "$ANDROID_PYTHON" tests/mobile/$MODE.py android android > "$OUT/android.log" 2>&1 & pids+=($!) names+=(android)
 else
   echo "没有连着的安卓模拟器，跳过安卓" >&2
 fi
@@ -62,5 +65,6 @@ for i in ${pids[@]+"${!pids[@]}"}; do
   grep -E 'FAIL|ERROR|passed' "$OUT/${names[$i]}.log"
 done
 for pid in ${started[@]+"${started[@]}"}; do kill "$pid" 2>/dev/null; done
+[ "$MODE" = audit ] && python3 tests/mobile/audit.py report
 echo "截图和日志：$OUT"
 exit $failed

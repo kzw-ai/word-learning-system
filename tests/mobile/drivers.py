@@ -58,6 +58,7 @@ class IOSDriver:
     def write(self, strokes):
         self._touch(strokes, 25)
 
+
     def shot(self, name):
         path = f'{self.out}/{name}.png'
         subprocess.run(['xcrun', 'simctl', 'io', self.udid, 'screenshot', path], capture_output=True)
@@ -128,6 +129,7 @@ class AndroidDriver:
             for p in sx[1:]:
                 adb('shell', 'input', 'motionevent', 'MOVE', *p)
             adb('shell', 'input', 'motionevent', 'UP', *sx[-1])
+
 
     def shot(self, name):
         path = f'{self.out}/{name}.png'
