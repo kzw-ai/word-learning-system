@@ -291,8 +291,11 @@ const Exercise = () => {
     if (!hasAnswer) {
       return;
     }
-    // 手写：按笔画和答案字的标准笔画配对判分（不限笔顺）。取不到这个字的笔画数据时改用打字
+    // 填字题的 options 放的是另一种也对的写法（如「师傅 / 师父」的「父」，见 学习资料制作/工具/step7_build.py 的 ALSO_CORRECT）
+    const alsoCorrect = currentQuestion.type === 'fill_word' ? currentQuestion.options ?? [] : [];
+    // 手写：按笔画和答案字的标准笔画配对判分（不限笔顺）；没对上时再和也算对的字比。取不到答案字的笔画数据时改用打字
     let handwriting: ReturnType<typeof gradeHandwriting> | null = null;
+    let writtenAs = currentQuestion.correctAnswer;
     if (writing) {
       const data = await loadCharacterData(currentQuestion.correctAnswer).catch(() => null);
       if (!data) {
@@ -300,6 +303,15 @@ const Exercise = () => {
         return;
       }
       handwriting = gradeHandwriting(handStrokes, data);
+      for (const alt of alsoCorrect) {
+        if (handwriting.correct) break;
+        const altData = await loadCharacterData(alt).catch(() => null);
+        const altResult = altData && gradeHandwriting(handStrokes, altData);
+        if (altResult?.correct) {
+          handwriting = altResult;
+          writtenAs = alt;
+        }
+      }
     }
 
     trackButtonClick('submit-button', 'CHECK', {
@@ -318,13 +330,13 @@ const Exercise = () => {
       correct = handwriting.correct;
       // 手写没有识别成具体的字：对了记答案字，错了记笔画配对情况
       userAnswer = correct
-        ? currentQuestion.correctAnswer
+        ? writtenAs
         : `[handwriting ${handwriting.matched}/${handwriting.expected} strokes, ${handwriting.extra} extra]`;
     } else if (currentQuestion.type === 'fill_word') {
       userAnswer = fillInAnswer.trim();
       // 填空题：严格相等比对。此前用双向子串匹配，正确答案「改变」时只写「改」、
       // 正确答案 'happen; occur' 时只输入 'a' 都会判对，正确率被系统性高估。
-      correct = normaliseAnswer(userAnswer) === normaliseAnswer(currentQuestion.correctAnswer);
+      correct = [currentQuestion.correctAnswer, ...alsoCorrect].some(a => normaliseAnswer(userAnswer) === normaliseAnswer(a));
     } else {
       userAnswer = selectedOption;
       correct = selectedOption === currentQuestion.correctAnswer;
@@ -727,6 +739,12 @@ const Exercise = () => {
                              Correct answer: {currentQuestion.type === 'fill_word'
                                ? currentQuestion.correctAnswer
                                : `${String.fromCharCode(65 + currentQuestion.options.indexOf(currentQuestion.correctAnswer))}. ${currentQuestion.correctAnswer}`}
+                          </div>
+                       )}
+                       {/* 填字题另一种也对的写法（options），对错都告诉学习者 */}
+                       {currentQuestion.type === 'fill_word' && currentQuestion.options.length > 0 && (
+                          <div className="text-slate-700 text-sm mb-3">
+                             Also accepted: {currentQuestion.options.join(', ')}
                           </div>
                        )}
 
