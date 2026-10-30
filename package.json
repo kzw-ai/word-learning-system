@@ -4,6 +4,7 @@
   "description": "A word learning system",
   "main": "index.js",
   "scripts": {
+    "prebuild": "node scripts/copy_hanzi_data.js",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -21,6 +22,8 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "hanzi-writer": "3.7.3",
+    "hanzi-writer-data": "2.0.1",
     "lucide-react": "^0.446.0",
     "next": "^15.5.28",
     "react": "18.2.0",

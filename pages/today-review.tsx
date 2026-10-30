@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
-import { Clock, BookOpen, TrendingUp } from 'lucide-react';
+import { Clock, BookOpen, TrendingUp, CheckCircle2 } from 'lucide-react';
 
 interface ReviewItem {
   word_id: number;
@@ -121,10 +121,11 @@ const TodayReview = () => {
   };
 
   const getMasteryColor = (level: number) => {
-    if (level >= 0.8) return 'text-green-600';
-    if (level >= 0.6) return 'text-blue-600';
-    if (level >= 0.4) return 'text-yellow-600';
-    return 'text-red-600';
+    // 都取同色系深一档，白底上对比度够 4.5
+    if (level >= 0.8) return 'text-emerald-700';
+    if (level >= 0.6) return 'text-blue-700';
+    if (level >= 0.4) return 'text-amber-700';
+    return 'text-rose-700';
   };
 
   const getModuleLabel = (module: string) => {
@@ -180,15 +181,17 @@ const TodayReview = () => {
             )}
 
             {!error && reviews.length === 0 && (
-              <div className="glass-card p-10 rounded-3xl border border-indigo-100 bg-white/60 text-center mt-8">
-                <div className="text-6xl mb-5">🎉</div>
-                <p className="text-2xl font-bold text-indigo-950 mb-3">Awesome!</p>
-                <p className="text-lg text-gray-600 mb-8 leading-relaxed">You've completed all your reviews for today.</p>
+              <div className="glass-panel p-8 short:p-6 rounded-3xl text-center mt-2">
+                <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 size={30} className="text-emerald-700" aria-hidden="true" />
+                </div>
+                <p className="text-2xl font-bold text-slate-900 mb-2">All reviews done</p>
+                <p className="text-base text-slate-600 mb-6 leading-relaxed">You've completed all your reviews for today.</p>
                 <Button 
                   onClick={() => router.push('/word-learning-entrance')}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-600/20 h-13 text-base font-semibold py-3"
+                  className="w-full h-12 rounded-2xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white text-base font-bold shadow-md shadow-indigo-500/20"
                 >
-                  Learn New Words
+                  Learn a new word
                 </Button>
               </div>
             )}
@@ -289,9 +292,9 @@ const TodayReview = () => {
                 updateSession({ reviewMode: null });
                 router.push('/');
               }}
-              className="w-full bg-white/50 border-white/60 text-gray-700 hover:bg-white/80 hover:text-indigo-600 h-12 rounded-xl font-semibold backdrop-blur-md text-base"
+              className="w-full bg-white/80 border-slate-200/70 text-slate-700 hover:bg-white hover:text-indigo-700 h-12 rounded-xl font-semibold text-base"
             >
-              Back to Home
+              Back to home
             </Button>
           </div>
         </div>

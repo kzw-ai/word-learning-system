@@ -39,3 +39,6 @@ docs/安全审计报告.md
 
 # 部署前的数据库备份、删除数据前的留档（服务器上）
 /backups/
+
+# 手写笔画数据：构建时从 hanzi-writer-data 复制（scripts/copy_hanzi_data.js）
+/public/hanzi-data/

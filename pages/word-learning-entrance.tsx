@@ -78,14 +78,6 @@ export default function Component() {
     return safeGetItem('username');
   }, [currentUser, isGuest, userId]);
 
-  const activeModuleLabel = useMemo(() => {
-    if (!learningSession.module) {
-      return null;
-    }
-    const key = learningSession.module.toLowerCase();
-    return moduleRouteMap[key]?.label ?? learningSession.module;
-  }, [learningSession.module]);
-
   const lastModuleLabel = useMemo(() => {
     const moduleKey = currentUser?.lastSession?.moduleType?.toLowerCase();
     if (!moduleKey) {
@@ -287,122 +279,138 @@ export default function Component() {
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex flex-col relative z-20">
-          <div className="px-5 mb-4">
-              <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">Word Learning</h1>
-              {/* 显示用户名或访客名；内部 user_id 对学习者没有意义 */}
-              {displayName && (
-                <p className="text-sm text-gray-500 mt-1 font-medium">
-                  {displayName}
-                  {isGuest && (
-                    <>
-                      {' · Guest · '}
-                      <button
-                        type="button"
-                        onClick={() => router.push('/register')}
-                        className="text-indigo-600 underline underline-offset-2"
-                      >
-                        Sign up to continue on other devices
-                      </button>
-                    </>
-                  )}
-                </p>
-              )}
-              <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60">
-                <div className="flex justify-between items-center">
-                  {wordsStudied !== null && <span>Words studied: {wordsStudied}</span>}
-                  {learningSession.word && (
-                    <span className="text-indigo-600 font-semibold">{activeModuleLabel || 'Practice'} · {learningSession.word}</span>
-                  )}
-                </div>
-                {recommendationMessage && (
-                  <p className="text-emerald-600 font-semibold mt-1.5">
-                    💡 {recommendationMessage}
-                  </p>
-                )}
-              </div>
-              <div className="mt-4 flex gap-3">
-                <Button
-                  size="sm"
-                  onClick={() => router.push('/learning-dashboard')}
-                  className="flex-1 bg-white/60 text-indigo-700 hover:bg-white/80 text-sm h-11 rounded-xl shadow-sm border border-white/50 font-semibold"
-                >
-                  Dashboard
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => router.push('/today-review')}
-                  className="flex-1 bg-white/60 text-rose-600 hover:bg-white/80 text-sm h-11 rounded-xl shadow-sm border border-white/50 font-semibold"
-                >
-                  Today’s review
-                </Button>
-              </div>
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
+          {/* 顶栏和学习页一样：左回看板，中间标题，右去复习 */}
+          <div className="px-5 mb-3 short:mb-2 shrink-0">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => router.push('/learning-dashboard')}
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
+              >
+                ← Dashboard
+              </Button>
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Self-check</h1>
+              <Button
+                variant="ghost"
+                onClick={() => router.push('/today-review')}
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
+              >
+                Review →
+              </Button>
             </div>
-            
-            <div className="flex-1 px-5 pb-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
+            {/* 显示用户名或访客名；内部 user_id 对学习者没有意义 */}
+            {displayName && (
+              <p className="text-sm text-slate-600 mt-2 short:mt-1.5 text-center">
+                {displayName}
+                {isGuest && (
+                  <>
+                    {' · Guest · '}
+                    <button
+                      type="button"
+                      onClick={() => router.push('/register')}
+                      className="inline-block py-2 -my-2 text-indigo-700 font-semibold"
+                    >
+                      Sign up to save progress
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
+            {/* 只在高屏上显示这一栏：手机上（包括大屏手机）放了它，自评的五个选项就要滚动才看得全 */}
+            {(wordsStudied !== null || recommendationMessage) && (
+              <div className="text-sm text-slate-600 mt-3 glass-card rounded-xl px-3 py-2 hidden tall:flex justify-between gap-3">
+                {wordsStudied !== null && <span>Words studied: {wordsStudied}</span>}
+                {recommendationMessage && <span className="text-emerald-700 font-semibold">{recommendationMessage}</span>}
+              </div>
+            )}
+          </div>
+
+          {/* 题目卡和按钮是一组，在剩下的高度里上下居中；放不下时这一块滚动 */}
+          <div className="flex-1 min-h-0 px-5 overflow-y-auto custom-scrollbar scroll-fade flex flex-col">
+            <div className="my-auto pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
               {caughtUp ? (
-                <div className="glass-panel p-5 rounded-2xl space-y-2">
-                  <p className="text-lg font-bold text-gray-800 leading-snug">You’re all caught up 🎉</p>
-                  <p className="text-base text-gray-500 font-medium">
+                <div className="glass-panel p-5 rounded-3xl space-y-2">
+                  <p className="text-lg font-bold text-slate-900 leading-snug">You’re all caught up</p>
+                  <p className="text-base text-slate-600 font-medium">
                     {caughtUp.nextReviewAt
                       ? `Your next review is ${formatReviewTime(caughtUp.nextReviewAt)}.`
                       : 'There are no new words to learn right now.'}
                   </p>
                 </div>
               ) : (
-              <div className="space-y-4">
-                  <div className="glass-panel p-5 rounded-2xl">
-                    <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
-                    <p className="text-base text-gray-500 font-medium">Choose the answer that fits you best.</p>
-                  
-                  <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-3 mt-4">
-                    {learningOptions.map((option) => (
-                      <div 
-                        key={option.value} 
-                        onClick={() => handleOptionChange(option.value)}
-                        className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all duration-300 border ${
-                          selectedOption === option.value 
-                            ? 'bg-indigo-50/80 border-indigo-200 shadow-md transform scale-[1.02]' 
-                            : 'glass-card'
-                        }`}
-                      >
-                        <RadioGroupItem 
-                          value={option.value} 
-                          id={option.value} 
-                          className={`mr-4 shrink-0 border-gray-300 w-5 h-5 bg-white/70 ${selectedOption === option.value ? 'border-indigo-500 text-indigo-600' : ''}`}
-                        />
-                        <Label htmlFor={option.value} className={`text-base flex-1 cursor-pointer font-medium leading-relaxed ${
-                          selectedOption === option.value ? 'text-indigo-900' : 'text-gray-700'
-                        }`}>
-                          {option.text}
-                        </Label>
+                <>
+                  <div className="glass-panel p-5 short:p-3.5 rounded-3xl">
+                    {/* 要自评的词单独放大，是这一页的主角 */}
+                    <div className="flex items-center justify-between gap-3 pb-3.5 short:pb-2.5 mb-3.5 short:mb-2.5 border-b border-slate-100">
+                      <div>
+                        <p className="text-sm font-semibold text-indigo-700">New word</p>
+                        <h2 className="text-base font-semibold text-slate-700 mt-0.5 leading-snug">How well do you know this word?</h2>
                       </div>
-                    ))}
-                  </RadioGroup>
-                  
-                  {recommendationError && (
-                    <div className="p-3 text-sm text-rose-600 bg-rose-50/80 backdrop-blur-sm rounded-xl border border-rose-100">
-                      {recommendationError}
+                      <div className="px-4 py-2 short:px-3 short:py-1.5 rounded-2xl bg-indigo-50 border border-indigo-100 shrink-0">
+                        <span data-target-word className="text-3xl short:text-2xl font-extrabold text-slate-900 leading-none">
+                          {targetWord?.word ?? DEFAULT_WORD_NAME}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
-                
-                <Button
-                  onClick={handleContinue}
-                  disabled={!selectedOption || isSubmitting}
-                  className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:from-gray-300 disabled:to-gray-300 hover:shadow-lg disabled:shadow-none text-white py-6 text-base font-bold rounded-2xl mt-4 mb-[calc(env(safe-area-inset-bottom)+1.5rem)] border-none transition-all duration-300"
-                >
-                  <span className="relative z-10 tracking-wider text-glow">{isSubmitting ? 'LOADING…' : 'CONTINUE'}</span>
-                  {!(!selectedOption || isSubmitting) && (
-                    <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity duration-300"></div>
-                  )}
-                </Button>
-              </div>
+
+                    {/* 1–5 对应认识程度由浅到深（论文表 4.2 的五个档位） */}
+                    <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="gap-2 short:gap-1.5">
+                      {learningOptions.map((option, index) => {
+                        const active = selectedOption === option.value;
+                        return (
+                          <div
+                            key={option.value}
+                            onClick={() => handleOptionChange(option.value)}
+                            className={`flex items-center gap-3 px-3.5 py-2.5 short:px-3 short:py-2 rounded-2xl cursor-pointer transition-colors border ${
+                              active
+                                ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500/20'
+                                : 'bg-white border-slate-200/80 hover:border-indigo-200'
+                            }`}
+                          >
+                            <RadioGroupItem value={option.value} id={option.value} className="sr-only" />
+                            <span
+                              aria-hidden="true"
+                              className={`w-7 h-7 rounded-full text-sm font-bold flex items-center justify-center shrink-0 transition-colors ${
+                                active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {index + 1}
+                            </span>
+                            <Label
+                              htmlFor={option.value}
+                              className={`text-base short:text-[15px] flex-1 cursor-pointer leading-snug ${
+                                active ? 'text-indigo-950 font-semibold' : 'text-slate-700 font-medium'
+                              }`}
+                            >
+                              {option.text}
+                            </Label>
+                          </div>
+                        );
+                      })}
+                    </RadioGroup>
+
+                    {recommendationError && (
+                      <div className="mt-3 p-3 text-sm text-rose-700 bg-rose-50 rounded-xl border border-rose-100">
+                        {recommendationError}
+                      </div>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={handleContinue}
+                    disabled={!selectedOption || isSubmitting}
+                    className="w-full h-14 short:h-12 mt-4 short:mt-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:opacity-100 shadow-md shadow-indigo-500/20 disabled:shadow-none text-white text-base font-bold tracking-wider rounded-2xl border-none transition-all duration-200"
+                  >
+                    {isSubmitting ? 'LOADING…' : 'CONTINUE'}
+                  </Button>
+                </>
               )}
             </div>
+          </div>
 
             {/* Decorative blurs */}
-            <div className="absolute top-20 -right-10 w-40 h-40 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 pointer-events-none z-10"></div>
+            <div className="absolute top-20 -right-10 w-40 h-40 bg-violet-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 pointer-events-none z-10"></div>
             <div className="absolute bottom-20 -left-10 w-40 h-40 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 pointer-events-none z-10"></div>
 
           </div>

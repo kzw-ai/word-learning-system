@@ -13,7 +13,7 @@ export default function Document() {
         <link rel="apple-touch-icon" href="/icon-192.png" />
         
         {/* PWA 主题颜色 */}
-        <meta name="theme-color" content="#ff6b35" />
+        <meta name="theme-color" content="#4f46e5" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Word Learning" />

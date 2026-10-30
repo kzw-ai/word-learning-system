@@ -79,9 +79,9 @@ export default function Component() {
     return (
       <div className={`flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20 ${slideIn}`}>
         <div className="flex-1 space-y-4">
-          <div className="glass-panel p-6 rounded-3xl shadow-lg border border-white/60 relative overflow-hidden">
+          <div className="glass-panel p-6 short:p-4 rounded-3xl shadow-lg border border-white/60 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full mix-blend-multiply filter blur-2xl opacity-50 pointer-events-none -mr-10 -mt-10"></div>
-            <div className="relative z-10 space-y-6">
+            <div className="relative z-10 space-y-6 short:space-y-4">
               <WordHero word={word} />
               <CollocationList word={word} />
             </div>
@@ -95,10 +95,11 @@ export default function Component() {
         </div>
 
         {/* 底部按钮区域保持为单大绿色 CONTINUE 按钮以符合原型图 */}
-        <div className="pt-4 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+        {/* 固定在屏幕底部：小屏手机上内容比屏幕高时，按钮也一直看得到（内容在它后面滚动） */}
+        <div className="sticky bottom-0 bg-slate-100/95 backdrop-blur-sm border-t border-slate-200/70 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.25)] pt-3 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           <SwipeHint />
           <Button
-              className="w-full h-12 rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 text-white font-bold tracking-widest text-sm"
+              className="w-full h-12 rounded-2xl border-none shadow-md shadow-indigo-500/20 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white font-bold tracking-wider text-base transition-all duration-200"
               onClick={() => handleNavigate("next")}
             >
               CONTINUE
@@ -115,16 +116,16 @@ export default function Component() {
           <div className="px-5 mb-3">
             <div className="flex justify-between items-center">
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 variant="ghost"
                 disabled={!previous}
                 onClick={() => handleNavigate('previous')}
               >
                 ← {previous?.label || 'Back'}
               </Button>
-              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-800 tracking-tight leading-none pt-1">Collocations</h1>
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-none pt-1">Collocations</h1>
               <Button
-                className="h-9 px-3 bg-white/40 hover:bg-white/70 shadow-sm text-indigo-700 rounded-xl text-sm font-semibold"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 variant="ghost"
                 disabled={!next}
                 onClick={() => handleNavigate('next')}

@@ -57,12 +57,12 @@ export default function StepProgress({ current, entry, skipCharacter = false }: 
             <span
               className={`inline-flex items-center justify-center rounded-full h-7 text-sm font-semibold whitespace-nowrap shrink-0 ${
                 active
-                  ? 'px-1.5 bg-indigo-600 text-white shadow-sm'
+                  ? 'px-2.5 short:px-2 bg-indigo-600 text-white shadow-sm'
                   : done
                     ? 'w-7 bg-indigo-100 text-indigo-700'
                     : skipped
-                      ? 'px-1 text-gray-500 line-through decoration-gray-400'
-                      : 'px-1 bg-white/60 text-gray-600'
+                      ? 'px-1 text-slate-500 line-through decoration-slate-400'
+                      : 'px-1.5 bg-white/80 text-slate-600'
               }`}
               aria-label={`${step.label}: ${state}`}
               title={done ? step.label : undefined}

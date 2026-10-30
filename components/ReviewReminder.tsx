@@ -66,13 +66,13 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
               <X size={16} />
             </button>
           </div>
-          <p className="text-xs mb-2">
+          <p className="text-sm mb-2">
             You have <Badge className="bg-white text-red-600 mx-1">{dueCount}</Badge> {dueCount === 1 ? 'word' : 'words'} to review
           </p>
           <Button
             size="sm"
             onClick={handleGoToReview}
-            className="w-full bg-white text-red-600 hover:bg-gray-100 text-xs"
+            className="w-full h-9 bg-white text-rose-700 hover:bg-rose-50 text-sm font-semibold"
           >
             Review now
           </Button>
@@ -83,18 +83,18 @@ const ReviewReminder: React.FC<ReviewReminderProps> = ({ userId, showInline = fa
 
   // 内嵌提醒样式
   return (
-    <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-300 rounded-lg p-2 mb-2">
+    <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 mb-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center flex-1">
-          <Clock size={14} className="mr-1 text-red-600" />
-          <span className="text-xs text-red-800">
+          <Clock size={16} className="mr-1.5 text-rose-700" aria-hidden="true" />
+          <span className="text-sm text-rose-800">
             <span className="font-bold">{dueCount}</span> {dueCount === 1 ? 'word' : 'words'} due
           </span>
         </div>
         <Button
           size="sm"
           onClick={handleGoToReview}
-          className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 h-auto"
+          className="bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold px-3 h-9 rounded-lg"
         >
           Review
         </Button>

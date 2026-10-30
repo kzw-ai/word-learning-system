@@ -57,9 +57,10 @@ const Login = () => {
   };
 
   const inputClass =
-    'w-full px-4 py-3 text-sm bg-white/70 border border-white/60 rounded-xl ' +
-    'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ' +
-    'focus:border-transparent transition-all';
+    // 浅灰底加细边框，放在白卡片上也看得出是输入框
+    'w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl ' +
+    'placeholder:text-slate-500 focus:outline-none focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 ' +
+    'transition-all';
 
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
@@ -73,7 +74,7 @@ const Login = () => {
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
               Sign in
             </h1>
-            <p className="text-sm text-gray-500 mt-1 font-medium">Sign in to continue learning</p>
+            <p className="text-sm text-slate-600 mt-1 font-medium">Sign in to continue learning</p>
           </div>
 
           {/* Form */}
@@ -117,22 +118,23 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-2.5 text-slate-500 hover:text-slate-700 transition-colors"
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
               </div>
 
-              <div className="flex items-center pt-1">
+              <div className="flex items-center min-h-9 pt-1">
                 <input
                   id="remember"
                   type="checkbox"
                   checked={formData.remember_me}
                   onChange={(e) => setFormData({ ...formData, remember_me: e.target.checked })}
-                  className="mr-2.5 w-4 h-4 accent-indigo-600"
+                  className="mr-2.5 w-5 h-5 accent-indigo-600"
                 />
-                <Label htmlFor="remember" className="text-sm text-gray-600 cursor-pointer">
+                <Label htmlFor="remember" className="py-2 text-sm text-slate-600 cursor-pointer">
                   Keep me signed in for 7 days
                 </Label>
               </div>
@@ -150,7 +152,7 @@ const Login = () => {
               <button
                 type="button"
                 onClick={() => router.push('/register')}
-                className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                className="inline-block py-2 text-sm text-indigo-700 hover:text-indigo-800 font-semibold transition-colors"
               >
                 No account yet? Sign up
               </button>

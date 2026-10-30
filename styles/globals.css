@@ -78,20 +78,26 @@
 }
 
 @layer utilities {
+  /* 外层面板：实一些的白底加细边框，和背景分得开 */
   .glass-panel {
-    @apply bg-white/70 backdrop-blur-md border border-white/40 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
-  }
-  
-  .glass-card {
-    @apply bg-white/80 backdrop-blur-sm border border-white/50 shadow-sm hover:shadow-md hover:bg-white/90 transition-all duration-300;
+    @apply bg-white/90 backdrop-blur-md border border-indigo-100/80 shadow-[0_8px_28px_-6px_rgba(79,70,229,0.08)];
   }
 
-  .modern-gradient-bg {
-    @apply bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50;
+  /* 面板里的卡片、选项：实心白底靠细边框区分，不再半透明白叠半透明白 */
+  .glass-card {
+    @apply bg-white border border-slate-200/80 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.04)] transition-all duration-200;
   }
-  
-  .text-glow {
-    text-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+
+  /* 能滚动的区域：下面还有内容时底部出现一道阴影，提示「下面还有」；滚到底时被内容末尾的同色块盖住 */
+  .scroll-fade {
+    background:
+      linear-gradient(to top, rgb(241 245 249), rgb(241 245 249 / 0)) center bottom / 100% 32px no-repeat local,
+      radial-gradient(farthest-side at 50% 100%, rgb(15 23 42 / 0.16), transparent) center bottom / 100% 16px no-repeat scroll;
+  }
+
+  /* 全站底色：冷白带一点靛蓝，不偏粉 */
+  .modern-gradient-bg {
+    @apply bg-gradient-to-b from-slate-50 via-indigo-50/40 to-slate-100;
   }
 }
 /* 学习页翻页：从下一步翻过来时内容从右侧滑入，回到上一步时从左侧滑入（见 src/hooks/useSwipeNavigation.ts） */

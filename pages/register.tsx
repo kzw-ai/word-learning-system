@@ -74,9 +74,10 @@ const Register = () => {
   };
 
   const inputClass =
-    'w-full px-4 py-3 text-sm bg-white/70 border border-white/60 rounded-xl ' +
-    'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ' +
-    'focus:border-transparent transition-all';
+    // 浅灰底加细边框，放在白卡片上也看得出是输入框
+    'w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl ' +
+    'placeholder:text-slate-500 focus:outline-none focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 ' +
+    'transition-all';
 
   if (success) {
     return (
@@ -115,7 +116,7 @@ const Register = () => {
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
               Sign up
             </h1>
-            <p className="text-sm text-gray-500 mt-1 font-medium">Create an account to keep your progress on any device</p>
+            <p className="text-sm text-slate-600 mt-1 font-medium">Create an account to keep your progress on any device</p>
           </div>
 
           {/* Form */}
@@ -129,7 +130,7 @@ const Register = () => {
             <div className="glass-panel rounded-2xl p-5 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="username" className="text-sm font-medium text-gray-700">
-                  Username <span className="text-red-400">*</span>
+                  Username <span className="text-rose-600" aria-hidden="true">*</span>
                 </Label>
                 <input
                   id="username"
@@ -158,7 +159,7 @@ const Register = () => {
 
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  Password <span className="text-red-400">*</span>
+                  Password <span className="text-rose-600" aria-hidden="true">*</span>
                 </Label>
                 <div className="relative">
                   <input
@@ -173,7 +174,8 @@ const Register = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-2.5 text-slate-500 hover:text-slate-700 transition-colors"
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -182,7 +184,7 @@ const Register = () => {
 
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
-                  Confirm password <span className="text-red-400">*</span>
+                  Confirm password <span className="text-rose-600" aria-hidden="true">*</span>
                 </Label>
                 <input
                   id="confirmPassword"
@@ -227,7 +229,7 @@ const Register = () => {
               <button
                 type="button"
                 onClick={() => router.push('/login')}
-                className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                className="inline-block py-2 text-sm text-indigo-700 hover:text-indigo-800 font-semibold transition-colors"
               >
                 Already have an account? Sign in
               </button>

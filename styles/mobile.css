@@ -31,7 +31,7 @@
   transform: scale(0.98);
 }
 
-/* 移除iOS默认样式 */
+/* 移除iOS默认样式（不在这里设圆角：属性选择器优先级高过 rounded-* 类，会把全站输入框都压成直角） */
 input[type="text"],
 input[type="password"],
 input[type="email"],
@@ -40,7 +40,6 @@ button {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
-  border-radius: 0;
 }
 
 /* 禁用iOS文本大小调整 */

@@ -15,6 +15,9 @@ import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
 import StepProgress from '@/components/learning/StepProgress';
 import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
+import { gradeHandwriting, loadCharacterData, type Stroke } from '@/src/lib/handwriting';
+import HandwritingPad from '@/components/learning/HandwritingPad';
+import StrokeOrderAnimation from '@/components/learning/StrokeOrderAnimation';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -48,8 +51,35 @@ const Exercise = () => {
   const fillHint = currentQuestion?.type === 'fill_word' ? parseFillHint(currentQuestion.question) : null;
   const [selectedOption, setSelectedOption] = useState('');
   const [fillInAnswer, setFillInAnswer] = useState(''); // 填空题答案
+  // 填字题默认手写（论文 3.2 节）；也可以改用打字（电脑上用鼠标不好写），选择记在本机
+  const [fillMode, setFillMode] = useState<'write' | 'type'>('write');
+  const [handStrokes, setHandStrokes] = useState<Stroke[]>([]);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('fill-input-mode') === 'type') setFillMode('type');
+    } catch {
+      /* 读不了就用默认的手写 */
+    }
+  }, []);
+  // 填字题一出来就预先取答案字的笔画数据，点 CHECK 时不用等
+  useEffect(() => {
+    if (currentQuestion?.type === 'fill_word') loadCharacterData(currentQuestion.correctAnswer).catch(() => undefined);
+  }, [currentQuestion]);
+  const chooseFillMode = (mode: 'write' | 'type') => {
+    setFillMode(mode);
+    try {
+      localStorage.setItem('fill-input-mode', mode);
+    } catch {
+      /* 存不了就只在这一页有效 */
+    }
+  };
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  // 答完以后反馈区（含 CONTINUE）在小屏手机上会排到屏幕外：出现时滚到它
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (showFeedback) feedbackRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [showFeedback]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionStartTime] = useState(new Date());
   const [wordId, setWordId] = useState(initialWordId);
@@ -119,6 +149,7 @@ const Exercise = () => {
       setCurrentQuestion(normalizedQuestions[0]);
       setSelectedOption('');
       setFillInAnswer(''); // 重置填空答案
+      setHandStrokes([]);
       setShowFeedback(false);
       setIsCorrect(false);
       updateConfig({ wordId: data.wordId });
@@ -196,6 +227,7 @@ const Exercise = () => {
     setCurrentQuestion(nextQuestion);
     setSelectedOption('');
     setFillInAnswer(''); // 重置填空答案
+    setHandStrokes([]);
     setShowFeedback(false);
     setIsCorrect(false);
     startTimer();
@@ -244,9 +276,20 @@ const Exercise = () => {
     }
 
     // 检查用户是否已作答
-    const hasAnswer = currentQuestion.type === 'fill_word' ? fillInAnswer.trim() : selectedOption;
+    const writing = currentQuestion.type === 'fill_word' && fillMode === 'write';
+    const hasAnswer = currentQuestion.type === 'fill_word' ? (writing ? handStrokes.length > 0 : fillInAnswer.trim()) : selectedOption;
     if (!hasAnswer) {
       return;
+    }
+    // 手写：按笔画和答案字的标准笔画配对判分（不限笔顺）。取不到这个字的笔画数据时改用打字
+    let handwriting: ReturnType<typeof gradeHandwriting> | null = null;
+    if (writing) {
+      const data = await loadCharacterData(currentQuestion.correctAnswer).catch(() => null);
+      if (!data) {
+        chooseFillMode('type');
+        return;
+      }
+      handwriting = gradeHandwriting(handStrokes, data);
     }
 
     trackButtonClick('submit-button', 'CHECK', {
@@ -261,7 +304,13 @@ const Exercise = () => {
     let correct = false;
     let userAnswer = '';
     
-    if (currentQuestion.type === 'fill_word') {
+    if (handwriting) {
+      correct = handwriting.correct;
+      // 手写没有识别成具体的字：对了记答案字，错了记笔画配对情况
+      userAnswer = correct
+        ? currentQuestion.correctAnswer
+        : `[handwriting ${handwriting.matched}/${handwriting.expected} strokes, ${handwriting.extra} extra]`;
+    } else if (currentQuestion.type === 'fill_word') {
       userAnswer = fillInAnswer.trim();
       // 填空题：严格相等比对。此前用双向子串匹配，正确答案「改变」时只写「改」、
       // 正确答案 'happen; occur' 时只输入 'a' 都会判对，正确率被系统性高估。
@@ -436,14 +485,14 @@ const Exercise = () => {
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
         {/* Content */}
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-6 flex flex-col relative z-20">
-          <div className="px-5 mb-3">
-            <div className="flex justify-between items-center mb-4">
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] short:pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
+          <div className="px-5 mb-3 short:mb-1">
+            <div className="flex justify-between items-center">
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={!previous}
-                className="h-9 px-3 bg-transparent hover:bg-white/20 text-indigo-900 rounded-xl text-sm font-semibold shadow-none border border-transparent"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 onClick={() => {
                   if (!previous) return;
                   trackEvent('nav_previous', 'navigation', { targetModule: previous.key });
@@ -452,14 +501,14 @@ const Exercise = () => {
               >
                 ← {previous ? previous.label : 'Back'}
               </Button>
-              <h1 className="text-xl font-extrabold text-gray-800 tracking-tight pt-1 leading-none">
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight pt-1 leading-none">
                 {isTestMode ? 'Test' : (isReviewMode ? 'Review' : 'Practice')}
               </h1>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={!next && !learningSession.reviewMode}
-                className="h-9 px-2 bg-transparent hover:bg-white/20 text-indigo-900 rounded-lg text-sm shadow-none border border-transparent"
+                className="h-9 px-3 rounded-xl bg-white/80 hover:bg-white border border-slate-200/70 shadow-sm text-indigo-700 text-sm font-semibold"
                 onClick={() => {
                   // 复习模式下这个出口回复习列表，否则会绕过剩下的到期词
                   if (learningSession.reviewMode) {
@@ -485,23 +534,24 @@ const Exercise = () => {
                   {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
                   {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
                   
-                {/* Title and Audio play */}
-                <div>
-                  <div className="flex items-baseline justify-between gap-3 mb-3">
-                    <h2 className="text-xl font-extrabold text-gray-900 leading-snug tracking-wide">
+                {/* 题目卡：上面一行小字是题型说明和题号，题干放大，拼音提示跟在题干下面 */}
+                <div className="glass-panel rounded-2xl p-4 short:p-3">
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <h2 className="text-sm font-semibold text-indigo-700 leading-snug">
                       {currentQuestion.type === 'definition' ?
                         'Choose the word that matches the meaning.' :
                         currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
                         currentQuestion.type === 'choose_word' ? 'Choose the right word.' :
-                        'Type the missing character.'
+                        // 缺的总是刚学的这个词里的一个字（单字词就是这个词本身，多字词是最后一个字）
+                        `${fillMode === 'write' ? 'Write' : 'Type'} the missing character of the word you just learned.`
                       }
                     </h2>
-                    <span className="text-sm font-semibold text-indigo-600 shrink-0" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
+                    <span className="text-sm font-semibold text-slate-500 shrink-0 tabular-nums" aria-label={`Question ${questionIndex + 1} of ${exerciseQuestions.length}`}>
                       {questionIndex + 1} / {exerciseQuestions.length}
                     </span>
                   </div>
-                  <div className="mb-6 flex gap-2 items-center">
-                    <p className="text-lg font-bold text-gray-800">{fillHint ? fillHint.stem : currentQuestion.question}</p>
+                  <div className="flex gap-2 items-center">
+                    <p className="text-lg short:text-base font-bold text-slate-900 leading-snug">{fillHint ? fillHint.stem : currentQuestion.question}</p>
                     {currentQuestion.type === 'definition' && (
                       <AudioPlayer
                         text={currentQuestion.question}
@@ -513,7 +563,7 @@ const Exercise = () => {
                   </div>
                   {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
                   {fillHint?.hint && (
-                    <p className="-mt-3 mb-5 text-base text-gray-600">
+                    <p className="mt-1.5 text-sm text-slate-600">
                       Hint: the pinyin {fillHint.initialOnly ? 'starts with' : 'is'}{' '}
                       <span className="font-semibold text-indigo-700">“{fillHint.hint}”</span>
                     </p>
@@ -521,10 +571,33 @@ const Exercise = () => {
                 </div>
 
                 {/* Option / Input Area */}
-                {currentQuestion.type === 'fill_word' ? (
-                  <div className="flex flex-col items-center">
-                    {/* 直接输入答案。原先的手写板没有识别能力，写完还要在浏览器弹窗里
-                        再打一遍字；可用系统输入法（含手写输入）作答 */}
+                {currentQuestion.type === 'fill_word' && fillMode === 'write' ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <HandwritingPad
+                      strokes={handStrokes}
+                      onChange={setHandStrokes}
+                      disabled={showFeedback}
+                      result={showFeedback ? (isCorrect ? 'correct' : 'wrong') : null}
+                    />
+                    {!showFeedback && (
+                      <div className="flex gap-2">
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-white border border-slate-200 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40" disabled={handStrokes.length === 0}
+                          onClick={() => setHandStrokes(handStrokes.slice(0, -1))}>
+                          Undo
+                        </Button>
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-white border border-slate-200 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40" disabled={handStrokes.length === 0}
+                          onClick={() => setHandStrokes([])}>
+                          Clear
+                        </Button>
+                        <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-semibold text-indigo-700 hover:bg-indigo-100" onClick={() => chooseFillMode('type')}>
+                          Type instead
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : currentQuestion.type === 'fill_word' ? (
+                  <div className="flex flex-col items-center gap-2">
+                    {/* 打字作答：可用系统输入法（拼音或手写输入） */}
                     <div className="relative w-full max-w-[260px]">
                       <input
                         type="text"
@@ -550,26 +623,31 @@ const Exercise = () => {
                         </span>
                       )}
                     </div>
+                    {!showFeedback && (
+                      <Button variant="ghost" className="h-9 px-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-semibold text-indigo-700 hover:bg-indigo-100" onClick={() => chooseFillMode('write')}>
+                        Write instead
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   // Multiple Choice Selection
-                  <div className="space-y-3 mt-2">
+                  <div className="space-y-3 short:space-y-2 mt-2 short:mt-0">
                     {currentQuestion.options.map((option, index) => {
-                      let btnClass = "w-full text-left min-h-[48px] py-3.5 pl-5 pr-14 rounded-[18px] transition-all duration-300 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
+                      let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-2xl transition-colors duration-200 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
                       const isSelected = selectedOption === option;
                       
                       if (showFeedback) {
                         if (option === currentQuestion.correctAnswer) {
-                          btnClass += "bg-emerald-700 border-none shadow-[0_4px_14px_0_rgba(4,120,87,0.35)] z-10 text-white font-bold";
+                          btnClass += "bg-emerald-700 border border-emerald-700 shadow-sm z-10 text-white font-bold";
                         } else if (isSelected) {
                           btnClass += "bg-rose-50 border-rose-300 shadow-sm text-rose-900 border font-bold";
                         } else {
-                          btnClass += "glass-card text-gray-700 border-white/40 border font-bold";
+                          btnClass += "glass-card text-slate-500 font-semibold";
                         }
                       } else {
                         btnClass += isSelected 
-                          ? "bg-indigo-50 border-indigo-300 shadow-md ring-1 ring-indigo-200 z-10 text-indigo-900 border font-bold" 
-                          : "glass-card hover:-translate-y-0.5 text-gray-700 border-white/40 border font-bold";
+                          ? "bg-indigo-50 border border-indigo-500 ring-1 ring-indigo-500/20 z-10 text-indigo-950 font-bold" 
+                          : "glass-card hover:border-indigo-200 text-slate-800 font-semibold";
                       }
                       
                       const letter = String.fromCharCode(65 + index);
@@ -614,19 +692,19 @@ const Exercise = () => {
                 
                 {/* 统一的大画幅知识点嵌入式反馈面板 */}
                 {showFeedback && (
-                    <div className={`mt-5 px-5 py-5 -mx-5 border-t animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-[#def6cd] border-[#baecbc]' : 'bg-[#ffe4e6] border-[#fbbabf]'}`}>
+                    <div ref={feedbackRef} className={`mt-4 p-4 short:p-3 rounded-2xl border animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
                        
                        <div className="flex items-center gap-2 mb-3">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-red-600'}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-rose-600'}`}>
                             <span className="text-white text-lg font-bold">{isCorrect ? '✓' : '✗'}</span>
                           </div>
-                          <span className={`font-extrabold text-[18px] tracking-wide ${isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
+                          <span className={`font-extrabold text-lg ${isCorrect ? 'text-emerald-800' : 'text-rose-800'}`}>
                              {isCorrect ? 'Excellent!' : 'Incorrect'}
                           </span>
                        </div>
                        
                        {!isCorrect && (
-                          <div className="text-red-700 font-extrabold text-[14px] mb-3">
+                          <div className="text-rose-800 font-bold text-base mb-3">
                              Correct answer: {currentQuestion.type === 'fill_word'
                                ? currentQuestion.correctAnswer
                                : `${String.fromCharCode(65 + currentQuestion.options.indexOf(currentQuestion.correctAnswer))}. ${currentQuestion.correctAnswer}`}
@@ -635,17 +713,19 @@ const Exercise = () => {
 
                        {/* 内嵌知识点（取当前词的真实例句/搭配） */}
                        {word && (
-                         <div className="mb-6">
+                         <div className="mb-4">
                            {fillHint ? (
                               // 填字题：显示刚填完的这一句（不是学习页上那句例句），再给这个词的拼音和释义
                               <>
                                  <p className="text-[14px] font-bold text-gray-800 leading-snug mb-1.5">
                                    {completeSentence(fillHint.stem, currentQuestion.correctAnswer)}
                                  </p>
-                                 <p className="text-base font-medium text-gray-700 leading-snug">
+                                 <p className="text-base font-medium text-gray-700 leading-snug mb-3">
                                    <span className="mr-2 text-indigo-700">{wordLabel}</span>{word.pinyin}
-                                   <span className="text-gray-500"> · {wordDefinition}</span>
+                                   <span className="text-slate-600"> · {wordDefinition}</span>
                                  </p>
+                                 {/* 这个字的标准写法和笔顺 */}
+                                 <StrokeOrderAnimation character={currentQuestion.correctAnswer} />
                               </>
                            ) : currentQuestion.type === 'choose_word' && word.examples?.[0] ? (
                               <>
@@ -679,8 +759,9 @@ const Exercise = () => {
                        {/* 将原本外部底部的CONTINUE按钮嵌入到面板深处 */}
                        <Button 
                          onClick={handleContinue}
-                         className={`w-full h-[48px] rounded-[14px] border-none font-extrabold tracking-widest text-[14px] transition-all duration-300 text-white shadow-xl mb-[calc(env(safe-area-inset-bottom)+1.5rem)] ${
-                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/30' : 'bg-red-600 hover:bg-red-700 shadow-red-600/30'
+                         data-feedback-continue
+                         className={`w-full h-12 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
+                            isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
                          }`}
                        >
                          CONTINUE
@@ -689,17 +770,17 @@ const Exercise = () => {
                 )}
               </div>
               
-              {/* Spacer to guarantee scroll reaching the bottom properly */}
-              <div className="h-6 w-full shrink-0"></div>
+              {/* 反馈卡和底部安全区之间留点空，滚到底时卡片不贴屏幕边 */}
+              <div className="h-[calc(env(safe-area-inset-bottom)+1rem)] w-full shrink-0"></div>
 
 
               {/* 仅在未反馈时才在底部显示唯一的SUBMIT类提交按钮 */}
               {!showFeedback && (
-                <div className="pt-2 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+                <div className="sticky bottom-0 bg-slate-100/95 backdrop-blur-sm border-t border-slate-200/70 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.25)] pt-3 w-full z-30 px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
                   <Button 
                     onClick={handleSubmit}
-                    disabled={currentQuestion.type === 'fill_word' ? !fillInAnswer.trim() : !selectedOption}
-                    className="w-full h-[48px] rounded-xl border-none shadow-lg shadow-indigo-200 bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-indigo-300 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none text-white font-bold tracking-widest text-[14px] transition-all duration-300"
+                    disabled={currentQuestion.type === 'fill_word' ? (fillMode === 'write' ? handStrokes.length === 0 : !fillInAnswer.trim()) : !selectedOption}
+                    className="w-full h-12 rounded-2xl border-none shadow-md shadow-indigo-500/20 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] disabled:opacity-100 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-500 disabled:shadow-none text-white font-bold tracking-wider text-base transition-all duration-200"
                   >
                     CHECK
                   </Button>
