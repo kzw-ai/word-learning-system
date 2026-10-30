@@ -42,13 +42,14 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
     };
   }, [character, size]);
 
+  // 动画在上、Replay 在下：反馈卡里和学习者写的字并排放
   return (
-    <div className="flex items-center gap-2">
-      <div ref={target} className="rounded-xl bg-white/80 border border-emerald-200" style={{ width: size, height: size }} aria-label={`How to write ${character}`} />
+    <div className="flex flex-col items-center gap-1">
+      <div ref={target} className="rounded-xl bg-white border-2 border-slate-200" style={{ width: size, height: size }} aria-label={`How to write ${character}`} />
       <button
         type="button"
         onClick={() => writer.current?.animateCharacter()}
-        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-medium text-emerald-800 hover:bg-white/50"
+        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-medium text-slate-700 hover:bg-white/60"
       >
         <RotateCcw size={14} aria-hidden="true" /> Replay
       </button>

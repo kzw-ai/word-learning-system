@@ -16,7 +16,7 @@ import AudioPlayer from '@/components/AudioPlayer';
 import StepProgress from '@/components/learning/StepProgress';
 import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
 import { gradeHandwriting, loadCharacterData, type Stroke } from '@/src/lib/handwriting';
-import HandwritingPad from '@/components/learning/HandwritingPad';
+import HandwritingPad, { HandwritingThumb } from '@/components/learning/HandwritingPad';
 import StrokeOrderAnimation from '@/components/learning/StrokeOrderAnimation';
 
 const DEFAULT_WORD_ID = 1;
@@ -75,10 +75,20 @@ const Exercise = () => {
   };
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
-  // 答完以后反馈区（含 CONTINUE）在小屏手机上会排到屏幕外：出现时滚到它
+  // 答完以后反馈区（含 CONTINUE）在小屏手机上可能排到屏幕外：只滚到刚好露出它，放得下就不滚，
+  // 免得把上面的题干推出屏幕（选择题答完只留选中的和正确的选项，填字题收起大手写格，大多不用滚）
   const feedbackRef = useRef<HTMLDivElement>(null);
+  // 矮屏（和 Tailwind 的 short 断点一致）：反馈卡里对照用的两个小方格缩小一号
+  const [compactScreen, setCompactScreen] = useState(false);
   useEffect(() => {
-    if (showFeedback) feedbackRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    const query = window.matchMedia('(max-height: 700px)');
+    const update = () => setCompactScreen(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  useEffect(() => {
+    if (showFeedback) feedbackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [showFeedback]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionStartTime] = useState(new Date());
@@ -572,6 +582,8 @@ const Exercise = () => {
 
                 {/* Option / Input Area */}
                 {currentQuestion.type === 'fill_word' && fillMode === 'write' ? (
+                  // 答完以后收起大手写格：写的字缩小放进反馈卡，和标准写法并排
+                  !showFeedback && (
                   <div className="flex flex-col items-center gap-2">
                     <HandwritingPad
                       strokes={handStrokes}
@@ -595,7 +607,10 @@ const Exercise = () => {
                       </div>
                     )}
                   </div>
+                  )
                 ) : currentQuestion.type === 'fill_word' ? (
+                  // 答完以后收起输入框：打的字放进反馈卡，和标准写法并排（同手写）
+                  !showFeedback && (
                   <div className="flex flex-col items-center gap-2">
                     {/* 打字作答：可用系统输入法（拼音或手写输入） */}
                     <div className="relative w-full max-w-[260px]">
@@ -629,10 +644,13 @@ const Exercise = () => {
                       </Button>
                     )}
                   </div>
+                  )
                 ) : (
                   // Multiple Choice Selection
                   <div className="space-y-3 short:space-y-2 mt-2 short:mt-0">
                     {currentQuestion.options.map((option, index) => {
+                      // 答完只留选中的和正确的选项（字母保持原来的位置），题干、答案和反馈小屏上也能同时看到
+                      if (showFeedback && option !== currentQuestion.correctAnswer && option !== selectedOption) return null;
                       let btnClass = "w-full text-left min-h-[48px] short:min-h-[44px] py-3.5 short:py-2.5 pl-5 pr-14 rounded-2xl transition-colors duration-200 flex items-center justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ";
                       const isSelected = selectedOption === option;
                       
@@ -694,7 +712,7 @@ const Exercise = () => {
                 {showFeedback && (
                     <div ref={feedbackRef} className={`mt-4 p-4 short:p-3 rounded-2xl border animate-in fade-in slide-in-from-bottom-2 duration-300 ${isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
                        
-                       <div className="flex items-center gap-2 mb-3">
+                       <div className="flex items-center gap-2 mb-3 short:mb-2">
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isCorrect ? 'bg-emerald-700' : 'bg-rose-600'}`}>
                             <span className="text-white text-lg font-bold">{isCorrect ? '✓' : '✗'}</span>
                           </div>
@@ -724,8 +742,27 @@ const Exercise = () => {
                                    <span className="mr-2 text-indigo-700">{wordLabel}</span>{word.pinyin}
                                    <span className="text-slate-600"> · {wordDefinition}</span>
                                  </p>
-                                 {/* 这个字的标准写法和笔顺 */}
-                                 <StrokeOrderAnimation character={currentQuestion.correctAnswer} />
+                                 {/* 自己写的（或打的）字和标准写法（笔顺动画）并排对照 */}
+                                 <div className="flex items-start gap-4">
+                                   {fillMode === 'write' && handStrokes.length > 0 && (
+                                     <div className="flex flex-col items-center gap-1">
+                                       <HandwritingThumb strokes={handStrokes} size={compactScreen ? 80 : 96} result={isCorrect ? 'correct' : 'wrong'} />
+                                       <span className="h-9 inline-flex items-center text-sm font-medium text-slate-700">Your writing</span>
+                                     </div>
+                                   )}
+                                   {fillMode === 'type' && fillInAnswer.trim() && (
+                                     <div className="flex flex-col items-center gap-1">
+                                       <div
+                                         className={`rounded-xl bg-white border-2 flex items-center justify-center text-5xl font-bold text-slate-900 ${isCorrect ? 'border-emerald-600' : 'border-rose-500'}`}
+                                         style={{ width: compactScreen ? 80 : 96, height: compactScreen ? 80 : 96 }}
+                                       >
+                                         {fillInAnswer.trim()}
+                                       </div>
+                                       <span className="h-9 inline-flex items-center text-sm font-medium text-slate-700">Your answer</span>
+                                     </div>
+                                   )}
+                                   <StrokeOrderAnimation character={currentQuestion.correctAnswer} size={compactScreen ? 80 : 96} />
+                                 </div>
                               </>
                            ) : currentQuestion.type === 'choose_word' && word.examples?.[0] ? (
                               <>
@@ -749,8 +786,11 @@ const Exercise = () => {
                               </p>
                            ) : (
                              <p className="text-[14px] font-bold text-gray-800 leading-relaxed tracking-wide">
-                               <span className="mr-2 text-indigo-700">{wordLabel}</span> {word.pinyin} <br/>
-                               <span className="text-base font-medium text-gray-600 mt-1 inline-block">{wordDefinition}</span>
+                               <span className="mr-2 text-indigo-700">{wordLabel}</span> {word.pinyin}
+                               {/* 释义题的题干就是这句释义，不再重复 */}
+                               {currentQuestion.type !== 'definition' && (
+                                 <><br/><span className="text-base font-medium text-slate-600 mt-1 inline-block">{wordDefinition}</span></>
+                               )}
                              </p>
                            )}
                          </div>
@@ -760,7 +800,7 @@ const Exercise = () => {
                        <Button 
                          onClick={handleContinue}
                          data-feedback-continue
-                         className={`w-full h-12 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
+                         className={`w-full h-12 short:h-11 rounded-2xl border-none font-bold tracking-wider text-base transition-all duration-200 text-white shadow-md active:scale-[0.99] ${
                             isCorrect ? 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
                          }`}
                        >
