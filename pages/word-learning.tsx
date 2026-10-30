@@ -83,7 +83,7 @@ export default function Component() {
       <div className={`flex-1 px-5 flex flex-col overflow-y-auto custom-scrollbar relative z-20 ${slideIn}`}>
         <div className="flex-1 space-y-4">
           {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
-          {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} />}
+          {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} currentWordId={learningSession.wordId} />}
           
           <div className="glass-panel p-6 short:p-4 rounded-3xl shadow-lg border border-white/60 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full mix-blend-multiply filter blur-2xl opacity-50 pointer-events-none -mr-10 -mt-10"></div>
