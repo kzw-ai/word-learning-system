@@ -74,9 +74,10 @@ const Register = () => {
   };
 
   const inputClass =
-    'w-full px-4 py-3 text-sm bg-white/70 border border-white/60 rounded-xl ' +
-    'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ' +
-    'focus:border-transparent transition-all';
+    // 浅灰底加细边框，放在白卡片上也看得出是输入框
+    'w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl ' +
+    'placeholder:text-slate-500 focus:outline-none focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 ' +
+    'transition-all';
 
   if (success) {
     return (

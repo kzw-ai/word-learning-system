@@ -144,13 +144,14 @@ export function Onboarding({ open, onClose }: { open: boolean; onClose: () => vo
 
         <div className="flex gap-3">
           {index > 0 && (
-            <Button variant="outline" className="h-11 flex-1 text-base" onClick={() => setIndex(index - 1)}>
+            <Button variant="outline" className="h-11 flex-1 text-base rounded-xl border-slate-200 text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2" onClick={() => setIndex(index - 1)}>
               Back
             </Button>
           )}
           <Button
             ref={primaryRef}
-            className="h-11 flex-1 text-base bg-indigo-600 hover:bg-indigo-700 text-white"
+            // 打开时焦点放在这里（键盘、读屏用户），焦点框用淡色，不显得像一圈黑边
+            className="h-11 flex-1 text-base font-semibold rounded-xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2"
             onClick={() => (last ? close() : setIndex(index + 1))}
           >
             {last ? 'Get started' : 'Next'}
