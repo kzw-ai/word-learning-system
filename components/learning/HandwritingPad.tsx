@@ -104,3 +104,28 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
     </div>
   );
 }
+
+/** 答完以后把学习者写的字缩小显示（和手写格同一套坐标、同样的田字格），和标准写法并排对照 */
+export function HandwritingThumb({ strokes, size, result }: { strokes: Stroke[]; size: number; result: 'correct' | 'wrong' }) {
+  const path = (stroke: Stroke) => stroke.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      className={`rounded-xl bg-white border-2 ${result === 'correct' ? 'border-emerald-600' : 'border-rose-500'}`}
+      role="img"
+      aria-label="Your writing"
+    >
+      <line x1="0" y1={SIZE / 2} x2={SIZE} y2={SIZE / 2} stroke="#e0e7ff" strokeWidth="2" strokeDasharray="8 8" />
+      <line x1={SIZE / 2} y1="0" x2={SIZE / 2} y2={SIZE} stroke="#e0e7ff" strokeWidth="2" strokeDasharray="8 8" />
+      {strokes.map((stroke, i) =>
+        stroke.length === 1 ? (
+          <circle key={i} cx={stroke[0][0]} cy={stroke[0][1]} r={4.5} fill="#1f2937" />
+        ) : (
+          <path key={i} d={path(stroke)} stroke="#1f2937" strokeWidth={9} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        )
+      )}
+    </svg>
+  );
+}
