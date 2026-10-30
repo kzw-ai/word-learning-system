@@ -14,6 +14,7 @@ import step3_candidates as s3  # noqa: E402  # pyrefly: ignore
 import step5_select as s5  # noqa: E402  # pyrefly: ignore
 import step6_check_tasks as s6  # noqa: E402  # pyrefly: ignore
 import step7_build as s7  # noqa: E402  # pyrefly: ignore
+import step6b_fill_from_example as s6b  # noqa: E402  # pyrefly: ignore
 
 SPEAKERS = {'王静', '朋友', '售货员'}
 
@@ -150,3 +151,54 @@ class TestWordsTheTokenizerGlues:
         assert d.validate({'sentences': good[:3]}, task), '至少 4 句'
         assert d.validate({'sentences': good[:3] + ['签证签证都办好了。']}, task), '目标词只能出现一次'
         assert d.validate({'sentences': good[:3] + ['我需要先办签证']}, task), '要有句末标点'
+
+
+class TestFillFromExample:
+    """第 6b 步：填字题改用学习页上的例句（论文 3.2 节）"""
+
+    def sel(self, sentence, tokens):
+        return {'senses': [{'example': {'sentence': sentence, 'tokens': tokens}}], 'exercises': {}}
+
+    def test_blanks_the_last_character_of_the_word_in_the_example(self):
+        fill = s6b.fill_from_example('原因', self.sel('我慢慢去想其中的原因。', ['我', '慢慢', '去', '想', '其中', '的', '原因', '。']))
+        assert fill['stem'] == '我慢慢去想其中的原 ( ) 。' and fill['correct_answer'] == '因'
+        assert fill['sentence'] == '我慢慢去想其中的原因。' and fill['from_example']
+
+    def test_keeps_the_old_question_when_the_word_appears_twice(self):
+        assert s6b.fill_from_example('想', self.sel('我想你想我。', ['我', '想', '你', '想', '我', '。'])) is None
+
+    def test_hint_only_when_other_characters_fit(self):
+        fill = {'stem': '人 ( ) 人之间应该多一些宽容。', 'correct_answer': '与'}
+        assert s6b.question(fill, {'other_fits': [], 'hint': None})['stem'] == '人 ( ) 人之间应该多一些宽容。'
+        q = s6b.question(fill, {'other_fits': ['和', '跟'], 'hint': 'yǔ'})
+        assert q['stem'] == '人 ( y ) 人之间应该多一些宽容。' and q['hint'] == 'y'
+        # 别的能填的字声母相同时给完整拼音（论文 3.2.4）
+        assert s6b.question({'stem': '原 ( ) 是什么？', 'correct_answer': '因'}, {'other_fits': ['由'], 'hint': 'yīn'})['hint'] == 'yīn'
+        # 提示写的是「拼音以 z 开头」：zh 也以 z 开头，区分不开（租 / 找）；反过来 zh 能和 z 区分开
+        assert s6b.question({'stem': '他们就 ( ) 了一个房间。', 'correct_answer': '租'}, {'other_fits': ['找'], 'hint': 'zū'})['hint'] == 'zū'
+        assert s6b.question({'stem': '他们就 ( ) 了一个房间。', 'correct_answer': '找'}, {'other_fits': ['租'], 'hint': 'zhǎo'})['hint'] == 'zh'
+
+    def test_author_overrides(self):
+        # 作者定下保留原题的：这一步不改
+        assert s6b.fill_from_example('各', self.sel('大家各付各的钱。', ['大家', '各', '付', '各', '的', '钱', '。'])) is None
+        # 指定了句子的：用那句出题，不用学习页例句，并记下理由
+        fill = s6b.fill_from_example('页', self.sel('如果3分钟读一页书，半个小时就可以读10页。', ['如果']))
+        assert fill['stem'] == '每天花半个小时来读书，一个月就可以读300 ( ) ，差不多就是一本书了。'
+        assert fill['correct_answer'] == '页' and fill['override'] and not fill['same_as_example']
+
+    def test_also_correct_goes_into_options(self):
+        # 「师傅」「师父」同音：判分时「父」也算对，放在填字题的 options 里
+        fill = {'stem': '我师 ( ) 教我怎么用这个机器。', 'correct_answer': '傅'}
+        assert s6b.question(fill, {'other_fits': ['父'], 'hint': 'fu'}, '师傅')['options'] == ['父']
+        assert s6b.question({'stem': '原 ( ) 是什么？', 'correct_answer': '因'}, {'other_fits': []}, '原因')['options'] == []
+
+    def test_validate_and_tidy(self):
+        task = {'answer': '与'}
+        answer = {'other_fits': ['和', '与', '和 '], 'hint': ' Yǔ '}
+        s6b.tidy(answer, task)
+        assert answer == {'other_fits': ['和'], 'hint': 'yǔ'} and s6b.validate(answer, task) == []
+        assert s6b.validate({'other_fits': ['和'], 'hint': None}, task)
+        assert s6b.validate({'other_fits': ['和跟'], 'hint': 'yǔ'}, task)
+        empty = {'other_fits': [], 'hint': 'yǔ'}
+        s6b.tidy(empty, task)
+        assert empty['hint'] is None and s6b.validate(empty, task) == []
