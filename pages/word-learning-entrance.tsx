@@ -287,9 +287,9 @@ export default function Component() {
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex flex-col relative z-20">
-          <div className="px-5 mb-4">
-              <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">Word Learning</h1>
+        <div className="h-full pt-[calc(env(safe-area-inset-top)+1rem)] short:pt-[calc(env(safe-area-inset-top)+0.75rem)] flex flex-col relative z-20">
+          <div className="px-5 mb-4 short:mb-3">
+              <h1 className="text-2xl short:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">Word Learning</h1>
               {/* 显示用户名或访客名；内部 user_id 对学习者没有意义 */}
               {displayName && (
                 <p className="text-sm text-gray-500 mt-1 font-medium">
@@ -302,14 +302,16 @@ export default function Component() {
                         onClick={() => router.push('/register')}
                         className="text-indigo-600 underline underline-offset-2"
                       >
-                        Sign up to continue on other devices
+                        {/* 矮屏上用短文案，这一行不折行 */}
+                        <span className="short:hidden">Sign up to continue on other devices</span>
+                        <span className="hidden short:inline">Sign up to save progress</span>
                       </button>
                     </>
                   )}
                 </p>
               )}
-              {/* 矮屏上收起这一栏，让自评的五个选项多露出一些 */}
-              <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60 short:hidden">
+              {/* 只在高屏上显示这一栏：手机上（包括大屏手机）放了它，自评的五个选项就要滚动才看得全 */}
+              <div className="text-sm text-gray-500 mt-3 space-y-1.5 bg-white/40 p-3 rounded-xl border border-white/60 hidden tall:block">
                 <div className="flex justify-between items-center">
                   {wordsStudied !== null && <span>Words studied: {wordsStudied}</span>}
                   {learningSession.word && (
@@ -322,7 +324,7 @@ export default function Component() {
                   </p>
                 )}
               </div>
-              <div className="mt-4 short:mt-3 flex gap-3">
+              <div className="mt-4 short:mt-2.5 flex gap-3">
                 <Button
                   size="sm"
                   onClick={() => router.push('/learning-dashboard')}
@@ -340,7 +342,7 @@ export default function Component() {
               </div>
             </div>
             
-            <div className="flex-1 px-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
+            <div className="flex-1 min-h-0 px-5 pb-3 overflow-y-auto custom-scrollbar relative z-20">
               {caughtUp ? (
                 <div className="glass-panel p-5 rounded-2xl space-y-2">
                   <p className="text-lg font-bold text-gray-800 leading-snug">You’re all caught up 🎉</p>
@@ -352,16 +354,17 @@ export default function Component() {
                 </div>
               ) : (
               <div className="space-y-4">
-                  <div className="glass-panel p-5 short:p-4 rounded-2xl">
-                    <p className="text-lg font-bold text-gray-800 mb-2 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
-                    <p className="text-base text-gray-500 font-medium">Choose the answer that fits you best.</p>
-                  
-                  <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-3 short:space-y-2 mt-4 short:mt-3">
+                  <div className="glass-panel p-5 short:p-3.5 rounded-2xl">
+                    <p className="text-lg font-bold text-gray-800 mb-2 short:mb-0 leading-snug">How well do you know {targetWord?.word ?? DEFAULT_WORD_NAME}?</p>
+                    {/* 矮屏上省掉这句提示，五个选项一屏放得下 */}
+                    <p className="text-base text-gray-500 font-medium short:hidden">Choose the answer that fits you best.</p>
+
+                  <RadioGroup value={selectedOption} onValueChange={handleOptionChange} className="space-y-1 short:space-y-0 mt-4 short:mt-3">
                     {learningOptions.map((option) => (
-                      <div 
-                        key={option.value} 
+                      <div
+                        key={option.value}
                         onClick={() => handleOptionChange(option.value)}
-                        className={`flex items-center p-4 short:p-3 rounded-2xl cursor-pointer transition-all duration-300 border ${
+                        className={`flex items-center px-4 py-3 short:px-3 short:py-2 rounded-2xl cursor-pointer transition-all duration-300 border ${
                           selectedOption === option.value 
                             ? 'bg-indigo-50/80 border-indigo-200 shadow-md transform scale-[1.02]' 
                             : 'glass-card'
@@ -370,9 +373,9 @@ export default function Component() {
                         <RadioGroupItem 
                           value={option.value} 
                           id={option.value} 
-                          className={`mr-4 shrink-0 border-gray-300 w-5 h-5 bg-white/70 ${selectedOption === option.value ? 'border-indigo-500 text-indigo-600' : ''}`}
+                          className={`mr-4 short:mr-3 shrink-0 border-gray-300 w-5 h-5 bg-white/70 ${selectedOption === option.value ? 'border-indigo-500 text-indigo-600' : ''}`}
                         />
-                        <Label htmlFor={option.value} className={`text-base flex-1 cursor-pointer font-medium leading-relaxed ${
+                        <Label htmlFor={option.value} className={`text-base short:text-[15px] flex-1 cursor-pointer font-medium leading-snug ${
                           selectedOption === option.value ? 'text-indigo-900' : 'text-gray-700'
                         }`}>
                           {option.text}
@@ -387,23 +390,25 @@ export default function Component() {
                     </div>
                   )}
                 </div>
-                
-                {/* 固定在屏幕底部：五个选项在小屏手机上一屏放不下，按钮也要一直看得到 */}
-                <div className="sticky bottom-0 bg-gradient-to-t from-[#fbf3fa] via-[#f9f4fd]/95 to-transparent pt-6 -mx-5 px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+              </div>
+              )}
+            </div>
+
+            {/* 按钮单独占底部一栏，不压在选项上；选项多到要滚时只滚上面这一块 */}
+            {!caughtUp && (
+              <div className="px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)] relative z-20">
                 <Button
                   onClick={handleContinue}
                   disabled={!selectedOption || isSubmitting}
-                  className="w-full relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:opacity-100 disabled:from-gray-300 disabled:to-gray-300 hover:shadow-lg disabled:shadow-none text-white py-6 text-base font-bold rounded-2xl border-none transition-all duration-300"
+                  className="w-full h-14 short:h-12 relative group overflow-hidden bg-gradient-to-r from-indigo-500 to-purple-600 disabled:opacity-40 hover:shadow-lg disabled:shadow-none text-white text-base font-bold rounded-2xl border-none transition-all duration-300"
                 >
                   <span className="relative z-10 tracking-wider text-glow">{isSubmitting ? 'LOADING…' : 'CONTINUE'}</span>
                   {!(!selectedOption || isSubmitting) && (
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity duration-300"></div>
                   )}
                 </Button>
-                </div>
               </div>
-              )}
-            </div>
+            )}
 
             {/* Decorative blurs */}
             <div className="absolute top-20 -right-10 w-40 h-40 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 pointer-events-none z-10"></div>
