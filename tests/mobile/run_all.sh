@@ -51,7 +51,8 @@ if "$ADB" get-state >/dev/null 2>&1; then
   "$ADB" shell 'echo "_ --disable-fre --no-default-browser-check --no-first-run" > /data/local/tmp/chrome-command-line'
   "$ADB" shell am force-stop com.android.chrome
   "$ADB" reverse tcp:${BASE_URL##*:} tcp:${BASE_URL##*:} >/dev/null
-  "$ADB" shell am start -a android.intent.action.VIEW -d "$BASE_URL/" com.android.chrome >/dev/null
+  # 只冷启动 Chrome、不开网页：测试脚本自己开标签页、跑完关掉（开网页的话每跑一次多一个标签页）
+  "$ADB" shell monkey -p com.android.chrome -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
   for _ in $(seq 10); do "$ADB" shell cat /proc/net/unix | grep -q chrome_devtools_remote && break; sleep 1; done
   "$ADB" forward tcp:9333 localabstract:chrome_devtools_remote >/dev/null
   "$ANDROID_PYTHON" tests/mobile/$MODE.py android android > "$OUT/android.log" 2>&1 & pids+=($!) names+=(android)
