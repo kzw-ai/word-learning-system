@@ -1,11 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
-import { BookOpen, GraduationCap, ArrowRight, Activity, BarChart2 } from 'lucide-react';
+import { BookOpen, ArrowRight, BarChart2, Gauge, CalendarClock, Scale, ChevronRight } from 'lucide-react';
 import { fetchJson } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
 import { Onboarding, onboardingSeen } from '@/components/Onboarding';
+
+// 首页分两版：第一次来的人看到「这是什么、好在哪」（示例词卡和三条做法），
+// 学过的人直接看到「今天」：到期几个、四级词学了多少，一个按钮开始。
+// 不在首页取推荐的下一个词：推荐接口每调一次就记一条推荐，首页打开得多，会堆出大量没有反馈的记录
+
+/** 示例词卡：田字格里的字（练字本的格子，学中文的人一眼认得） */
+const GridCell = ({ char, small = false }: { char: string; small?: boolean }) => (
+  <span className={`relative inline-flex items-center justify-center rounded-lg bg-white border border-rose-200 font-bold text-slate-900 leading-none ${
+    small ? 'w-11 h-11 text-[26px]' : 'w-14 h-14 short:w-12 short:h-12 text-[34px] short:text-[30px]'}`} lang="zh-CN">
+    <span className="absolute inset-x-0 top-1/2 border-t border-dashed border-rose-200" aria-hidden="true" />
+    <span className="absolute inset-y-0 left-1/2 border-l border-dashed border-rose-200" aria-hidden="true" />
+    <span className="relative">{char}</span>
+  </span>
+);
+
+const POINTS = [
+  { icon: Gauge, title: 'Starts at your level', text: 'Rate each new word first and skip what you already know.' },
+  { icon: CalendarClock, title: 'Reviews before you forget', text: 'Each word comes back a few days apart, until it sticks.' },
+  { icon: Scale, title: 'Tells confusable words apart', text: 'Pairs like 突然 and 忽然, with sentences to choose between.' },
+];
+
+interface HomeStats {
+  hsk4Words: number;
+  hsk4Studied: number;
+}
 
 const Home = () => {
   const router = useRouter();
@@ -17,6 +42,7 @@ const Home = () => {
   // 记身份而不是布尔，切换身份后不会沿用上一个身份的结果）
   const [dueLoadedFor, setDueLoadedFor] = useState<string | null>(null);
   const dueLoaded = Boolean(userId) && dueLoadedFor === userId;
+  const [stats, setStats] = useState<HomeStats | null>(null);
   // 今天已复习过的词不算到期，与复习列表的过滤口径一致
   const reviewed = reviewedToday(session);
   const dueCount = dueIds === null ? null : dueIds.filter(id => !reviewed.includes(id)).length;
@@ -63,10 +89,19 @@ const Home = () => {
         setDueIds([]);
         setDueLoadedFor(null);
       });
+    // 四级词进度（只读统计，取不到就不显示进度卡）
+    fetchJson<{ success: boolean; data: { overallProgress: HomeStats } }>(`/api/analytics/user/${userId}/dashboard`)
+      .then(result => {
+        if (!cancelled && result.success) setStats(result.data.overallProgress);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [userId]);
+
+  // 学过的人：本机或服务器上有学习位置、有到期复习、或学过四级词
+  const returning = Boolean(session.wordId) || (dueIds?.length ?? 0) > 0 || (stats?.hsk4Studied ?? 0) > 0;
 
   // 主入口的智能路由：有到期复习先复习（记忆曲线优先），否则直接学新词
   const hasDue = (dueCount ?? 0) > 0;
@@ -74,127 +109,175 @@ const Home = () => {
     router.push(hasDue ? '/today-review' : '/word-learning-entrance');
   };
 
-  const mainSubtitle =
-    dueCount === null
-      ? 'Planning today’s session…'
-      : hasDue
-        ? `${dueCount} ${dueCount === 1 ? 'word' : 'words'} due · review first, then a new word`
-        : 'Nothing due today · start a new word';
+  const devLinks = process.env.NODE_ENV !== 'production' && (
+    // 全站统计和端口探测，面向开发者，不展示给学习者
+    <div className="flex gap-2">
+      <Button variant="ghost" onClick={() => router.push('/learning-stats')} className="flex-1 h-9 rounded-xl text-sm font-semibold text-slate-600 hover:bg-white/60">
+        <BarChart2 size={16} className="mr-1.5" /> System stats
+      </Button>
+      <Button variant="ghost" onClick={() => router.push('/system-status')} className="flex-1 h-9 rounded-xl text-sm font-semibold text-slate-600 hover:bg-white/60">
+        Diagnostics
+      </Button>
+    </div>
+  );
+
+  const howItWorks = (
+    <button
+      type="button"
+      onClick={() => setShowOnboarding(true)}
+      className="h-9 px-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 rounded-lg"
+    >
+      How it works
+    </button>
+  );
 
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
-        {/* 放得下时上下居中，放不下时整页可以滚（小屏上不能把头尾裁掉，Sign in 在最底下） */}
+        {/* 放得下时上下居中，放不下时整页可以滚（小屏上不能把头尾裁掉） */}
         <div className="h-full overflow-y-auto relative z-10">
-        <div className="min-h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] px-5 flex flex-col justify-center">
-          {/* 矮屏上标题区改成图标在左的一行，省出高度 */}
-          <div className="text-center mb-6 short:mb-4 glass-panel py-6 short:py-3 px-5 rounded-3xl mx-1 short:flex short:items-center short:gap-3 short:text-left">
-            <div className="w-14 h-14 short:w-11 short:h-11 short:shrink-0 bg-gradient-to-tr from-indigo-500 to-violet-600 rounded-2xl mx-auto short:mx-0 mb-3 short:mb-0 flex items-center justify-center shadow-md shadow-indigo-200">
-              <BookOpen className="text-white" size={26} />
-            </div>
-            <div>
-              <h1 className="text-3xl short:text-2xl font-extrabold text-slate-900 leading-tight mb-1.5 short:mb-0.5 tracking-tight">
-                Word Learning
-              </h1>
-              <p className="text-sm font-medium text-slate-500">
-                Adaptive Chinese vocabulary
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {/* 智能主入口：系统决定“下一步做什么”，用户只需要点它 */}
-            <button
-              onClick={handleStartLearning}
-              className="w-full relative overflow-hidden rounded-2xl p-5 short:p-4 shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-all duration-200 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-violet-600"
-            >
-              <div className="flex items-center relative z-10 gap-4">
-                <div className="bg-white/20 p-3 rounded-xl text-white backdrop-blur-sm">
-                  <GraduationCap size={24} />
-                </div>
-                <div className="text-left">
-                  <p className="font-bold text-white text-lg">Start learning</p>
-                  <p className="text-sm text-indigo-100">{mainSubtitle}</p>
-                </div>
+        <div className="min-h-full pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] px-5 flex flex-col">
+          {/* 顶栏：应用名和级别，右边登录 */}
+          <header className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-gradient-to-tr from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-sm shadow-indigo-200">
+                <BookOpen className="text-white" size={18} />
               </div>
-              <div className="bg-white/20 p-2 rounded-full text-white relative z-10">
-                <ArrowRight size={20} />
-              </div>
-            </button>
-
-            {/* 学习路线说明：回答“到底怎么学”，点开是完整的新用户引导 */}
-            <button
-              type="button"
-              onClick={() => setShowOnboarding(true)}
-              className="glass-card rounded-2xl px-4 py-3 text-left w-full"
+              <span className="text-base font-extrabold text-slate-900 tracking-tight">Word Learning</span>
+              <span className="text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full px-2 leading-6">HSK 4</span>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => router.push('/login')}
+              className="h-9 px-3 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-white/60"
             >
-              <p className="text-sm font-semibold text-slate-700 mb-1">
-                How it works <span className="text-indigo-700">· see the guide</span>
-              </p>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Review due words → rate a new word → start at your level:
-                <span className="text-indigo-600 font-medium"> characters / word / collocations / sentences </span>
-                → practice. Your next review is scheduled for you.
-              </p>
-            </button>
+              Sign in
+            </Button>
+          </header>
 
-            {/* 数据入口：易混词辨析已融入主学习流程（练习后自动带出），
-                今日复习由主入口按记忆曲线安排，均不再单独设入口 */}
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-slate-600 px-1">Your data</p>
-              <div className={`grid gap-2 ${process.env.NODE_ENV !== 'production' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {!hydrated ? null : returning ? (
+            // 学过的人：今天要做什么、学到哪了
+            // 从上往下排：内容不多，居中会在大屏上方空出一大块
+            <main className="flex-1 flex flex-col gap-4 pt-8 short:pt-5 pb-6">
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight px-1">Welcome back</h1>
+
+              <section className="glass-panel rounded-3xl p-5 short:p-4" aria-label="Today">
+                <div className="flex items-start justify-between gap-3">
+                <div>
+                <p className="text-sm font-semibold text-indigo-700">Today</p>
+                <p className="mt-1 text-xl font-bold text-slate-900">
+                  {dueCount === null
+                    ? 'Planning today…'
+                    : hasDue
+                      ? `${dueCount} ${dueCount === 1 ? 'word' : 'words'} to review`
+                      : 'All reviews done'}
+                </p>
+                <p className="text-sm text-slate-600">
+                  {hasDue ? 'Reviews first, then a new word.' : 'Time for a new word.'}
+                </p>
+                </div>
+                {/* 上次学的词：两个字以内放在田字格里，更长的词格子太宽、挤窄左边的文字，直接显示 */}
+                {session.word && (
+                  <div className="shrink-0 text-center" aria-label={`Last word: ${session.word}`}>
+                    {Array.from(session.word).length <= 2 ? (
+                      <span className="flex gap-1">
+                        {Array.from(session.word).map((ch, i) => <GridCell key={i} char={ch} small />)}
+                      </span>
+                    ) : (
+                      <span className="block text-2xl font-bold text-slate-900 leading-[44px]" lang="zh-CN">{session.word}</span>
+                    )}
+                    <span className="block mt-1 text-sm text-slate-500">Last word</span>
+                  </div>
+                )}
+                </div>
+                <button
+                  onClick={handleStartLearning}
+                  className="mt-4 w-full h-12 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-base font-bold shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-transform flex items-center justify-center gap-2"
+                >
+                  {hasDue ? `Review ${dueCount} ${dueCount === 1 ? 'word' : 'words'}` : 'Learn a new word'}
+                  <ArrowRight size={18} />
+                </button>
+              </section>
+
+              {stats && stats.hsk4Words > 0 && (
                 <button
                   onClick={() => router.push('/learning-dashboard')}
-                  className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3"
+                  className="glass-card rounded-2xl px-4 py-3.5 text-left"
+                  aria-label={`HSK 4 words: ${stats.hsk4Studied} of ${stats.hsk4Words} studied. Open my progress`}
                 >
-                  <div className="bg-blue-50 text-blue-500 p-2 rounded-lg shrink-0">
-                    <Activity size={18} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-gray-700">My progress</p>
-                    <p className="text-sm text-slate-500">Progress & suggestions</p>
-                  </div>
+                  <span className="flex items-baseline justify-between">
+                    <span className="text-sm font-semibold text-slate-700">HSK 4 words</span>
+                    <span className="text-sm font-bold text-slate-900 tabular-nums">
+                      {stats.hsk4Studied}<span className="font-medium text-slate-500"> / {stats.hsk4Words}</span>
+                    </span>
+                  </span>
+                  <span className="mt-2 block h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <span
+                      className="block h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                      style={{ width: `${stats.hsk4Studied > 0 ? Math.max(2, Math.round((stats.hsk4Studied / stats.hsk4Words) * 100)) : 0}%` }}
+                    />
+                  </span>
+                  <span className="mt-2 flex items-center justify-end text-sm font-semibold text-indigo-700">
+                    My progress <ChevronRight size={16} />
+                  </span>
                 </button>
-
-                {/* 全站统计（会话总数、引擎开关），面向开发者，不展示给学习者 */}
-                {process.env.NODE_ENV !== 'production' && (
-                  <button
-                    onClick={() => router.push('/learning-stats')}
-                    className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3"
-                  >
-                    <div className="bg-emerald-50 text-emerald-500 p-2 rounded-lg shrink-0">
-                      <BarChart2 size={18} />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm font-semibold text-gray-700">System stats</p>
-                      <p className="text-sm text-slate-500">For developers</p>
-                    </div>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Bottom minor actions */}
-            <div className="flex gap-3 pt-1">
-              <Button
-                variant="ghost"
-                onClick={() => router.push('/login')}
-                className="flex-1 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-white/60 h-10 rounded-xl"
-              >
-                Sign in
-              </Button>
-              {/* 端口探测页，面向开发者，不展示给学习者 */}
-              {process.env.NODE_ENV !== 'production' && (
-                <Button
-                  variant="ghost"
-                  onClick={() => router.push('/system-status')}
-                  className="flex-1 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-white/60 h-10 rounded-xl"
-                >
-                  Diagnostics
-                </Button>
               )}
-            </div>
-          </div>
+
+              <div className="flex justify-center">{howItWorks}</div>
+              {devLinks}
+            </main>
+          ) : (
+            // 第一次来：是什么、怎么学，一个按钮开始
+            <main className="flex-1 flex flex-col justify-center gap-5 short:gap-3.5 py-6 short:py-4">
+              <div className="px-1">
+                <h1 className="text-[28px] short:text-2xl font-extrabold text-slate-900 leading-tight tracking-tight" style={{ textWrap: 'balance' }}>
+                  Learn the 600 HSK 4 words
+                </h1>
+                <p className="mt-1.5 text-base short:text-sm text-slate-600">
+                  Characters, the word, its phrases and sentences, then practice.
+                </p>
+              </div>
+
+              {/* 示例词卡：学习页上的真实内容（师傅） */}
+              <section className="glass-panel rounded-3xl p-4 flex items-center gap-4" aria-label="Example word">
+                <span className="flex gap-1 shrink-0">
+                  <GridCell char="师" />
+                  <GridCell char="傅" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-lg font-bold text-indigo-700 leading-tight">shīfu</span>
+                  <span className="block text-sm text-slate-600">master; qualified worker</span>
+                  <span className="block mt-1 text-sm text-slate-800 truncate" lang="zh-CN">我师傅教我怎么用这个机器。</span>
+                </span>
+              </section>
+
+              <ul className="space-y-3 short:space-y-2">
+                {POINTS.map(({ icon: Icon, title, text }) => (
+                  // 矮屏上不显示说明，只剩标题一行：图标和标题垂直居中
+                  <li key={title} className="flex items-start short:items-center gap-3 px-1">
+                    <span className="w-9 h-9 shrink-0 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                      <Icon size={18} />
+                    </span>
+                    <span>
+                      <span className="block text-base short:text-sm font-semibold text-slate-900 leading-snug">{title}</span>
+                      <span className="block text-sm text-slate-600 leading-snug short:hidden">{text}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="space-y-1">
+                <button
+                  onClick={handleStartLearning}
+                  className="w-full h-12 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-base font-bold shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-transform flex items-center justify-center gap-2"
+                >
+                  Start my first word <ArrowRight size={18} />
+                </button>
+                <div className="flex justify-center">{howItWorks}</div>
+              </div>
+              {devLinks}
+            </main>
+          )}
         </div>
         </div>
 
