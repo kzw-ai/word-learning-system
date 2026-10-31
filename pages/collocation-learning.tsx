@@ -22,7 +22,8 @@ export default function Component() {
     userId,
     wordId: learningSession.wordId ?? 1,
     moduleType: 'collocation',
-    sessionType: 'learning',
+    // 从今日复习进来再学一遍记为复习（辨析页同此），和第一次学习分开
+    sessionType: learningSession.reviewMode ? 'review' : 'learning',
     initialLevel: learningSession.vksLevel ?? undefined,
     recommendationId: learningSession.recommendationId ?? undefined,
     // 等服务器状态恢复完再建会话：档位与推荐可能来自另一台设备

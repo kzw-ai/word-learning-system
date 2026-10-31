@@ -292,6 +292,31 @@ class TestAdaptiveEndpoints:
                                headers=guest_headers(learner)).get_json()['data']
         assert data['todayStats']['wordsReviewed'] == 1
 
+    def test_dashboard_counts_hsk4_words_for_the_home_page(self, app, anon_client):
+        """首页进度条：四级词（有词频档位）一共几个、这个学习者学过几个；一到三级的易混淆词不算"""
+        import app_phase as mod
+        learner = _learner('hsk4count')
+        with app.app_context():
+            hsk4 = mod.Word(pinyin='a', definition='d', freq_tier='high')
+            other = mod.Word(pinyin='b', definition='d')
+            mod.db.session.add_all([hsk4, other])
+            mod.db.session.flush()
+            mod.db.session.add_all([mod.UserProgress(user_id=learner, word_id=hsk4.id),
+                                    mod.UserProgress(user_id=learner, word_id=other.id)])
+            mod.db.session.commit()
+            ids = (hsk4.id, other.id)
+            total = mod.Word.query.filter(mod.Word.freq_tier.isnot(None)).count()
+        try:
+            data = anon_client.get(f'/api/analytics/user/{learner}/dashboard',
+                                   headers=guest_headers(learner)).get_json()['data']['overallProgress']
+            assert (data['hsk4Words'], data['hsk4Studied']) == (total, 1)
+        finally:
+            with app.app_context():
+                mod.UserProgress.query.filter_by(user_id=learner).delete()
+                for word_id in ids:
+                    mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
+                mod.db.session.commit()
+
 
 # ================================================
 # 认证流程

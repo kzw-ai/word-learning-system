@@ -2073,6 +2073,16 @@ def generate_dashboard_data(user_id, time_range):
             SELECT COUNT(*) FROM word
         """)
         total_words = cursor.fetchone()[0]
+
+        # 首页的进度条：四级词（有词频档位的词，见 data/hsk4_frequency_tiers.csv）一共几个、学过几个。
+        # 一到三级的易混淆词不算在里面
+        cursor.execute("SELECT COUNT(*) FROM word WHERE freq_tier IS NOT NULL")
+        hsk4_words = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(DISTINCT p.word_id) FROM user_progress p JOIN word w ON w.id = p.word_id
+            WHERE p.user_id = ? AND w.freq_tier IS NOT NULL
+        """, (user_id,))
+        hsk4_studied = cursor.fetchone()[0]
         
         cursor.execute("""
             SELECT 
@@ -2122,7 +2132,9 @@ def generate_dashboard_data(user_id, time_range):
                 'totalWords': total_words,
                 'studiedWords': mastery_dist[3] or 0,
                 'masteredWords': mastery_dist[0] or 0,
-                'averageMastery': avg_mastery
+                'averageMastery': avg_mastery,
+                'hsk4Words': hsk4_words,
+                'hsk4Studied': hsk4_studied
             },
             'dueReviews': due_reviews,
             'recommendations': [],
