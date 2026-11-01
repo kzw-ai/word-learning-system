@@ -138,4 +138,9 @@ class AndroidDriver:
         return path
 
     def close(self):
+        # 关掉这次开的标签页：不关的话每跑一次多一个，2026-10-31 积到 53 个，作者在模拟器上看到一堆旧页面
+        try:
+            self.page.close()
+        except Exception:
+            pass
         self._pw.stop()

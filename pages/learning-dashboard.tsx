@@ -30,6 +30,9 @@ interface Recommendation {
 interface DashboardData {
   overallProgress: {
     totalWords: number;
+    /** 四级词（有词频档位）一共几个、学过几个；和首页的进度条同一口径（一到三级的易混淆词不算） */
+    hsk4Words?: number;
+    hsk4Studied?: number;
     studiedWords: number;
     masteredWords: number;
     averageMastery: number;
@@ -172,6 +175,10 @@ const LearningDashboard = () => {
     return `about ${minutes} min`;
   };
 
+  const overall = dashboardData?.overallProgress;
+  const hsk4Words = overall?.hsk4Words ?? overall?.totalWords ?? 0;
+  const hsk4Studied = overall?.hsk4Studied ?? overall?.studiedWords ?? 0;
+
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
       <div className="w-full max-w-[430px] h-[100dvh] overflow-hidden modern-gradient-bg relative">
@@ -298,14 +305,15 @@ const LearningDashboard = () => {
                 </div>
                 <div className="space-y-4">
                   <div>
+                    {/* 按四级词算，和首页一致；旧接口没有这两个字段时退回全部词 */}
                     <div className="flex justify-between items-end mb-2">
-                      <span className="text-base text-slate-600 font-medium">Words learned</span>
+                      <span className="text-base text-slate-600 font-medium">HSK 4 words learned</span>
                       <span className="text-lg font-bold text-gray-800">
-                        {dashboardData.overallProgress.studiedWords} <span className="text-sm text-slate-500 font-normal">/ {dashboardData.overallProgress.totalWords}</span>
+                        {hsk4Studied} <span className="text-sm text-slate-500 font-normal">/ {hsk4Words}</span>
                       </span>
                     </div>
                     <Progress 
-                      value={(dashboardData.overallProgress.studiedWords / dashboardData.overallProgress.totalWords) * 100} 
+                      value={hsk4Words ? (hsk4Studied / hsk4Words) * 100 : 0} 
                       className="h-2 bg-white/50 [&>div]:bg-gradient-to-r [&>div]:from-blue-400 [&>div]:to-indigo-500"
                     />
                   </div>
