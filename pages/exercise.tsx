@@ -619,7 +619,17 @@ const Exercise = () => {
               </Button>
             </div>
             <div className="mt-3">
-              <StepProgress current="exercise" entry={learningSession.entryModule} skipCharacter={isSingleCharacter(word)} />
+              <StepProgress
+                current="exercise"
+                entry={learningSession.entryModule}
+                skipCharacter={isSingleCharacter(word)}
+                // 练习中点回学习页：这一节练习照常算（做了几道算几道）
+                onSelect={key => {
+                  trackButtonClick('step-progress', key);
+                  trackEvent('module_navigate', 'exercise', { direction: 'step', to: key });
+                  goTo(key);
+                }}
+              />
             </div>
           </div>
           
