@@ -11,7 +11,6 @@ import { useLearningContext } from '@/src/context/LearningContext';
 import { afterWordRoute, reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
 import { isSingleCharacter, useLearningNavigation, resolveModuleLabel } from '@/src/hooks/useLearningNavigation';
 import { useWordData } from '@/hooks/useWordData';
-import ReviewReminder from '@/components/ReviewReminder';
 import AudioPlayer from '@/components/AudioPlayer';
 import StepProgress from '@/components/learning/StepProgress';
 import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
@@ -635,8 +634,6 @@ const Exercise = () => {
           
           <div className="flex-1 px-5 flex flex-col justify-between overflow-y-auto custom-scrollbar relative z-20">
                 <div className="space-y-3">
-                  {/* 复习模式下本来就在复习，不再提示「有到期复习」 */}
-                  {!learningSession.reviewMode && <ReviewReminder userId={userId} showInline={true} currentWordId={learningSession.wordId} />}
                   
                 {/* 题目卡：上面一行小字是题型说明和题号，题干放大，拼音提示跟在题干下面 */}
                 <div className="glass-panel rounded-2xl p-4 short:p-3">
