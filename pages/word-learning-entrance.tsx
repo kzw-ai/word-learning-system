@@ -9,10 +9,12 @@ import { buildApiUrl } from '@/src/lib/apiClient';
 import { sendRecommendationFeedback } from '@/src/lib/authClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { guestDisplayName, isGuestId, safeGetItem } from '@/src/lib/guestIdentity';
-import { useLearningSession } from '@/src/context/LearningSessionContext';
+import { reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
 import { formatReviewTime } from '@/src/lib/reviewTime';
 
 const DEFAULT_WORD_ID = 1;
+// 有到期复习时选了「学新词」：当天不再问（记日期，和今日复习用同一个日期口径）
+const REVIEW_FIRST_SKIPPED_KEY = 'review-first-skipped';
 const DEFAULT_WORD_NAME = '发生';
 
 const moduleRouteMap: Record<string, { path: string; label: string }> = {
@@ -64,6 +66,13 @@ export default function Component() {
   const [recommendationSettled, setRecommendationSettled] = useState(false);
   // 学过的词数（有学习进度的词）；看板接口给的，取不到时不显示
   const [wordsStudied, setWordsStudied] = useState<number | null>(null);
+  // 今天到期要复习的词数（今天已复习过的不算）；null = 还没取到
+  const [dueCount, setDueCount] = useState<number | null>(null);
+  // 有到期复习时，先让学习者选「先复习」还是「学新词」；选过学新词的当天不再问
+  const [reviewChoiceMade, setReviewChoiceMade] = useState(false);
+  useEffect(() => {
+    if (safeGetItem(REVIEW_FIRST_SKIPPED_KEY) === todayReviewKey()) setReviewChoiceMade(true);
+  }, []);
   const router = useRouter();
   const { userId, availableUsers } = useLearningContext();
 
@@ -117,7 +126,9 @@ export default function Component() {
       return;
     }
     let cancelled = false;
-    fetch(buildApiUrl(`/api/adaptive/recommendation/${userId}`), { cache: 'no-cache' })
+    // 这一页只问新词：有到期复习时推荐引擎默认先推复习，那是学过的词，不能当新词再自评一次
+    const context = encodeURIComponent(JSON.stringify({ new_only: true }));
+    fetch(buildApiUrl(`/api/adaptive/recommendation/${userId}?context=${context}`), { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !result.data) return;
@@ -157,6 +168,42 @@ export default function Component() {
       cancelled = true;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(buildApiUrl(`/api/review/user/${userId}/due?limit=200`), { cache: 'no-cache' })
+      .then(resp => resp.json())
+      .then(result => {
+        if (cancelled || !result.success || !Array.isArray(result.data)) return;
+        const done = reviewedToday(learningSession);
+        setDueCount(result.data.filter((r: { word_id: number }) => !done.includes(r.word_id)).length);
+      })
+      .catch(() => {
+        /* 取不到就不问，直接自评 */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // 进页时取一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // 从今日复习进来（复习模式）本来就在复习，不再问
+  const askReviewFirst = !reviewChoiceMade && !learningSession.reviewMode && (dueCount ?? 0) > 0;
+  const chooseReviewFirst = (choice: 'review' | 'new') => {
+    trackEvent('review_first_choice', 'entrance', { choice, dueCount });
+    if (choice === 'review') {
+      router.push('/today-review');
+      return;
+    }
+    try {
+      localStorage.setItem(REVIEW_FIRST_SKIPPED_KEY, todayReviewKey());
+    } catch {
+      /* 存不了就只在这一页有效 */
+    }
+    setReviewChoiceMade(true);
+  };
 
   useEffect(() => {
     updateConfig({ userId });
@@ -328,9 +375,47 @@ export default function Component() {
 
           {/* 题目卡和按钮是一组，在剩下的高度里上下居中；放不下时这一块滚动 */}
           <div className="flex-1 min-h-0 px-5 overflow-y-auto custom-scrollbar scroll-fade flex flex-col">
-            {/* 全部学完时卡片靠上（只有一张卡，居中会悬在半空）；平时题目组居中 */}
-            <div className={`${caughtUp ? 'mt-2' : 'my-auto'} pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]`}>
-              {caughtUp ? (
+            {/* 全部学完、先复习还是学新词时卡片靠上（只有一张卡，居中会悬在半空）；平时题目组居中 */}
+            <div className={`${caughtUp || askReviewFirst ? 'mt-2' : 'my-auto'} pb-[calc(env(safe-area-inset-bottom)+1rem)] short:pb-[calc(env(safe-area-inset-bottom)+0.75rem)]`}>
+              {caughtUp && (dueCount ?? 0) > 0 ? (
+                // 新词都学完了，但还有到期复习：不能说「全部完成」
+                <div className="glass-panel p-5 rounded-3xl space-y-2">
+                  <p className="text-lg font-bold text-slate-900 leading-snug">No new words left</p>
+                  <p className="text-base text-slate-600 font-medium">
+                    {dueCount} {dueCount === 1 ? 'word is' : 'words are'} due for review today.
+                  </p>
+                  <Button
+                    onClick={() => router.push('/today-review')}
+                    className="w-full h-12 mt-3 rounded-2xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white text-base font-bold shadow-md shadow-indigo-500/20"
+                  >
+                    Review {dueCount} {dueCount === 1 ? 'word' : 'words'}
+                  </Button>
+                </div>
+              ) : askReviewFirst && !caughtUp ? (
+                // 开始新词前，有到期复习：让学习者选。建议先复习（快忘的时候复习效果最好），但不强制
+                <div className="glass-panel p-5 rounded-3xl" data-review-first>
+                  <p className="text-sm font-semibold text-indigo-700">Before a new word</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900 leading-snug">
+                    {dueCount} {dueCount === 1 ? 'word is' : 'words are'} due for review
+                  </p>
+                  <p className="mt-1 text-base text-slate-600">
+                    They are about to slip. Reviewing them now helps them stick.
+                  </p>
+                  <Button
+                    onClick={() => chooseReviewFirst('review')}
+                    className="w-full h-12 mt-4 rounded-2xl border-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.99] text-white text-base font-bold shadow-md shadow-indigo-500/20"
+                  >
+                    Review first
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => chooseReviewFirst('new')}
+                    className="w-full h-11 mt-2 rounded-2xl bg-white border border-slate-200 text-slate-700 text-base font-semibold hover:bg-slate-50"
+                  >
+                    Learn a new word
+                  </Button>
+                </div>
+              ) : caughtUp ? (
                 <div className="glass-panel p-5 rounded-3xl space-y-2">
                   <p className="text-lg font-bold text-slate-900 leading-snug">You’re all caught up</p>
                   <p className="text-base text-slate-600 font-medium">

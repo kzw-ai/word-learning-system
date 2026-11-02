@@ -1007,6 +1007,23 @@ class TestThesisReviewPlan:
         assert rec['recommended_module'] == 'exercise'
         assert rec['reviews_remaining'] == 2 and rec['review_types'] == ['collocation', 'fill_word']
 
+    def test_self_check_asks_for_a_new_word_even_with_reviews_due(self, app, anon_client):
+        """自评页要新词（context.new_only）：有到期复习时也不能把学过的词当新词再自评一次"""
+        import json
+        import app_phase as mod
+        learner = _learner('newonly')
+        self._session(anon_client, learner, 's-newonly-1', level='E')
+        with app.app_context():
+            mod.UserProgress.query.filter_by(user_id=learner, word_id=1).update(
+                {'next_review_suggested': mod.datetime.utcnow() - mod.timedelta(hours=1)})
+            mod.db.session.commit()
+        url = f'/api/adaptive/recommendation/{learner}'
+        rec = anon_client.get(url, headers=guest_headers(learner)).get_json()['data']
+        assert rec['type'] in ('urgent_review', 'scheduled_review') and rec['word_id'] == 1, '默认仍先推复习'
+        context = json.dumps({'new_only': True})
+        rec = anon_client.get(url, query_string={'context': context}, headers=guest_headers(learner)).get_json()['data']
+        assert rec['type'] not in ('urgent_review', 'scheduled_review') and rec['word_id'] != 1, rec
+
     def test_extra_session_before_the_review_is_due_does_not_count(self, app, anon_client):
         """同一天另开几节练习不能把学习期的复习次数一口气扣完：没到期的那节不减次数、不重排日程"""
         learner = _learner('plansameday')

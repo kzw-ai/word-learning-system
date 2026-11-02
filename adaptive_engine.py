@@ -66,15 +66,18 @@ class AdaptiveRecommendationEngine:
             推荐结果字典
         """
         try:
-            # 1. 检查是否有紧急复习需求
-            review_rec = self.check_urgent_review(user_id)
-            if review_rec:
-                return review_rec
-            
-            # 2. 检查常规复习需求
-            review_rec = self.check_regular_review(user_id)
-            if review_rec:
-                return review_rec
+            # 自评页只问新词（context.new_only）：有到期复习时也不能把学过的词当新词再自评一次。
+            # 先复习还是学新词由自评页让学习者选
+            if not (context or {}).get('new_only'):
+                # 1. 检查是否有紧急复习需求
+                review_rec = self.check_urgent_review(user_id)
+                if review_rec:
+                    return review_rec
+
+                # 2. 检查常规复习需求
+                review_rec = self.check_regular_review(user_id)
+                if review_rec:
+                    return review_rec
             
             # 3. 基于用户状态推荐新内容
             learning_rec = self.recommend_learning_content(user_id, context)
