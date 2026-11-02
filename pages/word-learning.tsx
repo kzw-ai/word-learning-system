@@ -58,6 +58,13 @@ export default function Component() {
     goTo(target.key);
   };
 
+  // 点上方的步骤直接跳过去
+  const handleStepSelect = (key: string) => {
+    interactionTracking.trackButtonClick('step-progress', key);
+    trackEvent('module_navigate', 'word', { direction: 'step', to: key });
+    goTo(key);
+  };
+
   // 左滑 / → 下一步，右滑 / ← 上一步；词加载出来以后才能翻
   useSwipeNavigation(handleNavigate, Boolean(word));
   const slideIn = useSlideIn();
@@ -140,7 +147,7 @@ export default function Component() {
               </Button>
             </div>
             <div className="mt-3">
-              <StepProgress current="word" entry={learningSession.entryModule} skipCharacter={singleChar} />
+              <StepProgress current="word" entry={learningSession.entryModule} skipCharacter={singleChar} onSelect={handleStepSelect} />
             </div>
           </div>
           

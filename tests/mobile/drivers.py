@@ -79,7 +79,10 @@ class AndroidDriver:
         self._pw = sync_playwright().start()
         for _ in range(10):
             time.sleep(1.5)
-            browser = self._pw.chromium.connect_over_cdp(f'http://localhost:{cdp_port}')
+            try:
+                browser = self._pw.chromium.connect_over_cdp(f'http://localhost:{cdp_port}')
+            except Exception:  # Chrome 刚冷启动，调试接口有了但还没就绪（socket hang up）：等一下再连
+                continue
             pages = [p for c in browser.contexts for p in c.pages if p.url == marker]
             if pages:
                 self.page = pages[0]
