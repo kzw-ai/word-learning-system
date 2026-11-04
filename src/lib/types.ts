@@ -45,6 +45,8 @@ export interface ExerciseQuestionPayload {
   options: string[];
   /** 中文选项的发音地址（晓晓录音，见 学习资料制作/工具/step8b_option_audio.py）；没有的选项用浏览器朗读 */
   optionAudio?: Record<string, string>;
+  /** 搭配题：这条搭配的英文意思，显示在题干下面。只给一个词和括号时几乎什么词都能接上，有了意思才只有一个答案 */
+  gloss?: string | null;
   correctAnswer: string;
   feedback?: string;
 }

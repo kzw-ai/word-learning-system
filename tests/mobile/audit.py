@@ -202,7 +202,7 @@ class Audit(Walk):
         d = self.d
         questions = d.eval("(id) => fetch(`/api/learning/word/${id}/exercises?limit=5`).then(r => r.json()).then(r => r.data.questions)",
                            self.word_id)
-        shown_right = False
+        shown_right = shown_collocation = False
         for i, q in enumerate(questions):
             if q['type'] == 'fill_word':
                 self.capture('10-fill-handwriting', '填字题，手写')
@@ -226,6 +226,9 @@ class Audit(Walk):
                 self.answer(self.wrong_option(q['correctAnswer']))
                 self.capture('09-choice-wrong', '选择题第二次还错：揭晓答案')
             else:
+                if q['type'] == 'collocation' and not shown_collocation:
+                    self.capture('08b-collocation', '搭配题，题干下面是这条搭配的英文意思')
+                    shown_collocation = True
                 self.answer(q['correctAnswer'])
                 if not shown_right:
                     self.capture('09b-choice-right', '选择题答对')

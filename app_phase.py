@@ -836,6 +836,26 @@ def option_audio(options):
     return {o: known[o] for o in options if isinstance(o, str) and o in known}
 
 
+_LEVEL_NOTE = re.compile(r'（[^）]*）')
+
+
+def _collocation_key(text):
+    """「喜欢（一级） 科学」和题干填上答案的「喜欢 科学」比对：去掉等级说明和空格"""
+    return re.sub(r'\s+', '', _LEVEL_NOTE.sub('', text or ''))
+
+
+def collocation_glosses(word_id):
+    """这个词的搭配：{比对用的写法: 英文意思}"""
+    return {_collocation_key(c.collocation): c.translation
+            for c in Collocation.query.filter_by(word_id=word_id).all() if c.translation}
+
+
+def collocation_gloss(glosses, stem, answer):
+    """搭配题题干下面显示的英文意思。「知道 ( )」后面几乎什么词都能接上，有了「know the reason」
+    才只有一个答案说得通（作者 2026-11-05 决定）。题干和搭配表对不上的（论文词库少数几道）不给"""
+    return glosses.get(_collocation_key((stem or '').replace('( )', answer or '')))
+
+
 @app.route('/api/audio/<name>', methods=['GET'])
 def get_audio(name):
     """内容指纹作文件名，内容变了文件名就变：浏览器可以长期缓存。只认指纹格式的文件名，读不到目录外的文件"""
@@ -1213,10 +1233,11 @@ def get_word_exercises(word_id):
             if item not in selected:
                 selected.append(item)
         selected = sorted(selected[:question_limit], key=sort_key)
+        glosses = collocation_glosses(word.id)
         questions = []
         for index, item in enumerate(selected, start=1):
             options = json.loads(item.options_json) if item.options_json else []
-            questions.append({
+            question = {
                 'id': f'authored-{item.id}',
                 'type': item.question_type,
                 'question': item.stem,
@@ -1224,7 +1245,10 @@ def get_word_exercises(word_id):
                 'optionAudio': option_audio(options),
                 'correctAnswer': item.correct_answer,
                 'feedback': f"正确答案：{item.correct_answer}（选自{item.source_deck}）"
-            })
+            }
+            if item.question_type == 'collocation':
+                question['gloss'] = collocation_gloss(glosses, item.stem, item.correct_answer)
+            questions.append(question)
         return jsonify({
             'success': True,
             'data': {
@@ -1307,6 +1331,7 @@ def get_word_exercises(word_id):
             'question': placeholder,
             'options': options,
             'correctAnswer': base_hanzi,
+            'gloss': collocation.translation or None,
             'feedback': f"原搭配：{collocation.collocation}；翻译：{collocation.translation}"
         })
 
