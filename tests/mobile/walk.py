@@ -38,6 +38,12 @@ FIND_JS = """(kind, query) => {
 TARGET_CENTRE_JS = """() => { const r = window.__mobileTarget.getBoundingClientRect();
   return [r.left + r.width / 2, r.top + r.height / 2, r.left, r.top, r.width]; }"""
 # 新手引导：动画期间安卓 uiautomator 导不出界面，直接在页面里点
+# 数追踪器记下的事件（每条都会 console.log）：页面切换是客户端路由，进练习页之前装上一直有效
+COUNT_EVENTS_JS = """() => { window.__tracked = [];
+  const log = console.log;
+  console.log = (...a) => { if (a[0] === '📊 Event tracked:') window.__tracked.push([a[1], a[3] && a[3].pageName]); log(...a); };
+}"""
+TRACKED_JS = """(type, page) => window.__tracked.filter(e => e[0] === type && (!page || e[1] === page)).length"""
 ONBOARDING_JS = """() => { const b = [...document.querySelectorAll('button')]
   .find(b => ['Next', 'Get started'].includes(b.textContent.trim()));
   if (b) { b.click(); return true; } return false; }"""
@@ -145,6 +151,7 @@ class Walk:
         self.shot('05-sentences')
 
         self.check('example audio plays', *self.audio_played('button[title="Play audio"]'))
+        d.eval(COUNT_EVENTS_JS)
         self.swipe('left')
         self.check('swipe left -> practice', self.path() == '/exercise', self.path())
         time.sleep(1)
@@ -166,6 +173,9 @@ class Walk:
                 option_audio_checked = True
                 self.check('option audio plays after answering', *self.audio_played(option_audio))
             self.tap('text', r'^CONTINUE$', 1.5)
+        # 以前练习页每次重渲染（计时器每秒 10 次）都多记一组离开、进入和练习开始
+        counts = [d.eval(TRACKED_JS, t, p) for t, p in (('page_enter', 'exercise'), ('exercise_session_start', None))]
+        self.check('practice page logged once', counts == [1, 1], f'page_enter, exercise_session_start = {counts}')
         if not fill:
             self.check('fill-in question present', False, str([q['type'] for q in questions]))
             return
