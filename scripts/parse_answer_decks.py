@@ -49,6 +49,13 @@ RE_SENTENCE_END = re.compile(r'(?<=[。？！?!])')
 
 BLANK = ' ( ) '
 
+# 作者审核后改的干扰项：课件原文（the answer*.json）不动，导入时替换。
+# 键是 (课件, 幻灯片序号, 题干)，值是 {原选项: 新选项}
+OPTION_FIXES = {
+    # 2026-11-05：搭配题显示英文意思 living together 以后，「一起过」也是这个意思，有两个答案
+    ('the answer of the third time of learning', 11, '一起 ( )'): {'过': '桌子'},
+}
+
 
 def normalize(text):
     """把 PPT 拆碎的换行合并成单空格，便于正则跨行匹配。"""
@@ -257,6 +264,10 @@ def parse_all():
             if not target:
                 problems.append(f'{deck} slide{idx}: 无法确定目标词，整组跳过')
                 continue
+            for item in items:
+                fix = OPTION_FIXES.get((deck, idx, item['stem']))
+                if fix:
+                    item['options'] = [fix.get(o, o) for o in item['options']]
             all_slides.append({'deck': deck, 'slide': idx, 'word': target, 'items': items})
     return all_slides, problems
 
