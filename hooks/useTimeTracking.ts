@@ -3,7 +3,7 @@
  * 封装TimeTracker类为React Hook，提供便捷的时间追踪功能
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { TimeTracker, TimeTrackingConfig, ExerciseData } from '@/utils/timeTracker';
 
 export interface UseTimeTrackingReturn {
@@ -138,21 +138,16 @@ export const useExerciseTimer = (): UseExerciseTimerReturn => {
   const [endTime, setEndTime] = useState<Date | null>(null);
   const [hesitationCount, setHesitationCount] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
-  const [currentTimer, setCurrentTimer] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 不用每 100 毫秒累加的计时状态：那会让用这个 hook 的整页每秒重渲染 10 次，
+  // 页面上依赖追踪函数的 effect 跟着反复执行（线上练习页每秒多写 20 到 30 条进出页面事件）。
+  // 当前用时由开始时间现算
   const startTimer = useCallback(() => {
     const now = new Date();
     setStartTime(now);
     setEndTime(null);
     setHesitationCount(0);
     setIsAnswered(false);
-    setCurrentTimer(0);
-
-    // 启动实时计时器
-    timerRef.current = setInterval(() => {
-      setCurrentTimer(prev => prev + 0.1);
-    }, 100);
   }, []);
 
   const recordHesitation = useCallback(() => {
@@ -164,12 +159,6 @@ export const useExerciseTimer = (): UseExerciseTimerReturn => {
       const now = new Date();
       setEndTime(now);
       setIsAnswered(true);
-      
-      // 停止计时器
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
     }
   }, [isAnswered, startTime]);
 
@@ -181,17 +170,10 @@ export const useExerciseTimer = (): UseExerciseTimerReturn => {
   }, [startTime, endTime]);
 
   const getCurrentTimer = useCallback((): number => {
-    return Math.round(currentTimer * 10) / 10; // 保留1位小数
-  }, [currentTimer]);
-
-  // 清理定时器
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, []);
+    if (!startTime) return 0;
+    const end = endTime ?? new Date();
+    return Math.round((end.getTime() - startTime.getTime()) / 100) / 10; // 保留1位小数
+  }, [startTime, endTime]);
 
   return {
     startTimer,
@@ -215,41 +197,44 @@ export interface UsePageTrackingReturn {
   trackNavigation: (from: string, to: string) => void;
 }
 
+// 只依赖 trackEvent（它本身不会变），不依赖整个 timeTracker：那个对象每次渲染都是新的，
+// 依赖它的函数每次渲染也变，页面里「进入时记一次」的 effect 就会每次渲染都记一组离开、进入
 export const usePageTracking = (timeTracker?: UseTimeTrackingReturn): UsePageTrackingReturn => {
+  const trackEvent = timeTracker?.trackEvent;
   const trackPageEnter = useCallback((pageName: string) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('page_enter', 'navigation', {
+    if (trackEvent) {
+      trackEvent('page_enter', 'navigation', {
         pageName,
         timestamp: new Date().toISOString(),
         url: typeof window !== 'undefined' ? window.location.pathname : undefined
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
   const trackPageLeave = useCallback((pageName: string) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('page_leave', 'navigation', {
+    if (trackEvent) {
+      trackEvent('page_leave', 'navigation', {
         pageName,
         timestamp: new Date().toISOString()
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
   const trackNavigation = useCallback((from: string, to: string) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('navigation', 'router', {
+    if (trackEvent) {
+      trackEvent('navigation', 'router', {
         from,
         to,
         timestamp: new Date().toISOString()
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
-  return {
+  return useMemo(() => ({
     trackPageEnter,
     trackPageLeave,
     trackNavigation
-  };
+  }), [trackPageEnter, trackPageLeave, trackNavigation]);
 };
 
 /**
@@ -263,51 +248,52 @@ export interface UseInteractionTrackingReturn {
 }
 
 export const useInteractionTracking = (timeTracker?: UseTimeTrackingReturn): UseInteractionTrackingReturn => {
+  const trackEvent = timeTracker?.trackEvent;
   const trackButtonClick = useCallback((buttonId: string, buttonText?: string, additionalData?: any) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('button_click', buttonId, {
+    if (trackEvent) {
+      trackEvent('button_click', buttonId, {
         buttonText,
         timestamp: new Date().toISOString(),
         ...additionalData
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
   const trackInputChange = useCallback((inputId: string, inputType: string, value?: any) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('input_change', inputId, {
+    if (trackEvent) {
+      trackEvent('input_change', inputId, {
         inputType,
         value: typeof value === 'string' ? value.substring(0, 100) : value, // 限制长度
         timestamp: new Date().toISOString()
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
   const trackAudioPlay = useCallback((audioId: string, audioType: string) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('audio_play', audioId, {
+    if (trackEvent) {
+      trackEvent('audio_play', audioId, {
         audioType,
         timestamp: new Date().toISOString()
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
   const trackSelectionChange = useCallback((selectionType: string, oldValue?: any, newValue?: any) => {
-    if (timeTracker) {
-      timeTracker.trackEvent('selection_change', selectionType, {
+    if (trackEvent) {
+      trackEvent('selection_change', selectionType, {
         oldValue,
         newValue,
         timestamp: new Date().toISOString()
       });
     }
-  }, [timeTracker]);
+  }, [trackEvent]);
 
-  return {
+  return useMemo(() => ({
     trackButtonClick,
     trackInputChange,
     trackAudioPlay,
     trackSelectionChange
-  };
+  }), [trackButtonClick, trackInputChange, trackAudioPlay, trackSelectionChange]);
 };
 
 /**
