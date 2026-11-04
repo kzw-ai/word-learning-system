@@ -26,6 +26,29 @@ import step5_select
 import step6_check_tasks
 
 
+# 第 6c 步选择题干扰项复查的结果（作者审核过），见 制作流程.md。不提交，和各批审核材料放在一起
+RECHECK = common.REVIEW / '干扰项复查.json'
+
+
+def apply_recheck(batch, word, material):
+    """按（题干、答案）换成复查后的选项。这次生成的原选项和复查时的不一样（素材重做过），复查结果不适用：不换，提醒重新复查"""
+    if not RECHECK.exists():
+        return []
+    notes = []
+    for r in json.loads(RECHECK.read_text(encoding='utf-8'))['batches'].get(batch, {}).get(word, []):
+        q = next((q for q in material['exercises']
+                  if q['stem'] == r['stem'] and q['correct_answer'] == r['correct_answer']), None)
+        if q is None:
+            notes.append(f"⚠ 第 6c 步复查过的「{r['stem']}」这次没有生成，复查结果没用上")
+        elif q['options'] == r['old']:
+            q['options'] = list(r['options'])
+            changed = [o for o in r['options'] if o not in r['old']]
+            notes.append(f"「{r['stem']}」按第 6c 步复查换了干扰项：{'、'.join(changed)}")
+        elif q['options'] != r['options']:
+            notes.append(f"⚠ 「{r['stem']}」的选项和第 6c 步复查时不一样，复查结果没用上，需要重新复查")
+    return notes
+
+
 def collocation_text(c, word):
     return ' '.join(t + common.level_label(c['level']) if t == c['other'] else t for t in c['collocation'].split())
 
@@ -213,6 +236,7 @@ def main(batch, source=None):
             import step6b_fill_from_example
             check = dict(check, fill_word=step6b_fill_from_example.load_check(batch, word, fill, source or 'deepseek-flash'))
         material, notes = build(word, sel, check)
+        notes += apply_recheck(batch, word, material)
         materials.append(material)
         md += checklist_entry(material, sel, notes)
     pairs = []
