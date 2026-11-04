@@ -1638,6 +1638,33 @@ class TestAudio:
         q = next(q for q in questions if q['options'] == options)
         assert q['optionAudio'] == {options[0]: self._url(7)}
 
+    def test_collocation_questions_carry_the_meaning(self, app, client):
+        """搭配题带上这条搭配的英文意思：「喜欢 ( )」后面卖、生病都接得上，有了「like science」才只有一个答案。
+        题干按搭配表比对（去掉等级说明和空格）；对不上的不带，自动出的搭配题直接用搭配表的翻译"""
+        import json
+        import app_phase as mod
+        with app.app_context():
+            word = mod.Word(pinyin='kēxué', definition='science')
+            mod.db.session.add(word)
+            mod.db.session.flush()
+            for char, pinyin in (('科', 'kē'), ('学', 'xué')):
+                mod.db.session.add(mod.Character(character=char, pinyin=pinyin, definition='', audio='', word_id=word.id))
+            mod.db.session.add(mod.Collocation(collocation='喜欢（一级） 科学', translation='like science', audio='', word_id=word.id))
+            for slide, stem in ((1, '喜欢 ( )'), (2, '( ) 研究')):
+                mod.db.session.add(mod.ExerciseItem(word_id=word.id, question_type='collocation', stem=stem,
+                                                    options_json=json.dumps(['卖', '门', '科学', '生病'], ensure_ascii=False),
+                                                    correct_answer='科学', source_deck='HSK4 测试批 科学', source_slide=slide))
+            mod.db.session.add(mod.ExerciseItem(word_id=word.id, question_type='definition', stem='science',
+                                                options_json=json.dumps(['万', '科学', '条', '年轻'], ensure_ascii=False),
+                                                correct_answer='科学', source_deck='HSK4 测试批 科学', source_slide=0))
+            mod.db.session.commit()
+            word_id = word.id
+        questions = client.get(f'/api/learning/word/{word_id}/exercises?limit=10').get_json()['data']['questions']
+        by_stem = {q['question']: q for q in questions}
+        assert by_stem['喜欢 ( )']['gloss'] == 'like science'
+        assert by_stem['( ) 研究']['gloss'] is None, '搭配表里没有这条，不瞎配'
+        assert 'gloss' not in by_stem['science'], '释义题本来就是英文，不带'
+
     def test_confusable_words_carry_audio(self, app, client):
         import app_phase as mod
         with app.app_context():

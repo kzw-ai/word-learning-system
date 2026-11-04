@@ -641,7 +641,8 @@ const Exercise = () => {
                     <h2 className="text-sm font-semibold text-indigo-700 leading-snug">
                       {currentQuestion.type === 'definition' ?
                         'Choose the word that matches the meaning.' :
-                        currentQuestion.type === 'collocation' ? 'Choose the word that fits the blank.' :
+                        currentQuestion.type === 'collocation' ?
+                          (currentQuestion.gloss ? 'Choose the word that makes this phrase.' : 'Choose the word that fits the blank.') :
                         currentQuestion.type === 'choose_word' ? 'Choose the right word.' :
                         // 缺的总是刚学的这个词里的一个字（单字词就是这个词本身，多字词是最后一个字）
                         `${fillMode === 'write' ? 'Write' : 'Type'} the missing character of the word you just learned.`
@@ -663,6 +664,10 @@ const Exercise = () => {
                     {/* 释义题的题干是英文释义，学习者自己读；不给朗读（以前用浏览器朗读，iPhone 静音时不出声，对学中文也帮助不大） */}
                     <p className="text-lg short:text-base font-bold text-slate-900 leading-snug">{fillHint ? fillHint.stem : currentQuestion.question}</p>
                   </div>
+                  {/* 搭配的英文意思：「知道 ( )」后面几乎什么词都能接上，按意思选才只有一个答案 */}
+                  {currentQuestion.type === 'collocation' && currentQuestion.gloss && (
+                    <p className="mt-1 text-sm text-slate-600" lang="en">{currentQuestion.gloss}</p>
+                  )}
                   {/* 括号里的字母是答案那个字的拼音提示（还能填别的字时才给），单独说明，学习者才看得懂 */}
                   {fillHint?.hint && (
                     <p className="mt-1.5 text-sm text-slate-600">
