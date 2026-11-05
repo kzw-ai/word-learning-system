@@ -29,7 +29,10 @@ interface StepProgressProps {
  *
  * 每一步占等宽的一格、标签一直显示，状态只改颜色：左右滑动换页时标签和进度条都不挪位置
  * （以前已完成的步骤收成对勾、当前步骤放大成胶囊，每换一页整行都在动）。
- * 单字词也是五格、「Chars」划掉：以前单字词去掉这一格，页面先按五格画、词的数据到了再变四格，换页时跳一下。
+ * 单字词也是五格、「Chars」按跳过显示：以前单字词去掉这一格，页面先按五格画、词的数据到了再变四格，换页时跳一下。
+ *
+ * 跳过的步骤用细字、浅色横条，不划线：划线读起来像「错了、作废」，练习页答错的选项也是划线。
+ * 跳过的在当前步骤左边、还没到的在右边，靠位置就分得开；还没到的用深一档的灰，字色都不低于对比度 4.5。
  */
 export default function StepProgress({ current, entry, skipCharacter = false, onSelect }: StepProgressProps) {
   const currentIndex = STEPS.findIndex(step => step.key === current);
@@ -59,8 +62,8 @@ export default function StepProgress({ current, entry, skipCharacter = false, on
                         : done
                           ? 'font-semibold text-indigo-600'
                           : skipped
-                            ? 'font-semibold text-slate-500 line-through decoration-slate-400'
-                            : 'font-semibold text-slate-500'
+                            ? 'font-normal text-slate-500'
+                            : 'font-semibold text-slate-600'
                     }`}
                     aria-hidden="true"
                   >
@@ -68,7 +71,7 @@ export default function StepProgress({ current, entry, skipCharacter = false, on
                   </span>
                   <span
                     className={`h-1 w-full rounded-full ${
-                      active ? 'bg-indigo-600' : done ? 'bg-indigo-300' : 'bg-slate-200'
+                      active ? 'bg-indigo-600' : done ? 'bg-indigo-300' : skipped ? 'bg-slate-100' : 'bg-slate-200'
                     }`}
                     aria-hidden="true"
                   />
