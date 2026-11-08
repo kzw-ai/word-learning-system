@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { safeGetItem, safeSetItem } from '@/src/lib/guestIdentity';
 
 // 五个标签要在 375px 宽的屏幕上排成一行：用短标签，各页标题仍用全称
 const STEPS = [
@@ -8,6 +9,12 @@ const STEPS = [
   { key: 'sentence', label: 'Sentence' },
   { key: 'exercise', label: 'Practice' },
 ] as const;
+
+// 第一次见到自评或复习跳过的步骤时，进度条下面说一句怎么回事；只说一次，之后不再占注意力。
+// 不说具体理由（自评选了什么、上次哪类题错了）：每个词都解释一遍太啰嗦，学习者只要知道浅色是跳过、能点开。
+// 记在本机浏览器里，和新手引导一样；换设备最多再看到一次
+const HINT_SEEN_KEY = 'learningSystem.skippedStepsHintSeen';
+let hintSeenInMemory = false;
 
 interface StepProgressProps {
   /** 当前所在步骤 */
@@ -39,8 +46,23 @@ export default function StepProgress({ current, entry, skipCharacter = false, on
   const entryIndex = Math.max(0, STEPS.findIndex(step => step.key === entry));
   // 当前步骤在入口之前（例如从后面的步骤点了「上一步」）时，按当前步骤为起点
   const startIndex = Math.min(entryIndex, Math.max(currentIndex, 0));
+  // 单字词的「Chars」不算：那是没有这一页，不是跳过，也点不开。
+  // 提示里直接点名跳过的步骤：说「浅色的」分不清，还没到的步骤也是灰的
+  const skippedLabels = STEPS.slice(0, startIndex)
+    .filter(step => !(skipCharacter && step.key === 'character'))
+    .map(step => step.label);
+  const hasSkipped = skippedLabels.length > 0 && Boolean(onSelect);
+
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    if (!hasSkipped || hintSeenInMemory || safeGetItem(HINT_SEEN_KEY) === '1') return;
+    hintSeenInMemory = true;
+    safeSetItem(HINT_SEEN_KEY, '1');
+    setShowHint(true);
+  }, [hasSkipped]);
 
   return (
+    <>
     <ol
       className="grid grid-cols-5 gap-1"
       aria-label="Learning steps"
@@ -98,5 +120,11 @@ export default function StepProgress({ current, entry, skipCharacter = false, on
         );
       })}
     </ol>
+    {showHint && (
+      <p className="mt-1 text-center text-sm text-slate-600">
+        Skipped this time: {skippedLabels.join(', ')}. Tap {skippedLabels.length === 1 ? 'it' : 'one'} to look anyway.
+      </p>
+    )}
+    </>
   );
 }
