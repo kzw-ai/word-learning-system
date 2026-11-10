@@ -121,7 +121,7 @@ export default function StepProgress({ current, entry, skipCharacter = false, on
       })}
     </ol>
     {showHint && (
-      <p className="mt-1 text-center text-sm text-slate-600">
+      <p className="mt-1 text-center text-sm text-slate-600 text-balance">
         Skipped this time: {skippedLabels.join(', ')}. Tap {skippedLabels.length === 1 ? 'it' : 'one'} to look anyway.
       </p>
     )}

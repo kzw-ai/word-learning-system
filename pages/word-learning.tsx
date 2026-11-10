@@ -100,7 +100,7 @@ export default function Component() {
           {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
           {/* 单字词没有可拆的字，不重复显示 */}
           {!singleChar && (
-            <RecapSection labels={["Characters"]}>
+            <RecapSection labels={["Characters"]} onOpen={() => trackEvent('recap_open', 'word', { sections: ['characters'] })}>
               <CharacterBreakdown word={word} />
             </RecapSection>
           )}

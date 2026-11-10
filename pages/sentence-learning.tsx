@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { WordHero, ExampleList, DefinitionBlock, CollocationList, CharacterBreakdown, RecapSection } from "@/components/learning/WordBlocks";
+import { WordHero, ExampleList, DefinitionBlock, CollocationList, RecapSection } from "@/components/learning/WordBlocks";
 import StepProgress from "@/components/learning/StepProgress";
 import { Button } from "@/components/ui/button";
 import { useWordData } from '@/hooks/useWordData';
@@ -94,11 +94,10 @@ export default function Component() {
               <ExampleList word={word} />
             </div>
           </div>
-          {/* 前面步骤的内容折叠在这里，跳级进来的学习者也能补看 */}
-          <RecapSection labels={singleChar ? ["Meaning", "Collocations"] : ["Meaning", "Collocations", "Characters"]}>
+          {/* 顺手查的小卡片：只放读这一页时用得上的（汉字拆解用不上又最长，要看点上面的 Chars 回字页）。跳级进来的学习者整页补看也走步骤条 */}
+          <RecapSection labels={["Meaning", "Collocations"]} onOpen={() => trackEvent('recap_open', 'sentence', { sections: ['meaning', 'collocations'] })}>
             <DefinitionBlock word={word} />
             <CollocationList word={word} />
-            {!singleChar && <CharacterBreakdown word={word} />}
           </RecapSection>
           <div className="h-6 w-full shrink-0"></div>
         </div>
