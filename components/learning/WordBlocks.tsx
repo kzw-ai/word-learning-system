@@ -128,12 +128,15 @@ export function ExampleList({ word, limit }: { word: WordData; limit?: number })
 }
 
 /**
- * 前面步骤的内容，默认折叠。用原生 details/summary，键盘和读屏都可用。
- * 从后面的步骤进入（VKS 自评跳级）的学习者也能在这里补看前面的内容。
+ * 前面步骤里读这一页时用得上的内容，默认折叠，留在本页顺手查。用原生 details/summary，键盘和读屏都可用。
+ * 整页回看前面的步骤用上面的步骤条；两种方式各用多少看 recap_open 和 module_navigate(step) 埋点。
  */
-export function RecapSection({ labels, children }: { labels: string[]; children: React.ReactNode }) {
+export function RecapSection({ labels, children, onOpen }: { labels: string[]; children: React.ReactNode; onOpen?: () => void }) {
   return (
-    <details className="group glass-card rounded-2xl border border-white/40">
+    <details
+      className="group glass-card rounded-2xl border border-white/40"
+      onToggle={e => { if (e.currentTarget.open) onOpen?.(); }}
+    >
       <summary className="flex items-center justify-between cursor-pointer list-none px-5 h-12 text-sm font-semibold text-gray-700 select-none [&::-webkit-details-marker]:hidden">
         <span>Recap: {labels.join(' · ')}</span>
         <ChevronDown size={18} className="transition-transform group-open:rotate-180" aria-hidden="true" />
