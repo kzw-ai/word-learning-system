@@ -320,6 +320,31 @@ def get_or_create_user_progress(user_id, word_id):
     return progress
 
 
+# 掌握度看最近多少道题。10 道大约是这个词两三节练习
+MASTERY_RECENT_ANSWERS = 10
+
+
+def recent_accuracy(user_id, word_id, limit=MASTERY_RECENT_ANSWERS):
+    """这个学习者这个词最近 limit 道题的正确率；还没答过返回 None。
+
+    同一会话里同一道题重复提交（双击、重放）只算第一次，和作答接口的 is_replay 一致。
+    调用时本次作答已 flush，算在内
+    """
+    rows = db.session.execute(text("""
+        SELECT er.is_correct
+        FROM exercise_record er
+        JOIN learning_session ls ON ls.session_id = er.session_id
+        WHERE ls.user_id = :user_id AND ls.word_id = :word_id
+          AND er.id = (SELECT MIN(e2.id) FROM exercise_record e2
+                       WHERE e2.session_id = er.session_id AND e2.question_id = er.question_id)
+        ORDER BY er.id DESC
+        LIMIT :limit
+    """), {'user_id': user_id, 'word_id': word_id, 'limit': limit}).fetchall()
+    if not rows:
+        return None
+    return sum(1 for (ok,) in rows if ok) / len(rows)
+
+
 def accumulate_exercise_into_progress(user_id, word_id, question_type, is_correct):
     """把一次练习作答累加进 user_progress 的论文特征列。
 
@@ -349,9 +374,12 @@ def accumulate_exercise_into_progress(user_id, word_id, question_type, is_correc
         progress.consecutive_incorrect = (progress.consecutive_incorrect or 0) + 1
         progress.consecutive_correct = 0
 
-    # 掌握度取累计正确率，供 adaptive_engine 的 ease factor 与间隔调节使用
-    if progress.total_attempts:
-        progress.mastery_level = (progress.correct_attempts or 0) / progress.total_attempts
+    # 掌握度取最近几题的正确率（供今日复习排序、adaptive_engine 的 ease factor 与间隔调节）。
+    # 不用全部累计：早期错得多、后来一直对的词，累计正确率涨得很慢，学习者看着像「练了没用」，
+    # 复习列表也一直把它排在前面。累计数仍在 total_attempts / correct_attempts 里
+    recent = recent_accuracy(user_id, word_id)
+    if recent is not None:
+        progress.mastery_level = recent
 
     progress.last_studied = datetime.utcnow()
     return progress

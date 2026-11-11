@@ -591,6 +591,27 @@ class TestSessionReviewScheduling:
         assert _stored(self._progress(app, learner)) == _stored(before), '重放的作答不能改累计正确率与日程'
         assert self._records(app, 's-replay-2') == 6, '原始作答照常保留'
 
+    def test_mastery_follows_recent_answers(self, app, anon_client):
+        """掌握度看最近 10 题：早期全错、后来连对 10 题就是 100%，不是累计的 50%"""
+        learner = _learner('mastrecent')
+        self._session(anon_client, learner, 's-mast-1')
+        for i in range(10):
+            self._answer(anon_client, learner, 's-mast-1', f'q{i}', False)
+        assert self._progress(app, learner)['mastery'] == 0
+
+        self._session(anon_client, learner, 's-mast-2')
+        for i in range(5):
+            self._answer(anon_client, learner, 's-mast-2', f'q{i}', True)
+        assert self._progress(app, learner)['mastery'] == 0.5, '最近 10 题：5 对 5 错'
+        # 重放的错题不挤掉一道对题
+        self._answer(anon_client, learner, 's-mast-2', 'q4', False)
+        assert self._progress(app, learner)['mastery'] == 0.5
+        for i in range(5, 10):
+            self._answer(anon_client, learner, 's-mast-2', f'q{i}', True)
+        progress = self._progress(app, learner)
+        assert progress['mastery'] == 1.0
+        assert (progress['attempts'], progress['correct']) == (20, 10), '累计数照常累加'
+
     def test_late_answer_to_older_session_does_not_rewind(self, app, anon_client):
         learner = _learner('sm2older')
         self._session(anon_client, learner, 's-older-1')

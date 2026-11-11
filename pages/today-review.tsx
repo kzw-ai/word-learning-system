@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { buildApiUrl } from "@/src/lib/apiClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
@@ -114,13 +113,6 @@ const TodayReview = () => {
     router.push(route);
   };
 
-  const getPriorityBadge = (score: number) => {
-    // 浅底深字：白字放在橙底上对比度只有 2 左右
-    if (score > 0.8) return <Badge className="bg-rose-50 hover:bg-rose-50 text-rose-800 border border-rose-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">High priority</Badge>;
-    if (score > 0.5) return <Badge className="bg-amber-50 hover:bg-amber-50 text-amber-800 border border-amber-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">Medium priority</Badge>;
-    return <Badge className="bg-slate-100 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-none text-sm px-2.5 py-0.5 shrink-0">Low priority</Badge>;
-  };
-
   const getMasteryColor = (level: number) => {
     // 都取同色系深一档，白底上对比度够 4.5
     if (level >= 0.8) return 'text-emerald-700';
@@ -203,6 +195,15 @@ const TodayReview = () => {
               </div>
             )}
 
+            {/* 列表已按「最该复习」排好（掌握度低、拖得久、最近连错的在前）。不给每个词贴高中低标签：
+                到期的词都要复习，标签改变不了要做的事，又和掌握度、逾期天数重复；
+                复习计划已完成的词还会出现「Mastered」旁挂着「High priority」。只说一句为什么这样排 */}
+            {!error && reviews.length > 1 && (
+              <p className="text-sm text-slate-600 text-balance">
+                {"Start at the top — these are the words you're most likely to forget."}
+              </p>
+            )}
+
             {reviews.map((review, index) => (
               <div 
                 key={`${review.word_id}-${index}`}
@@ -228,7 +229,6 @@ const TodayReview = () => {
                       </p>
                     )}
                   </div>
-                  {getPriorityBadge(review.priority_score)}
                 </div>
                 
                 <div className="space-y-2 mb-4">
