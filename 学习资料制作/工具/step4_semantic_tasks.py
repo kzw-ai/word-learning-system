@@ -70,6 +70,16 @@ HSK3_ENTRY = {
     '长': '汉办词表里「长」另有二级条目（形容词 cháng，long）；三级条目是动词 zhǎng（to grow; to develop，如「长大」「长高」）。'
           'senses 只列动词 zhǎng 这一个义项；例句、搭配里用的是形容词 cháng 或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；'
           'characters 只有一项，读音、释义按 zhǎng。',
+    # 教材里的「夏」多是人名「小夏」，按句数会选成姓氏（作者 2026-11-12 发现）
+    '夏': '三级的「夏」是季节 summer（春、夏、秋、冬）。senses 只列 summer 这一个义项；例句、搭配里是人名、姓氏（「小夏」「夏老师」）'
+          '或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按 summer。',
+    # 教材里别的意思更多，按句数会选错（Claude 2026-11-12 逐题检查时发现）
+    '马': '三级的「马」是名词 horse（「一匹马」「骑马」）。senses 只列这一个义项；例句、搭配里用的是姓氏（「马老师」「小马」作人名）或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
+    '种': '三级的「种」是量词 kind; type（「一种」「这种」「各种」，汉办词表标「种（量词）」）。senses 只列这一个义项；例句、搭配里用的是动词 zhòng（种树、种花）或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
+    '角': '三级的「角」是钱的单位 jiǎo（一角钱 = 0.1 元，「五角」「一块五角」）。senses 只列这一个义项；例句、搭配里用的是角落、角度（corner; angle）或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
+    '刻': '三级的「刻」是量词 quarter (of an hour)，一刻钟 = 15 分钟（「三点一刻」「一刻钟」）。senses 只列这一个义项；例句、搭配里用的是时刻、立刻、雕刻或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
+    '包': '三级的「包」是名词 bag（「书包」「包里」「一个包」）。senses 只列这一个义项；例句、搭配里用的是动词「包饺子、包起来」、量词「一包」或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
+    '班': '三级的「班」是名词 class; group of students（「我们班」「班上」「一个班」）。senses 只列这一个义项；例句、搭配里用的是上班、值班、班车或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按这个义项。',
 }
 # 当前等级要只做一个条目的词（任务里的键名沿用 hsk4_entry，四级的任务指纹不变）
 ENTRY = HSK4_ENTRY if common.TARGET_LEVEL == 4 else HSK3_ENTRY

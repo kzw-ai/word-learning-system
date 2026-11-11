@@ -245,10 +245,43 @@ def restore_collocation_spaces(answer, task):
             c['collocation'] = by_bare.get(c['collocation'].replace(' ', ''), c['collocation'])
 
 
+def restore_punctuation(answer, task):
+    """例句拼音里只有标点和原句不一样（「！」写成「。」、漏了句末标点）时，按原句改回来；字不一样的不动，照样判不合格"""
+    sentences = {e['sentence'] for e in task['examples']}
+    for a in answer.get('examples', []):
+        if not isinstance(a, dict) or a.get('sentence') not in sentences or not isinstance(a.get('pinyin'), str):
+            continue
+        s = a['sentence'].replace(' ', '')
+        if hanzi_of(a['pinyin']) == s:
+            continue
+        out, i = [], 0
+        for t in a['pinyin'].split():
+            if '/' in t:
+                h = t.split('/')[0]
+                if s[i:i + len(h)] != h:
+                    break
+                out.append(t)
+                i += len(h)
+            else:
+                j = i
+                while j < len(s) and not (s[j].isalnum()):
+                    j += 1
+                if j > i:
+                    out.append(s[i:j])
+                    i = j
+        else:
+            if s[i:] and not any(ch.isalnum() for ch in s[i:]):
+                out.append(s[i:])
+                i = len(s)
+            if i == len(s) and hanzi_of(' '.join(out)) == s:
+                a['pinyin'] = ' '.join(out)
+
+
 def tidy_check(answer, task):
     join_split_pinyin(answer)
     drop_stray_conflicts(answer, task)
     restore_collocation_spaces(answer, task)
+    restore_punctuation(answer, task)
 
 
 def hanzi_of(pinyin_line):

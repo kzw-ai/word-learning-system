@@ -142,6 +142,15 @@ def main(batches, model):
     outdir.mkdir(parents=True, exist_ok=True)
     data = {b: load_batch(b) for b in batches}
     items = {b: [(m['hanzi'], q) for m in d['words'] for q in questions_of(m)] for b, d in data.items()}
+    # 素材是第 7 步按上一次复查换过选项的：退回换之前的选项再判，结果和上一次一致（回答都已存好，不重复请求），
+    # 也不会因为「换过的选项没冲突」把上一次的替换记录冲掉
+    result_path = common.REVIEW / '干扰项复查.json'
+    previous = json.loads(result_path.read_text(encoding='utf-8'))['batches'] if result_path.exists() else {}
+    for b in batches:
+        for word, q in items[b]:
+            for r in previous.get(b, {}).get(word, []):
+                if r['stem'] == q['stem'] and r['correct_answer'] == q['answer'] and r['options'] == q['options']:
+                    q['options'] = list(r['old'])
     for d in data.values():
         for m in d['words']:
             CONFUSABLES[m['hanzi']] = m.get('confusables') or []
@@ -154,6 +163,12 @@ def main(batches, model):
             keys.append(f'{b}-{p}')
     step4_semantic_tasks.answer_with(model, outdir, keys, kind='判断', check=validate_judge)
     conflicts = {}
+    # 干扰项和题干里的词相同（「小 ( )」的选项里有「小」）：不用判，直接换
+    for b in batches:
+        for word, q in items[b]:
+            same = [o for o in q['options'] if o != q['answer'] and o in q['stem'].replace('( )', ' ').split()]
+            for o in same:
+                conflicts.setdefault(b, {}).setdefault((q['stem'], q['answer']), {})[o] = '和题干里的词相同'
     for key in keys:
         task = json.loads((outdir / f'{key}.任务.json').read_text(encoding='utf-8'))
         answer = json.loads((outdir / f'{key}.判断.{model}.json').read_text(encoding='utf-8'))
@@ -214,7 +229,6 @@ def main(batches, model):
             still.setdefault(key.rsplit('-', 1)[0], {})[k] = v
 
     # 4. 写结果
-    result_path = common.REVIEW / '干扰项复查.json'
     result = json.loads(result_path.read_text(encoding='utf-8')) if result_path.exists() else {
         '说明': '第 6c 步选择题干扰项复查（step6c_recheck.py）。第 7 步重新生成时按（词、题干、答案）用这里的选项。', 'batches': {}}
     md = ['# 干扰项复查', '', f'模型 {model}。每道题列出判为「也说得通」的干扰项和理由、换上的词；⚠ 是换了以后复核仍有冲突的，要人工处理。', '']

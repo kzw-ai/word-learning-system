@@ -114,7 +114,11 @@ def ask_json(model, system, user, max_tokens=64000):
         start = time.time()
         try:
             content, finish, usage = _stream(body)
-            break
+            # 中转站的流有时没给结束标记就断了（finish_reason 为空），或给了 stop 却没有内容：和断线一样重试
+            if ENDPOINT == 'relay' and (finish is None or (finish == 'stop' and not content.strip())) and attempt < tries:
+                detail = f'回答中途断了（已收到 {len(content)} 字）'
+            else:
+                break
         except urllib.error.HTTPError as e:
             text = e.read()[:300].decode('utf-8', 'replace')
             detail = f'HTTP {e.code}：{text}'
