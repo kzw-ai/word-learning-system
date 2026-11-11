@@ -29,15 +29,22 @@ def main():
         for word, lv in sorted(levels.items(), key=lambda x: (x[1], x[0])):
             w.writerow([word, lv])
 
-    # 附录 A 的输出：作者整理的四级词 BCC 词频。词的范围以汉办四级词表为准（左连接），
-    # Excel 里混进的一至二级词（如「了、不、到」）不算，四级词在 Excel 里没有的，BCC 词频记 0。
-    rows = [r for r in openpyxl.load_workbook(common.BCC_HSK4, read_only=True).worksheets[0].iter_rows(min_row=2, values_only=True)
-            if r and r[0] and isinstance(r[1], (int, float))]
-    bcc_of = {re.sub(r'（.*?）', '', str(r[0])).strip(): r[1] for r in rows}
-    grade4_words = common.hsk_grade4_words()
-    grade4 = [(w, w, bcc_of.get(w, 0)) for w in grade4_words]
-    extra = [w for w in bcc_of if w not in set(grade4_words)]
-    missing = [w for w in grade4_words if w not in bcc_of]
+    if common.TARGET_LEVEL == 4:
+        # 附录 A 的输出：作者整理的四级词 BCC 词频。词的范围以汉办四级词表为准（左连接），
+        # Excel 里混进的一至二级词（如「了、不、到」）不算，四级词在 Excel 里没有的，BCC 词频记 0。
+        rows = [r for r in openpyxl.load_workbook(common.BCC_HSK4, read_only=True).worksheets[0].iter_rows(min_row=2, values_only=True)
+                if r and r[0] and isinstance(r[1], (int, float))]
+        bcc_of = {re.sub(r'（.*?）', '', str(r[0])).strip(): r[1] for r in rows}
+        target_words = common.hsk_grade4_words()
+        source = '作者 Excel'
+    else:
+        # 三级词没有作者整理的 Global 词频，用 BCC 多领域总表（算例句难度用的同一份；与 Global 的四级词排名相关 0.91）
+        bcc_of = common.bcc_counts()
+        target_words = common.hsk_target_words()
+        source = 'BCC 多领域总表'
+    grade4 = [(w, w, bcc_of.get(w, 0)) for w in target_words]
+    extra = [w for w in bcc_of if w not in set(target_words)] if common.TARGET_LEVEL == 4 else []
+    missing = [w for w in target_words if w not in bcc_of]
 
     # 附录 D：教材词频
     counts = collections.Counter()
@@ -55,15 +62,20 @@ def main():
     scored = [(0.3 * b + 0.7 * t, label, word, raw_bcc, raw_tb)
               for (label, word, raw_bcc), b, t, raw_tb in zip(grade4, minmax(bcc), minmax(tb), tb)]
     scored.sort(key=lambda x: -x[0])
-    with open(common.OUT / '四级词加权词频分档.csv', 'w', newline='', encoding='utf-8') as f:
+    # 论文脚注 6：600 个四级词按 200、400 名分三档；别的等级按词数三等分
+    n = len(scored)
+    cut1, cut2 = (200, 400) if common.TARGET_LEVEL == 4 else (round(n / 3), round(2 * n / 3))
+    with open(common.TIERS_CSV, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(['rank', 'word', 'label', 'tier', 'last_freq', 'bcc_freq', 'textbook_freq'])
         for i, (score, label, word, raw_bcc, raw_tb) in enumerate(scored, 1):
-            tier = '高频' if i <= 200 else '中频' if i <= 400 else '低频'
+            tier = '高频' if i <= cut1 else '中频' if i <= cut2 else '低频'
             w.writerow([i, word, label, tier, round(score, 5), raw_bcc, raw_tb])
-    print(f'四级词 {len(scored)} 个（汉办词表），教材里出现过 {sum(1 for x in tb if x)} 个；HSK 等级表 {len(levels)} 词')
-    print(f'作者 Excel 里不是四级、已排除的 {len(extra)} 个：{"、".join(extra)}')
-    print(f'四级词在作者 Excel 里没有、BCC 词频记 0 的 {len(missing)} 个：{"、".join(missing)}')
+    print(f'{common.LEVEL_CN}级词 {len(scored)} 个（汉办词表），教材里出现过 {sum(1 for x in tb if x)} 个；HSK 等级表 {len(levels)} 词；'
+          f'分档：前 {cut1} 名高频、前 {cut2} 名中频')
+    if extra:
+        print(f'作者 Excel 里不是四级、已排除的 {len(extra)} 个：{"、".join(extra)}')
+    print(f'{source}里没有、BCC 词频记 0 的 {len(missing)} 个：{"、".join(missing)}')
 
 
 if __name__ == '__main__':

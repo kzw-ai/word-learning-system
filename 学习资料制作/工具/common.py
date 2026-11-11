@@ -19,8 +19,35 @@ import xlrd
 
 W = pathlib.Path(__file__).resolve().parents[1]          # 学习资料制作/
 SRC = W / '1_源数据'
-OUT = W / '2_加工结果'
-REVIEW = W / '3_审核'
+LEVEL_NAMES = '一二三四五六'
+
+# ---------- 目标等级 ----------
+# 默认做四级词。环境变量 HSK_LEVEL=3 做三级词（作者 2026-11-12）：中间结果和审核文件放在「三级」子文件夹，
+# 四级的一个文件都不碰；规则里「学习者已经学过」降一级（KNOWN_MAX），搭配词、例句里别的词仍到三级（CONTEXT_MAX）。
+TARGET_LEVEL = int(os.environ.get('HSK_LEVEL', '4'))
+if TARGET_LEVEL not in (3, 4):
+    raise SystemExit(f'HSK_LEVEL 只能是 3 或 4，现在是 {TARGET_LEVEL}')
+LEVEL_CN = LEVEL_NAMES[TARGET_LEVEL - 1]                 # 「四」「三」
+# 必须已经学过的最高等级：易混淆词、选择题干扰项只从这里取（四级词：一至三级；三级词：一二级）
+KNOWN_MAX = TARGET_LEVEL - 1
+KNOWN_LABEL = '一至三级' if KNOWN_MAX == 3 else '一二级'
+# 搭配里的另一个词、例句里的其他词：到三级都算学习者能看懂的（三级词这里也到三级，作者 2026-11-12）
+CONTEXT_MAX = 3
+OUT_HSK4 = W / '2_加工结果'
+REVIEW_HSK4 = W / '3_审核'
+OUT = OUT_HSK4 if TARGET_LEVEL == 4 else OUT_HSK4 / '三级'
+REVIEW = REVIEW_HSK4 if TARGET_LEVEL == 4 else REVIEW_HSK4 / '三级'
+# 系统导入的素材：data/learning_materials/hsk4、hsk3
+MATERIALS = W.parent / 'data' / 'learning_materials' / f'hsk{TARGET_LEVEL}'
+TIERS_CSV = OUT / f'{LEVEL_CN}级词加权词频分档.csv'
+
+
+def for_level(text):
+    """四级写的指令文字换成当前等级的说法；做四级词时原样返回（指令一个字不变，已有回答的任务指纹才对得上）"""
+    if TARGET_LEVEL == 4:
+        return text
+    return (text.replace('四级', f'{LEVEL_CN}级').replace('一至三级', KNOWN_LABEL)
+            .replace('中级', '初中级'))
 
 HSK_XLS = SRC / 'HSK词表' / 'HSK-2012（分级词汇表 国家汉办-权威）.xls'
 BCC_HSK4 = SRC / 'BCC词频' / '新HSK四级词汇词频排序（参照BCC语料库.xlsx'
@@ -33,7 +60,6 @@ HSK_CORPUS = SRC / 'HSK动态作文语料库'
 
 jieba.setLogLevel(60)
 
-LEVEL_NAMES = '一二三四五六'
 PUNCTUATION = ['，', '。', '？', '！', '”', '“', '：', '、', '；', '（', '）', '《', '》']
 
 
@@ -70,9 +96,20 @@ def hsk_grade4_words():
     return sorted({w for w, lv in hsk_entries() if lv == 4})
 
 
+def hsk_target_words():
+    """汉办词表里有目标等级条目的词"""
+    return sorted({w for w, lv in hsk_entries() if lv == TARGET_LEVEL})
+
+
 def hsk1_to_3(levels=None):
     levels = levels or hsk_levels()
     return sorted(w for w, lv in levels.items() if lv <= 3)
+
+
+def hsk_known(levels=None):
+    """学习者必须已经学过的词（选择题干扰项、释义题里的易混淆词）：四级词是一至三级，三级词是一二级"""
+    levels = levels or hsk_levels()
+    return sorted(w for w, lv in levels.items() if lv <= KNOWN_MAX)
 
 
 # ---------- 教材语料（附录 B、C、H） ----------
@@ -132,6 +169,19 @@ def without_punctuation(tokens):
 
 
 # ---------- 词汇复杂度、句子复杂度（附录 L、M） ----------
+
+def bcc_counts():
+    """BCC 多领域总表：词 → 次数"""
+    z = zipfile.ZipFile(BCC_ALL)
+    out = {}
+    with z.open(z.namelist()[0]) as f:
+        for row in csv.DictReader(io.TextIOWrapper(f, encoding='utf-8')):
+            try:
+                out[row['token'].strip()] = int(row['count'])
+            except (KeyError, ValueError):
+                continue
+    return out
+
 
 def word_complexity():
     """附录 L：词汇复杂度 = 词频取对数后取倒数，再最小–最大规范化到 [0, 1]。
@@ -197,7 +247,7 @@ def collocations_for(word, rows, levels):
             continue
         other = toks[1] if toks[0] == word else toks[0]
         lv = levels.get(other)
-        if lv is None or lv > 3:
+        if lv is None or lv > CONTEXT_MAX:
             continue
         try:
             out.append({'collocation': ' '.join(toks), 'other': other, 'level': lv,

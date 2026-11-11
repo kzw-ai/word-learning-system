@@ -35,6 +35,16 @@ def db_words():
     return {''.join(cs) for cs in chars.values()}
 
 
+def hsk4_batch_words():
+    """四级各批词表里的词：做三级词时，四级批次里当易混淆词做过的三级词已经有材料"""
+    words = set()
+    for path in common.REVIEW_HSK4.glob('第*批/词表.txt'):
+        for line in path.read_text(encoding='utf-8-sig').splitlines():
+            if w := line.partition('#')[0].strip():
+                words.add(w)
+    return words
+
+
 def existing_batches():
     """{批号: [词]}：3_审核 下已写好词表的批次"""
     out = {}
@@ -47,9 +57,10 @@ def existing_batches():
 
 def plan():
     """返回 (新批次 [(批名, [(词, 注释)])], 缺第 2 步结果的词)"""
-    rows = list(csv.DictReader(open(common.OUT / '四级词加权词频分档.csv', encoding='utf-8-sig')))
+    rows = list(csv.DictReader(open(common.TIERS_CSV, encoding='utf-8-sig')))
     done = existing_batches()
-    in_db = db_words()
+    # 系统里已有材料的词：论文词库；做三级词时还有四级批次里做过的（多是四级词的易混淆词）
+    in_db = db_words() | (hsk4_batch_words() if common.TARGET_LEVEL != 4 else set())
     placed = {w for words in done.values() for w in words}
     done_words = set(placed)
     # 论文词库里的四级词只在有入选易混淆词时排进来（只做辨析）
@@ -61,7 +72,7 @@ def plan():
         for k, r in enumerate(words):
             batches[int((k + 0.5) * n_batches / len(words))].append((r['word'], tier))
     placed |= {r['word'] for r in todo}
-    pair_only = f'；论文词库已有材料，{step2_confusables.PAIR_ONLY}'
+    pair_only = f'；{"论文词库" if common.TARGET_LEVEL == 4 else "系统里"}已有材料，{step2_confusables.PAIR_ONLY}'
 
     analysed = {r['target'] for r in csv.DictReader(open(step2_confusables.RESULT, encoding='utf-8'))} \
         if step2_confusables.RESULT.exists() else set()

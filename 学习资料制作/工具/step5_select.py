@@ -91,7 +91,7 @@ def distractor_pool(word, exclude, pool):
 
 def draw(candidates, rng, n):
     if len(candidates) < n:
-        raise SystemExit(f'可用的一至三级随机词只有 {len(candidates)} 个，不够抽 {n} 个')
+        raise SystemExit(f'可用的{common.KNOWN_LABEL}随机词只有 {len(candidates)} 个，不够抽 {n} 个')
     return rng.sample(candidates, n)
 
 
@@ -160,7 +160,7 @@ def build_exercises(word, senses, confusables, pool):
     return {'definition': definition, 'collocation': collocation, 'fill_word': fill}, notes
 
 
-def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混淆词', name=''):
+def select(word, candidates, judgment, pool, rank=None, tier=f'{common.KNOWN_LABEL}易混淆词', name=''):
     """按规则取舍一个词，返回结果（不写文件；对比脚本也直接调用）。"""
     kept, dropped, usable, problems = pick_senses(judgment, [str(i) for i in range(1, len(candidates['sentences']) + 1)])
     used_others = set()
@@ -178,7 +178,7 @@ def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混
             problems.append(f"义项「{s['definition']}」成立的搭配不足两条（{len(s['collocations'])} 条）")
     exercises = None
     if usable:
-        # 释义题的干扰项只用一至三级的易混淆词（pool 就是一至三级词）：四级的易混淆词学习者可能还没学
+        # 释义题的干扰项只用学过的易混淆词（pool 就是学过的词：四级词是一至三级，三级词是一二级）：同级的易混淆词学习者可能还没学
         exercises, notes = build_exercises(word, kept, [c for c in confusables if c in pool], pool)
         problems += notes
     return {
@@ -193,9 +193,9 @@ def select(word, candidates, judgment, pool, rank=None, tier='一至三级易混
 
 def main(batch, source=None):
     levels = common.hsk_levels()
-    pool = common.hsk1_to_3(levels)
+    pool = common.hsk_known(levels)
     tiers = {}
-    for r in csv.DictReader(open(common.OUT / '四级词加权词频分档.csv', encoding='utf-8')):
+    for r in csv.DictReader(open(common.TIERS_CSV, encoding='utf-8')):
         tiers[r['word']] = (int(r['rank']), r['tier'])
     cand_dir = common.OUT / '候选清单' / batch
     judge_dir = common.OUT / '判断' / batch
@@ -207,7 +207,7 @@ def main(batch, source=None):
         task = json.loads((judge_dir / f'{word}.任务.json').read_text(encoding='utf-8'))
         step4_semantic_tasks.check_candidates(task, candidates, word)
         judgment = common.load_answer(judge_dir / name, task, step4_semantic_tasks.validate)
-        result = select(word, candidates, judgment, pool, *tiers.get(word, (None, '一至三级易混淆词')), name=name)
+        result = select(word, candidates, judgment, pool, *tiers.get(word, (None, f'{common.KNOWN_LABEL}易混淆词')), name=name)
         # 取舍依据的候选清单和判断（回答内容本身，回答可能被修订）的指纹：第 6 步据此认出过期的取舍
         result['inputs'] = common.task_hash({'candidates': candidates, 'judgment': judgment})
         kept, dropped, problems = result['senses'], result['dropped_senses'], result['problems']

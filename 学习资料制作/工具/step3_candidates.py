@@ -22,7 +22,7 @@ import step2_confusables
 import step4_semantic_tasks
 
 TOP = 20
-# 只学四级义项的「得」「等」（step4_semantic_tasks.HSK4_ENTRY）：教材里多是低级义项，前 20 句可能一句四级义项都没有
+# 只学四级义项的「得」「等」（step4_semantic_tasks.ENTRY）：教材里多是低级义项，前 20 句可能一句四级义项都没有
 # （「等」105 句候选，前 20 句全是 wait），放宽到 60 句
 TOP_HSK4_ENTRY = 60
 
@@ -163,7 +163,7 @@ def main(batch):
         extra = [(draft_examples.SOURCE, x) for x in json.loads(supplement.read_text(encoding='utf-8'))['sentences']] \
             if supplement.exists() else []
         found, note = sentences_with(word, sentences + extra, complexity, levels, speakers)
-        top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.HSK4_ENTRY else TOP
+        top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.ENTRY else TOP
         data = {
             'word': word,
             'hsk_level': levels.get(word),

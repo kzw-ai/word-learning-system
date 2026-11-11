@@ -9,14 +9,17 @@
 
 规则判断（选哪个义项、哪句例句、哪两条搭配）不在这里做，见第 5 步。
 """
+import concurrent.futures
 import json
+import os
 import sys
+import threading
 
 import common
 import llm
 import step2_confusables
 
-INSTRUCTIONS = """你在为学习新 HSK 四级词汇的外国学习者（中级，学过一至三级词）编写学习资料，按北京大学硕士论文的方法。
+INSTRUCTIONS = common.for_level("""你在为学习新 HSK 四级词汇的外国学习者（中级，学过一至三级词）编写学习资料，按北京大学硕士论文的方法。
 只做语义判断，不做取舍（取舍由程序按论文规则完成）。
 
 1. senses：这个词面向中级学习者的义项，1–3 个，以 CC-CEDICT 为依据合并细碎的英文释义；
@@ -33,7 +36,7 @@ INSTRUCTIONS = """你在为学习新 HSK 四级词汇的外国学习者（中级
    随意的名词作主语或宾语（如「银行 估计」「北京 邀请」「手机 允许」）；颠倒了正常语序、生僻或不自然的。
    成立的搭配填它对应的义项 id，要确认搭配里的意思确实是那个义项（如「想 家」属于 miss，不属于 want to）。
 4. characters：词里每个字在这个词里的读音（带声调拼音）、词性缩写和英文释义（取 CC-CEDICT 里与这个词意思相关的义项）。
-只按下面的 JSON 格式回答，不要输出别的内容。"""
+只按下面的 JSON 格式回答，不要输出别的内容。""")
 
 ANSWER_FORMAT = {
     'senses': [{'id': 's1', 'pos': 'v.', 'definition': 'think over; consider'}],
@@ -56,6 +59,21 @@ HSK4_ENTRY = {
           'characters 只有一项，读音、释义按这个助词。',
 }
 
+# 三级词里同样另有低级条目的三个（作者 2026-11-12，同四级的「得」「等」）：只做三级条目的义项
+HSK3_ENTRY = {
+    '过': '汉办词表里「过」另有二级条目（助词 guo，「去过北京」）；三级条目是动词 guò（to cross; to pass; to spend (time); '
+          'to celebrate，如「过马路」「过了两天」「过生日」）。senses 只列动词 guò 这一个义项；例句、搭配里用的是助词 guo 或别的意思的，'
+          '一律填 null，sentence_notes 写「不是三级义项」；characters 只有一项，读音、释义按动词 guò。',
+    '还': '汉办词表里「还」另有二级条目（副词 hái，still; also）；三级条目是动词 huán（to give back; to return，如「还书」「还钱」）。'
+          'senses 只列动词 huán 这一个义项；例句、搭配里用的是副词 hái 的，一律填 null，sentence_notes 写「不是三级义项」；'
+          'characters 只有一项，读音、释义按 huán。',
+    '长': '汉办词表里「长」另有二级条目（形容词 cháng，long）；三级条目是动词 zhǎng（to grow; to develop，如「长大」「长高」）。'
+          'senses 只列动词 zhǎng 这一个义项；例句、搭配里用的是形容词 cháng 或别的意思的，一律填 null，sentence_notes 写「不是三级义项」；'
+          'characters 只有一项，读音、释义按 zhǎng。',
+}
+# 当前等级要只做一个条目的词（任务里的键名沿用 hsk4_entry，四级的任务指纹不变）
+ENTRY = HSK4_ENTRY if common.TARGET_LEVEL == 4 else HSK3_ENTRY
+
 # 单字多音词（呀 yā / ya）大模型会按读音把这个字列成几项。同样只加在单字词的任务里
 SINGLE_CHAR = ('这个词只有一个字：characters 只写一项，是这个字作为这个词、用于 senses 第一个义项时的读音和意思；'
                '不要按不同读音分列多项。')
@@ -68,7 +86,7 @@ def validate(answer, task):
     if not isinstance(senses, list) or not senses:
         return ['senses 为空']
     if task.get('hsk4_entry') and len(senses) != 1:
-        problems.append(f'只该列四级条目的一个义项，回答列了 {len(senses)} 个')
+        problems.append(f'只该列{common.LEVEL_CN}级条目的一个义项，回答列了 {len(senses)} 个')
     ids = [s.get('id') for s in senses if isinstance(s, dict)]
     if len(ids) != len(senses) or not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids):
         problems.append(f'义项编号缺失、不是字符串或重复：{ids}')
@@ -112,18 +130,23 @@ def reuse(out, task, check, tidy):
 
 def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
     """读 <词>.任务.json，调用接口，把回答存为 <词>.<kind>.<model>.json（第 6 步也用它）。
-    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止，不写文件。
-    tidy(answer, task)：检查之前先整理回答里不影响内容的格式问题。"""
+    已有回答且对应同一版任务、结构合格的词跳过；回答不合格就报错停止（已经在路上的请求做完、存好）。
+    tidy(answer, task)：检查之前先整理回答里不影响内容的格式问题。
+    环境变量 LLM_WORKERS：同时发几个请求（默认 1；每分钟次数另由 llm 限制）"""
     log = outdir / f'用量.{model}.jsonl'
+    log_lock = threading.Lock()
+    todo = []
     for word in words:
         out = outdir / f'{word}.{kind}.{model}.json'
         task = json.loads((outdir / f'{word}.任务.json').read_text(encoding='utf-8'))
-        if reuse(out, task, check, tidy):
-            continue
+        if not reuse(out, task, check, tidy):
+            todo.append((word, out, task))
+
+    def one(word, out, task):
         payload = {k: v for k, v in task.items() if k not in ('instructions', 'answer_format')}
         system = task['instructions'] + '\n\n回答格式（JSON）示例：\n' + json.dumps(task['answer_format'], ensure_ascii=False)
         answer, usage = llm.ask_json(model, system, json.dumps(payload, ensure_ascii=False, indent=1))
-        with open(log, 'a', encoding='utf-8') as f:
+        with log_lock, open(log, 'a', encoding='utf-8') as f:
             f.write(json.dumps({'word': word, 'task': common.task_hash(task), **usage}, ensure_ascii=False) + '\n')
         answer['_task'] = common.task_hash(task)
         if tidy:
@@ -134,6 +157,22 @@ def answer_with(model, outdir, words, kind='判断', check=validate, tidy=None):
             raise SystemExit(f'{word}：{model} 的回答不合格（{"；".join(problems[:5])}），已存为 {bad.name}，已停止')
         common.write_json(out, answer)
         print(f"{word}：输入 {usage.get('prompt_tokens')}，输出 {usage.get('completion_tokens')} token，{usage['seconds']} 秒", flush=True)
+
+    workers = int(os.environ.get('LLM_WORKERS', '1'))
+    if workers <= 1:
+        for item in todo:
+            one(*item)
+        return
+    errors = []
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        futures = [pool.submit(one, *item) for item in todo]
+        for f in concurrent.futures.as_completed(futures):
+            if (e := f.exception()) is not None:
+                errors.append(e)
+                for g in futures:
+                    g.cancel()
+    if errors:
+        raise SystemExit('；'.join(str(e) for e in errors[:3]))
 
 
 # 判断任务里来自候选清单的部分；说明和回答格式不算（只改了说明不必重新判断）
@@ -169,8 +208,8 @@ def main(batch, model=None):
         # 键的顺序与以前相同，任务文件和指纹不变
         task = {'word': word, 'instructions': INSTRUCTIONS, 'answer_format': ANSWER_FORMAT,
                 **{k: inputs[k] for k in INPUT_KEYS[1:]}}
-        if word in HSK4_ENTRY:
-            task['hsk4_entry'] = HSK4_ENTRY[word]
+        if word in ENTRY:
+            task['hsk4_entry'] = ENTRY[word]
         elif len(word) == 1:
             task['single_char'] = SINGLE_CHAR
         common.write_json(outdir / f'{word}.任务.json', task)
