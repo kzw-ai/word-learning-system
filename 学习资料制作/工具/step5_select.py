@@ -38,9 +38,12 @@ SECOND_SENSE_MIN_SHARE = 0.3
 BLANK = ' ( ) '
 SPARES = 8
 SHORT = 30  # 例句超过这么多字算长：先选短句，第 6 步截短
+# 汉办词表里有两个本级条目的词（「只（量词）」「只（副词）」、「花（名词）」「花（动词）」）：两个意思都要学，
+# 第二个义项有例句就保留，不按 30% 的门槛（作者 2026-11-12）。四级没有这样的词
+TWO_ENTRIES = {'只', '花'} if common.TARGET_LEVEL == 3 else set()
 
 
-def pick_senses(judgment, sentences):
+def pick_senses(judgment, sentences, keep_two=False):
     """返回 (保留的义项, 舍去的义项, 可用例句数, 提醒)。句数相同时，最简单的那句例句排在前面的义项优先。"""
     counts = {s['id']: 0 for s in judgment['senses']}
     first = {}
@@ -54,7 +57,7 @@ def pick_senses(judgment, sentences):
     kept = ranked[:1]
     if len(ranked) > 1:
         n = counts[ranked[1]['id']]
-        if n >= SECOND_SENSE_MIN_SENTENCES and n / usable >= SECOND_SENSE_MIN_SHARE:
+        if (n >= SECOND_SENSE_MIN_SENTENCES and n / usable >= SECOND_SENSE_MIN_SHARE) or (keep_two and n >= 1):
             kept.append(ranked[1])
     notes = []
     tie = lambda i: i + 1 < len(ranked) and counts[ranked[i]['id']] and counts[ranked[i]['id']] == counts[ranked[i + 1]['id']]
@@ -162,7 +165,8 @@ def build_exercises(word, senses, confusables, pool):
 
 def select(word, candidates, judgment, pool, rank=None, tier=f'{common.KNOWN_LABEL}易混淆词', name=''):
     """按规则取舍一个词，返回结果（不写文件；对比脚本也直接调用）。"""
-    kept, dropped, usable, problems = pick_senses(judgment, [str(i) for i in range(1, len(candidates['sentences']) + 1)])
+    kept, dropped, usable, problems = pick_senses(judgment, [str(i) for i in range(1, len(candidates['sentences']) + 1)],
+                                                  keep_two=word in TWO_ENTRIES)
     used_others = set()
     for s in kept:
         mine = sentences_of(s['id'], judgment, candidates)
