@@ -68,12 +68,17 @@ def mixed_senses(word, levels):
     return levels.get(word, common.TARGET_LEVEL) < common.TARGET_LEVEL
 
 
+# 统计上入选、但看原句不是词义混淆的（Claude 预审 2026-11-12，三级）：
+# 记得 → 的：多是把「记得」写成「记的」，是错别字；拿 → 对：都在「拿／对……来说」句式里，和「拿」的本义（拿东西）无关
+REJECTED_PAIRS = {('记得', '的'), ('拿', '对')} if common.TARGET_LEVEL == 3 else set()
+
+
 def qualifies(word, other, total, n, levels):
     """目标词是目标等级的词（且没有更低的条目），偏误 ≥ 10、占比 > 20%，易混淆词是学过的词或另一个同级词
     （四级词：一至四级；三级词：一至三级）"""
     lv = levels.get(other)
     return (levels.get(word) == common.TARGET_LEVEL and total >= 10 and n / total > 0.2 and lv is not None
-            and lv <= common.TARGET_LEVEL and other != word
+            and lv <= common.TARGET_LEVEL and other != word and (word, other) not in REJECTED_PAIRS
             and not mixed_senses(word, levels))
 
 

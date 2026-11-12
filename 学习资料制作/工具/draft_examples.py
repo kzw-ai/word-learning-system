@@ -15,6 +15,9 @@ import step4_semantic_tasks
 
 OUT = common.OUT / '补充例句'
 SOURCE = '大模型编写（教材里没有可用句子）'
+# 补充例句文件的 source 是 claude 的：Claude 按语感编写（大模型写的不自然，或教材句子对学习者太难）
+CLAUDE_SOURCE = 'Claude 编写（教材里没有合适的句子）'
+SOURCES = (SOURCE, CLAUDE_SOURCE)
 MIN_LEN, MAX_LEN = 6, 30
 
 INSTRUCTIONS = common.for_level("""你在为学习新 HSK 四级词汇的外国学习者（中级，学过一至三级词）编写例句。教材里找不到目标词 word 的合适例句，请写 5 句：
