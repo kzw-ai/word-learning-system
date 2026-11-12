@@ -78,10 +78,12 @@ class Word(db.Model):
     definition = db.Column(db.String(200), nullable=False)
     # 整词发音的地址（/api/audio/<指纹>.mp3）；字、搭配、例句的 audio 列同此。音频文件见 AUDIO_DIR
     audio = db.Column(db.String(200))
-    # 新 HSK 四级词的加权词频排名（1–600）和档位（高频/中频/低频，论文 5.3.1），见 data/hsk4_frequency_tiers.csv；
-    # 不在四级词表里的词（一至三级易混淆词、论文词库里的低等级词）为空
+    # 新 HSK 四级、三级词的加权词频排名和档位（高频/中频/低频，论文 5.3.1），见 data/hsk4_frequency_tiers.csv、
+    # data/hsk3_frequency_tiers.csv；hsk_level 是它在哪张词表里（3 或 4），学习者选了等级后只推荐这一级的新词。
+    # 不在两张词表里的词（一二级易混淆词、论文词库里的低等级词）都为空
     freq_rank = db.Column(db.Integer)
     freq_tier = db.Column(db.String(10))
+    hsk_level = db.Column(db.Integer)
 
 class ExerciseItem(db.Model):
     """论文 6 套答案课件里的人工命题。
@@ -144,6 +146,8 @@ class UserProfile(db.Model):
     # 当前这一轮是照哪条推荐在学：随学习位置一起跨设备同步，换设备续学时
     # 学习会话仍能绑定到这条推荐（推荐效果按绑定算）
     current_recommendation_id = db.Column(db.Integer)
+    # 学习者选的等级：3（三级词）或 4（四级词），没选过为空，按 4。推荐新词、首页进度只看这一级
+    hsk_level = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -583,13 +587,16 @@ def contrast_passed(user_id, pair_id, questions):
 
 
 def confusable_pair_due(user_id, pair_id, word1_id, word2_id, questions, word2_level=None):
-    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast（word1 是四级目标词、word2 是易混淆词，
-    批次导入的词对都是这个顺序；word2_level 为 4 时 word2 也按四级词要求），且这一对还没练过关（contrast_passed）；
+    """练习结束时要不要带出这一对的辨析：两个词都 word_ready_for_contrast（word1 是三级或四级目标词、word2 是易混淆词，
+    批次导入的词对都是这个顺序；word2 和目标词同级时（word2_level 不低于目标词的等级）也按目标词要求），
+    且这一对还没练过关（contrast_passed）；
     答错的下次练这两个词时再带出。
     没有辨析题的旧词对没有作答可看，解锁后都算到期，但 for-word 接口会优先带出有题、还没过关的词对。
     辨析题不计入论文表 4.2 的复习次数。"""
+    target_level = db.session.query(Word.hsk_level).filter_by(id=word1_id).scalar() or 4
     if not (word_ready_for_contrast(user_id, word1_id, is_target=True)
-            and word_ready_for_contrast(user_id, word2_id, is_target=word2_level == 4)):
+            and word_ready_for_contrast(user_id, word2_id,
+                                        is_target=word2_level is not None and word2_level >= target_level)):
         return False
     return not questions or not contrast_passed(user_id, pair_id, questions)
 
@@ -862,6 +869,15 @@ def option_audio(options):
         return {}
     known = _option_audio_cache['options']
     return {o: known[o] for o in options if isinstance(o, str) and o in known}
+
+
+def answer_audio(audio, options, word):
+    """选项里就是这个词本身的（释义题、搭配题的正确答案），用这个词自己的发音：选项清单按原文配音，
+    单个多音字只能按最常用的读音读（「还」读 hái），而三级的「还」学的是 huán"""
+    hanzi = get_word_hanzi(word.id)
+    if word.audio and hanzi in options:
+        audio = dict(audio, **{hanzi: word.audio})
+    return audio
 
 
 _LEVEL_NOTE = re.compile(r'（[^）]*）')
@@ -1270,7 +1286,7 @@ def get_word_exercises(word_id):
                 'type': item.question_type,
                 'question': item.stem,
                 'options': options,
-                'optionAudio': option_audio(options),
+                'optionAudio': answer_audio(option_audio(options), options, word),
                 'correctAnswer': item.correct_answer,
                 'feedback': f"正确答案：{item.correct_answer}（选自{item.source_deck}）"
             }
@@ -1576,6 +1592,41 @@ def get_recent_sessions(user_id, current_user_id=None, **kwargs):
 
         return jsonify({'success': True, 'data': data})
     except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+# ================================================
+# 学习者选的等级（三级词或四级词）
+# ================================================
+
+HSK_LEVELS = (3, 4)
+
+
+def user_hsk_level(user_id):
+    """学习者选的等级；没选过、没有档案时按四级"""
+    level = db.session.query(UserProfile.hsk_level).filter_by(user_id=user_id).scalar()
+    return level if level in HSK_LEVELS else 4
+
+
+@app.route('/api/users/<user_id>/hsk-level', methods=['PUT'])
+@require_authentication(allow_url_param=True)
+def save_hsk_level(user_id, current_user_id=None, **kwargs):
+    """选等级：{"level": 3 | 4}。之后推荐的新词、首页的进度都只看这一级；已经学过的词照常复习"""
+    if user_id != current_user_id:
+        return jsonify({'success': False, 'error': 'You can only change your own data', 'code': 'PERMISSION_DENIED'}), 403
+    level = (request.get_json(silent=True) or {}).get('level')
+    if type(level) is not int or level not in HSK_LEVELS:
+        return jsonify({'success': False, 'error': 'level must be 3 or 4'}), 400
+    try:
+        profile = UserProfile.query.filter_by(user_id=user_id).first()
+        if not profile:
+            profile = UserProfile(user_id=user_id)
+            db.session.add(profile)
+        profile.hsk_level = level
+        db.session.commit()
+        return jsonify({'success': True, 'data': {'hskLevel': level}})
+    except Exception as exc:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
@@ -1962,7 +2013,9 @@ def get_simple_recommendation(user_id, context):
     studied = db.session.query(UserProgress.word_id).filter_by(user_id=user_id)
     has_materials = db.session.query(Example.word_id)
     word = (
-        Word.query.filter(Word.id.in_(has_materials), ~Word.id.in_(studied)).order_by(Word.id).first()
+        Word.query.filter(Word.id.in_(has_materials), ~Word.id.in_(studied), Word.hsk_level == user_hsk_level(user_id))
+        .order_by(Word.freq_rank, Word.id).first()
+        or Word.query.filter(Word.id.in_(has_materials), ~Word.id.in_(studied)).order_by(Word.id).first()
         or Word.query.filter(Word.id.in_(has_materials)).order_by(Word.id).first()
         or Word.query.order_by(Word.id).first()
     )
@@ -2127,15 +2180,17 @@ def generate_dashboard_data(user_id, time_range):
         """)
         total_words = cursor.fetchone()[0]
 
-        # 首页的进度条：四级词（有词频档位的词，见 data/hsk4_frequency_tiers.csv）一共几个、学过几个。
-        # 一到三级的易混淆词不算在里面
-        cursor.execute("SELECT COUNT(*) FROM word WHERE freq_tier IS NOT NULL")
-        hsk4_words = cursor.fetchone()[0]
+        # 首页的进度条和等级切换：三级、四级词（有等级的词，见 data/hsk3_frequency_tiers.csv、hsk4_frequency_tiers.csv）
+        # 各一共几个、学过几个。一二级的易混淆词不算在里面
+        levels = {str(level): {'words': 0, 'studied': 0} for level in HSK_LEVELS}
         cursor.execute("""
-            SELECT COUNT(DISTINCT p.word_id) FROM user_progress p JOIN word w ON w.id = p.word_id
-            WHERE p.user_id = ? AND w.freq_tier IS NOT NULL
+            SELECT w.hsk_level, COUNT(*), COUNT(p.word_id) FROM word w
+            LEFT JOIN (SELECT DISTINCT word_id FROM user_progress WHERE user_id = ?) p ON p.word_id = w.id
+            WHERE w.hsk_level IS NOT NULL GROUP BY w.hsk_level
         """, (user_id,))
-        hsk4_studied = cursor.fetchone()[0]
+        for level, words, studied in cursor.fetchall():
+            if str(level) in levels:
+                levels[str(level)] = {'words': words, 'studied': studied}
         
         cursor.execute("""
             SELECT 
@@ -2186,8 +2241,8 @@ def generate_dashboard_data(user_id, time_range):
                 'studiedWords': mastery_dist[3] or 0,
                 'masteredWords': mastery_dist[0] or 0,
                 'averageMastery': avg_mastery,
-                'hsk4Words': hsk4_words,
-                'hsk4Studied': hsk4_studied
+                'hskLevel': user_hsk_level(user_id),
+                'levels': levels
             },
             'dueReviews': due_reviews,
             'recommendations': [],
@@ -2224,7 +2279,8 @@ def merge_guest_into_user(guest_id, user_id):
                 current_word = (SELECT current_word FROM user_profile WHERE user_id = :g),
                 current_module = (SELECT current_module FROM user_profile WHERE user_id = :g),
                 current_vks_level = (SELECT current_vks_level FROM user_profile WHERE user_id = :g),
-                current_recommendation_id = (SELECT current_recommendation_id FROM user_profile WHERE user_id = :g)
+                current_recommendation_id = (SELECT current_recommendation_id FROM user_profile WHERE user_id = :g),
+                hsk_level = COALESCE((SELECT hsk_level FROM user_profile WHERE user_id = :g), hsk_level)
             WHERE user_id = :u AND EXISTS (SELECT 1 FROM user_profile WHERE user_id = :g)
         """, {'g': guest_id, 'u': user_id})
         conn.execute("DELETE FROM user_profile WHERE user_id = ?", (guest_id,))
@@ -2449,6 +2505,7 @@ def ensure_user_profile_columns():
         'current_module': 'VARCHAR(30)',
         'current_vks_level': 'VARCHAR(5)',
         'current_recommendation_id': 'INTEGER',
+        'hsk_level': 'INTEGER',
     }
     for column, ddl in new_columns.items():
         if existing and column not in existing:
@@ -2534,11 +2591,11 @@ def ensure_user_progress_unique_index():
 CONTRAST_SCHEMA_READY = False
 
 
-WORD_COLUMNS = (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)'))
+WORD_COLUMNS = (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)'), ('hsk_level', 'INTEGER'))
 
 
 def ensure_word_columns():
-    """为旧数据库补齐 word.audio（整词发音地址）、freq_rank、freq_tier（词频排名和档位）。必须在第一次用 ORM 查 Word 之前执行：
+    """为旧数据库补齐 word.audio（整词发音地址）、freq_rank、freq_tier、hsk_level（词频排名、档位和等级）。必须在第一次用 ORM 查 Word 之前执行：
     模型里有这些列，库里没有时所有词的查询都会报错。加列失败（别的进程正持有写锁）时再看一次是否已由别的进程加上。"""
     conn = sqlite3.connect(_db_path, timeout=30)
     try:
@@ -2713,13 +2770,21 @@ def initialize_database():
             except Exception as e:
                 print(f"⚠️  四级词批次导入失败: {str(e)}")
 
-            # 四级词的词频排名和档位（推荐新词按高、中、低频轮流），批次导入之后补，幂等
+            # 三级词批次（同一流程，data/learning_materials/hsk3/），在四级之后导入：四级批次里已有的词跳过
+            try:
+                added, _, items, pairs = import_hsk4_batches.import_into(_db_path, level=3)
+                if added or items or pairs:
+                    print(f"📝 三级词批次导入：新增词 {added}，练习题 {items}，易混淆词对 {pairs}")
+            except Exception as e:
+                print(f"⚠️  三级词批次导入失败: {str(e)}")
+
+            # 三级、四级词的词频排名、档位和等级（推荐新词按所选等级、高中低频轮流），批次导入之后补，幂等
             try:
                 changed = import_hsk4_batches.apply_frequency_tiers(_db_path)
                 if changed:
-                    print(f"📝 四级词词频档位补入 {changed} 个词")
+                    print(f"📝 三级、四级词词频档位补入 {changed} 个词")
             except Exception as e:
-                print(f"⚠️  四级词词频档位补入失败: {str(e)}")
+                print(f"⚠️  词频档位补入失败: {str(e)}")
 
             # 论文词库里的词的发音音频（学习资料制作第 8 步 --thesis 生成的清单），幂等
             try:

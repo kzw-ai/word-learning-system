@@ -186,3 +186,18 @@ export const saveLearningState = async (userId: string, state: Partial<LearningS
     }
   );
 };
+
+/** 学习者选等级：3（三级词）或 4（四级词）。之后推荐的新词、首页进度只看这一级 */
+export const saveHskLevel = async (userId: string, level: 3 | 4): Promise<void> => {
+  const result = await fetchJson<{ success: boolean; error?: string }>(
+    `/api/users/${userId}/hsk-level`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level })
+    }
+  );
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to save level');
+  }
+};

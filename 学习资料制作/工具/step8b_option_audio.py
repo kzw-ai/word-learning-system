@@ -7,9 +7,10 @@
 
 以前选项没有音频，用的是手机自带的朗读：iPhone 打开静音开关时不出声，声音也和学习页的晓晓不一样。
 
-读音：选项正好是库里的词时，用这个词校对过的拼音（和学习页整词发音是同一个文件，不重复生成）；
-其余多字词交给引擎按词读；单个多音字没有上下文，一律标注读音：带词性说明的（「还（动词）」）按说明，
-其余用最常用的读音（READING 里改过几个）。
+读音：单个多音字没有上下文，一律标注读音：带词性说明的（「还（动词）」）按说明，其余用最常用的读音
+（READING 里改过几个），库里有同一个字的词也不用它的拼音（三级的「还」是 huán，当别的题的干扰项时应读 hái）。
+选项就是题目考的那个词时，出题接口改用这个词自己的整词发音（app_phase.answer_audio），读音和学习页一致。
+其余选项正好是库里的词时，用这个词校对过的拼音（和学习页整词发音是同一个文件，不重复生成），多字词交给引擎按词读。
 """
 import json
 import re
@@ -68,7 +69,7 @@ def main(db=THESIS_DB):
         if not re.fullmatch(r'[一-鿿]+', clean):
             skipped.append(option)  # 「因为 …… 所以 ……」这类句式，不读
             continue
-        if option in NOTED or (len(clean) == 1 and clean not in words and tts.is_polyphonic(clean)):
+        if option in NOTED or (len(clean) == 1 and tts.is_polyphonic(clean)):
             py = NOTED.get(option) or READING.get(clean) or pinyin(clean, style=Style.TONE)[0][0]
             doc = forced(clean, py)
             name = tts.file_name(doc)

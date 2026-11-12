@@ -30,9 +30,10 @@ interface Recommendation {
 interface DashboardData {
   overallProgress: {
     totalWords: number;
-    /** 四级词（有词频档位）一共几个、学过几个；和首页的进度条同一口径（一到三级的易混淆词不算） */
-    hsk4Words?: number;
-    hsk4Studied?: number;
+    /** 学习者选的等级，三级、四级词各一共几个、学过几个；和首页的进度条同一口径（一二级的易混淆词不算） */
+    // 学习者选的等级和三级、四级词各学了多少（首页同一份数据）
+    hskLevel?: 3 | 4;
+    levels?: Record<string, { words: number; studied: number }>;
     studiedWords: number;
     masteredWords: number;
     averageMastery: number;
@@ -176,8 +177,10 @@ const LearningDashboard = () => {
   };
 
   const overall = dashboardData?.overallProgress;
-  const hsk4Words = overall?.hsk4Words ?? overall?.totalWords ?? 0;
-  const hsk4Studied = overall?.hsk4Studied ?? overall?.studiedWords ?? 0;
+  const hskLevel = overall?.hskLevel ?? 4;
+  const levelProgress = overall?.levels?.[String(hskLevel)];
+  const levelWords = levelProgress?.words ?? overall?.totalWords ?? 0;
+  const levelStudied = levelProgress?.studied ?? overall?.studiedWords ?? 0;
 
   return (
     <div className="flex items-center justify-center min-h-[100dvh] bg-gray-50">
@@ -305,15 +308,15 @@ const LearningDashboard = () => {
                 </div>
                 <div className="space-y-4">
                   <div>
-                    {/* 按四级词算，和首页一致；旧接口没有这两个字段时退回全部词 */}
+                    {/* 按所选等级（三级或四级）的词算，和首页一致；旧接口没有这些字段时退回全部词 */}
                     <div className="flex justify-between items-end mb-2">
-                      <span className="text-base text-slate-600 font-medium">HSK 4 words learned</span>
+                      <span className="text-base text-slate-600 font-medium">HSK {hskLevel} words learned</span>
                       <span className="text-lg font-bold text-gray-800">
-                        {hsk4Studied} <span className="text-sm text-slate-500 font-normal">/ {hsk4Words}</span>
+                        {levelStudied} <span className="text-sm text-slate-500 font-normal">/ {levelWords}</span>
                       </span>
                     </div>
                     <Progress 
-                      value={hsk4Words ? (hsk4Studied / hsk4Words) * 100 : 0} 
+                      value={levelWords ? (levelStudied / levelWords) * 100 : 0} 
                       className="h-2 bg-white/50 [&>div]:bg-gradient-to-r [&>div]:from-blue-400 [&>div]:to-indigo-500"
                     />
                   </div>

@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
-import { BookOpen, ArrowRight, BarChart2, Gauge, CalendarClock, Scale, ChevronRight } from 'lucide-react';
-import { fetchJson } from '@/src/lib/apiClient';
+import { BookOpen, ArrowRight, BarChart2, Gauge, CalendarClock, Scale, ChevronRight, ChevronDown, Check } from 'lucide-react';
+import { fetchJson, saveHskLevel } from '@/src/lib/apiClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
 import { Onboarding, onboardingSeen } from '@/components/Onboarding';
 
-// 首页分两版：第一次来的人看到「这是什么、好在哪」（示例词卡和三条做法），
-// 学过的人直接看到「今天」：到期几个、四级词学了多少，一个按钮开始。
+// 首页分两版：第一次来的人看到「这是什么、好在哪」（示例词卡和三条做法），先选学三级词还是四级词；
+// 学过的人直接看到「今天」：到期几个、所选等级的词学了多少，一个按钮开始。顶栏的等级按钮可以随时换。
 // 不在首页取推荐的下一个词：推荐接口每调一次就记一条推荐，首页打开得多，会堆出大量没有反馈的记录
 
 /** 示例词卡：田字格里的字（练字本的格子，学中文的人一眼认得） */
@@ -27,10 +27,20 @@ const POINTS = [
   { icon: Scale, title: 'Tells confusable words apart', text: 'Pairs like 突然 and 忽然, with sentences to choose between.' },
 ];
 
+type Level = 3 | 4;
+
 interface HomeStats {
-  hsk4Words: number;
-  hsk4Studied: number;
+  studiedWords: number;
+  hskLevel: Level;
+  /** 三级、四级词各一共几个、学过几个（键是 "3"、"4"） */
+  levels: Record<string, { words: number; studied: number }>;
 }
+
+/** 两个等级：词表的词数（汉办新 HSK）和首页示例词卡（学习页上的真实内容） */
+const LEVELS: { level: Level; words: number; example: { chars: string; pinyin: string; meaning: string; sentence: string } }[] = [
+  { level: 3, words: 300, example: { chars: '礼物', pinyin: 'lǐwù', meaning: 'gift; present', sentence: '那我的礼物呢？' } },
+  { level: 4, words: 600, example: { chars: '师傅', pinyin: 'shīfu', meaning: 'master; qualified worker', sentence: '我师傅教我怎么用这个机器。' } },
+];
 
 const Home = () => {
   const router = useRouter();
@@ -43,6 +53,35 @@ const Home = () => {
   const [dueLoadedFor, setDueLoadedFor] = useState<string | null>(null);
   const dueLoaded = Boolean(userId) && dueLoadedFor === userId;
   const [stats, setStats] = useState<HomeStats | null>(null);
+  // 等级：服务器上存的（没选过按四级）；还没取回时新访客页先按四级显示
+  const level: Level = stats?.hskLevel ?? 4;
+  const levelInfo = LEVELS.find(l => l.level === level) ?? LEVELS[1];
+  const [levelMenuOpen, setLevelMenuOpen] = useState(false);
+  const [levelError, setLevelError] = useState(false);
+  // 新访客点了等级还没存好时，开始按钮要等它存完：推荐接口按服务器上的等级出词
+  const savingLevel = useRef<Promise<void> | null>(null);
+  // 统计还没取回时就点了等级：取回的统计里是旧等级，以点的为准
+  const chosenLevel = useRef<Level | null>(null);
+
+  const chooseLevel = (next: Level) => {
+    setLevelMenuOpen(false);
+    if (!userId || next === level) return;
+    const previous = stats;
+    const previousChoice = chosenLevel.current;
+    chosenLevel.current = next;
+    setLevelError(false);
+    setStats(s => ({ studiedWords: 0, levels: {}, ...s, hskLevel: next }));
+    const saving = saveHskLevel(userId, next).catch(() => {
+      chosenLevel.current = previousChoice;
+      setStats(previous);
+      setLevelError(true);
+      throw new Error('level not saved');
+    });
+    savingLevel.current = saving;
+    saving.catch(() => undefined).finally(() => {
+      if (savingLevel.current === saving) savingLevel.current = null;
+    });
+  };
   // 今天已复习过的词不算到期，与复习列表的过滤口径一致
   const reviewed = reviewedToday(session);
   const dueCount = dueIds === null ? null : dueIds.filter(id => !reviewed.includes(id)).length;
@@ -89,10 +128,13 @@ const Home = () => {
         setDueIds([]);
         setDueLoadedFor(null);
       });
-    // 四级词进度（只读统计，取不到就不显示进度卡）
+    // 等级和进度（只读统计，取不到就不显示进度卡，等级按四级）
     fetchJson<{ success: boolean; data: { overallProgress: HomeStats } }>(`/api/analytics/user/${userId}/dashboard`)
       .then(result => {
-        if (!cancelled && result.success) setStats(result.data.overallProgress);
+        if (!cancelled && result.success) {
+          const loaded = result.data.overallProgress;
+          setStats(chosenLevel.current ? { ...loaded, hskLevel: chosenLevel.current } : loaded);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -100,12 +142,20 @@ const Home = () => {
     };
   }, [userId]);
 
-  // 学过的人：本机或服务器上有学习位置、有到期复习、或学过四级词
-  const returning = Boolean(session.wordId) || (dueIds?.length ?? 0) > 0 || (stats?.hsk4Studied ?? 0) > 0;
+  // 学过的人：本机或服务器上有学习位置、有到期复习、或学过词
+  const returning = Boolean(session.wordId) || (dueIds?.length ?? 0) > 0 || (stats?.studiedWords ?? 0) > 0;
+  const progress = stats?.levels?.[String(level)];
 
   // 主入口的智能路由：有到期复习先复习（记忆曲线优先），否则直接学新词
   const hasDue = (dueCount ?? 0) > 0;
-  const handleStartLearning = () => {
+  const handleStartLearning = async () => {
+    if (savingLevel.current) {
+      try {
+        await savingLevel.current;
+      } catch {
+        return; // 等级没存上：留在首页，提示已经显示出来
+      }
+    }
     router.push(hasDue ? '/today-review' : '/word-learning-entrance');
   };
 
@@ -144,7 +194,49 @@ const Home = () => {
                 <BookOpen className="text-white" size={18} />
               </div>
               <span className="text-base font-extrabold text-slate-900 tracking-tight">Word Learning</span>
-              <span className="text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full px-2 leading-6">HSK 4</span>
+              {hydrated && returning && stats && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setLevelMenuOpen(open => !open)}
+                    aria-haspopup="menu"
+                    aria-expanded={levelMenuOpen}
+                    aria-label={`Level: HSK ${level}. Change level`}
+                    className="h-9 pl-2.5 pr-1.5 inline-flex items-center gap-0.5 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full hover:bg-indigo-100"
+                  >
+                    HSK {level} <ChevronDown size={16} aria-hidden="true" />
+                  </button>
+                  {levelMenuOpen && (
+                    <>
+                      {/* 点菜单外面收起 */}
+                      <button type="button" aria-label="Close" tabIndex={-1} className="fixed inset-0 z-20 cursor-default" onClick={() => setLevelMenuOpen(false)} />
+                      <div role="menu" aria-label="Level" className="absolute left-1/2 -translate-x-1/2 top-11 z-30 w-56 glass-card rounded-2xl p-1.5 shadow-lg shadow-indigo-900/10">
+                        {LEVELS.map(({ level: l }) => {
+                          const p = stats.levels?.[String(l)];
+                          return (
+                            <button
+                              key={l}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={l === level}
+                              onClick={() => chooseLevel(l)}
+                              className={`w-full h-12 px-3 rounded-xl flex items-center justify-between text-left ${l === level ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                            >
+                              <span>
+                                <span className="block text-sm font-bold text-slate-900 leading-tight">HSK {l} words</span>
+                                {p && p.words > 0 && (
+                                  <span className="block text-sm text-slate-600 leading-tight tabular-nums">{p.studied} / {p.words} studied</span>
+                                )}
+                              </span>
+                              {l === level && <Check size={18} className="text-indigo-600 shrink-0" aria-hidden="true" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             <Button
               variant="ghost"
@@ -160,6 +252,9 @@ const Home = () => {
             // 从上往下排：内容不多，居中会在大屏上方空出一大块
             <main className="flex-1 flex flex-col gap-4 pt-8 short:pt-5 pb-6">
               <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight px-1">Welcome back</h1>
+              {levelError && (
+                <p className="text-sm text-rose-700 px-1" role="alert">Couldn&apos;t change your level. Check your connection and try again.</p>
+              )}
 
               <section className="glass-panel rounded-3xl p-5 short:p-4" aria-label="Today">
                 <div className="flex items-start justify-between gap-3">
@@ -199,22 +294,22 @@ const Home = () => {
                 </button>
               </section>
 
-              {stats && stats.hsk4Words > 0 && (
+              {progress && progress.words > 0 && (
                 <button
                   onClick={() => router.push('/learning-dashboard')}
                   className="glass-card rounded-2xl px-4 py-3.5 text-left"
-                  aria-label={`HSK 4 words: ${stats.hsk4Studied} of ${stats.hsk4Words} studied. Open my progress`}
+                  aria-label={`HSK ${level} words: ${progress.studied} of ${progress.words} studied. Open my progress`}
                 >
                   <span className="flex items-baseline justify-between">
-                    <span className="text-sm font-semibold text-slate-700">HSK 4 words</span>
+                    <span className="text-sm font-semibold text-slate-700">HSK {level} words</span>
                     <span className="text-sm font-bold text-slate-900 tabular-nums">
-                      {stats.hsk4Studied}<span className="font-medium text-slate-500"> / {stats.hsk4Words}</span>
+                      {progress.studied}<span className="font-medium text-slate-500"> / {progress.words}</span>
                     </span>
                   </span>
                   <span className="mt-2 block h-2 rounded-full bg-slate-200 overflow-hidden">
                     <span
                       className="block h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
-                      style={{ width: `${stats.hsk4Studied > 0 ? Math.max(2, Math.round((stats.hsk4Studied / stats.hsk4Words) * 100)) : 0}%` }}
+                      style={{ width: `${progress.studied > 0 ? Math.max(2, Math.round((progress.studied / progress.words) * 100)) : 0}%` }}
                     />
                   </span>
                   <span className="mt-2 flex items-center justify-end text-sm font-semibold text-indigo-700">
@@ -231,27 +326,26 @@ const Home = () => {
             <main className="flex-1 flex flex-col justify-center gap-5 short:gap-3.5 py-6 short:py-4">
               <div className="px-1">
                 <h1 className="text-[28px] short:text-2xl font-extrabold text-slate-900 leading-tight tracking-tight" style={{ textWrap: 'balance' }}>
-                  Learn the 600 HSK 4 words
+                  Learn the {levelInfo.words} HSK {level} words
                 </h1>
                 <p className="mt-1.5 text-base short:text-sm text-slate-600">
                   Characters, the word, its phrases and sentences, then practice.
                 </p>
               </div>
 
-              {/* 示例词卡：学习页上的真实内容（师傅） */}
+              {/* 示例词卡：学习页上的真实内容（三级「礼物」、四级「师傅」） */}
               <section className="glass-panel rounded-3xl p-4 flex items-center gap-4" aria-label="Example word">
                 <span className="flex gap-1 shrink-0">
-                  <GridCell char="师" />
-                  <GridCell char="傅" />
+                  {Array.from(levelInfo.example.chars).map((ch, i) => <GridCell key={i} char={ch} />)}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-lg font-bold text-indigo-700 leading-tight">shīfu</span>
-                  <span className="block text-sm text-slate-600">master; qualified worker</span>
-                  <span className="block mt-1 text-sm text-slate-800 truncate" lang="zh-CN">我师傅教我怎么用这个机器。</span>
+                  <span className="block text-lg font-bold text-indigo-700 leading-tight">{levelInfo.example.pinyin}</span>
+                  <span className="block text-sm text-slate-600">{levelInfo.example.meaning}</span>
+                  <span className="block mt-1 text-sm text-slate-800 truncate" lang="zh-CN">{levelInfo.example.sentence}</span>
                 </span>
               </section>
 
-              <ul className="space-y-3 short:space-y-2">
+              <ul className="space-y-3 short:space-y-1.5">
                 {POINTS.map(({ icon: Icon, title, text }) => (
                   // 矮屏上不显示说明，只剩标题一行：图标和标题垂直居中
                   <li key={title} className="flex items-start short:items-center gap-3 px-1">
@@ -266,7 +360,28 @@ const Home = () => {
                 ))}
               </ul>
 
-              <div className="space-y-1">
+              <div className="space-y-2 short:space-y-1.5">
+                {/* 选等级：有人要学三级，有人要学四级。之后在顶栏随时可以换 */}
+                <div role="radiogroup" aria-label="Your level" className="grid grid-cols-2 gap-2">
+                  {LEVELS.map(({ level: l, words }) => (
+                    <button
+                      key={l}
+                      type="button"
+                      role="radio"
+                      aria-checked={l === level}
+                      onClick={() => chooseLevel(l)}
+                      className={`h-12 short:h-11 rounded-2xl border text-center transition-colors ${l === level
+                        ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500/20 text-indigo-800'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300'}`}
+                    >
+                      <span className="text-base font-bold">HSK {l}</span>
+                      <span className="text-sm font-medium"> · {words} words</span>
+                    </button>
+                  ))}
+                </div>
+                {levelError && (
+                  <p className="text-sm text-rose-700 text-center" role="alert">Couldn&apos;t save your level. Check your connection and try again.</p>
+                )}
                 <button
                   onClick={handleStartLearning}
                   className="w-full h-12 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-base font-bold shadow-md shadow-indigo-500/20 active:scale-[0.99] transition-transform flex items-center justify-center gap-2"
