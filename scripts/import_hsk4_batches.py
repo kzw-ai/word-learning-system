@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """导入按论文 5.3 节流程批量制作的新 HSK 四级词学习资料（学习资料制作/ 第 7 步的产出）。
+三级词（2026-11-12 起，同一流程）用 --level 3，素材在 data/learning_materials/hsk3/；三级批次和四级批次同名
+（都从「第01批」起），归属表里记作「HSK3 第01批」，练习题来源记作「HSK3 <批> <词>」，四级照旧。
 
 素材文件放在 data/learning_materials/hsk4/<批>.json，格式见 学习资料制作/制作流程.md 第 7 步。
 这个目录不提交到仓库（素材里有教材例句，仓库是公开的），部署时单独复制到服务器的同一位置。
@@ -28,13 +30,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # HSK4_BATCH_DIR 可覆盖（测试指向空目录，免得导入真实的审核批次）
 BATCH_DIR = Path(os.environ.get('HSK4_BATCH_DIR') or PROJECT_ROOT / 'data' / 'learning_materials' / 'hsk4')
+HSK3_BATCH_DIR = Path(os.environ.get('HSK3_BATCH_DIR') or PROJECT_ROOT / 'data' / 'learning_materials' / 'hsk3')
 DB_PATH = PROJECT_ROOT / 'words_extended.db'
 APPROVED = '作者已审核'
 
 
-def load_batches(include_unreviewed=False):
+def load_batches(include_unreviewed=False, level=4):
     batches = []
-    for path in sorted(BATCH_DIR.glob('*.json')):
+    for path in sorted((BATCH_DIR if level == 4 else HSK3_BATCH_DIR).glob('*.json')):
         data = json.loads(path.read_text(encoding='utf-8'))
         if data.get('status') == APPROVED or include_unreviewed:
             batches.append(data)
@@ -47,7 +50,8 @@ def ensure_schema(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS hsk4_batch_owner (
         kind TEXT NOT NULL, ref_id INTEGER NOT NULL, batch TEXT NOT NULL, PRIMARY KEY (kind, ref_id))''')
     word_columns = {row[1] for row in conn.execute('PRAGMA table_info(word)')}
-    for column, ddl in (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)')):
+    for column, ddl in (('audio', 'VARCHAR(200)'), ('freq_rank', 'INTEGER'), ('freq_tier', 'VARCHAR(10)'),
+                        ('hsk_level', 'INTEGER')):
         if word_columns and column not in word_columns:
             conn.execute(f'ALTER TABLE word ADD COLUMN {column} {ddl}')
     columns = {row[1] for row in conn.execute('PRAGMA table_info(confusable_pairs)')}
@@ -127,7 +131,12 @@ def sync_exercises(conn, word_id, deck, exercises, now):
     return inserted, updated, len(stale)
 
 
-def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
+def owner_name(level, name):
+    """归属表里的批次名：四级就是「第01批」（已上线的数据照旧），其他等级加前缀"""
+    return name if level == 4 else f'HSK{level} {name}'
+
+
+def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners, level=4):
     """返回 'inserted' / 'updated' / None"""
     questions = json.dumps(p.get('questions', []), ensure_ascii=False)
     fields = (p['reason'], p['difference'], p['examples'], p['tips'], p['difficulty_level'], questions, p.get('word2_level'))
@@ -152,9 +161,9 @@ def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
     if owner is not None:
         return None  # 别的批次的词对
     # 不归属任何批次的旧词对：讲解保持原样，只管辨析题和易混淆词等级。旧词对存的方向可能和素材相反，
-    # 那样库里的 word2 是素材的目标词（四级），等级记 4
+    # 那样库里的 word2 是素材的目标词，等级记目标词的等级
     stored_word1 = conn.execute('SELECT word1_id FROM confusable_pairs WHERE id = ?', (pair_id,)).fetchone()[0]
-    level = p.get('word2_level') if stored_word1 == id1 else 4
+    level = p.get('word2_level') if stored_word1 == id1 else level
     if question_owners.get(pair_id) == batch:
         if (old_questions, row[7]) != (questions, level):
             conn.execute('UPDATE confusable_pairs SET questions = ?, word2_level = ? WHERE id = ?', (questions, level, pair_id))
@@ -168,10 +177,10 @@ def sync_pair(conn, p, id1, id2, batch, pair_owners, question_owners):
     return None
 
 
-def import_batch(conn, batch, now):
+def import_batch(conn, batch, now, level=4):
     """返回 [新增词, 跳过的已有词, 同步的已有词, 新增题, 更新题, 删除题, 新增词对, 更新词对]"""
     counts = [0] * 8
-    name = batch['batch']
+    name = owner_name(level, batch['batch'])
     known = hanzi_map(conn)
     word_owners = owners(conn, 'word')
     pair_owners = owners(conn, 'pair')
@@ -193,29 +202,29 @@ def import_batch(conn, batch, now):
             word_owners[word_id] = name
             known[hanzi] = word_id
             counts[0] += 1
-        for i, n in enumerate(sync_exercises(conn, word_id, f'HSK4 {name} {hanzi}', w['exercises'], now)):
+        for i, n in enumerate(sync_exercises(conn, word_id, f"HSK{level} {batch['batch']} {hanzi}", w['exercises'], now)):
             counts[3 + i] += n
     for p in batch.get('confusable_pairs', []):
         id1, id2 = known.get(p['word1']), known.get(p['word2'])
         if id1 and id2:
-            result = sync_pair(conn, p, id1, id2, name, pair_owners, question_owners)
+            result = sync_pair(conn, p, id1, id2, name, pair_owners, question_owners, level)
             counts[6] += result == 'inserted'
             counts[7] += result == 'updated'
     return counts
 
 
-def import_into(db_path=DB_PATH, include_unreviewed=False):
+def import_into(db_path=DB_PATH, include_unreviewed=False, level=4):
     """返回 (新增词, 跳过的已有词, 新增练习题, 新增或更新的易混淆词对)。一个事务完成，失败整体回滚。
     更细的计数（同步的词、更新/删除的题）见 import_details。"""
-    d = import_details(db_path, include_unreviewed)
+    d = import_details(db_path, include_unreviewed, level)
     return d['words_added'], d['words_skipped'], d['items_added'], d['pairs_added'] + d['pairs_updated']
 
 
-def import_details(db_path=DB_PATH, include_unreviewed=False):
+def import_details(db_path=DB_PATH, include_unreviewed=False, level=4):
     names = ('words_added', 'words_skipped', 'words_synced', 'items_added', 'items_updated', 'items_removed',
              'pairs_added', 'pairs_updated')
     totals = dict.fromkeys(names, 0)
-    batches = load_batches(include_unreviewed)
+    batches = load_batches(include_unreviewed, level)
     if not batches:
         return totals
     conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
@@ -225,7 +234,7 @@ def import_details(db_path=DB_PATH, include_unreviewed=False):
             ensure_schema(conn)
             now = datetime.now()
             for batch in batches:
-                for name, n in zip(names, import_batch(conn, batch, now)):
+                for name, n in zip(names, import_batch(conn, batch, now, level)):
                     totals[name] += n
             conn.execute('COMMIT')
         except Exception:
@@ -237,24 +246,36 @@ def import_details(db_path=DB_PATH, include_unreviewed=False):
 
 
 FREQUENCY_TIERS = PROJECT_ROOT / 'data' / 'hsk4_frequency_tiers.csv'
+HSK3_FREQUENCY_TIERS = PROJECT_ROOT / 'data' / 'hsk3_frequency_tiers.csv'
 
 
-def apply_frequency_tiers(db_path=DB_PATH, tiers_path=FREQUENCY_TIERS):
-    """按汉字给词库里的新 HSK 四级词写上加权词频排名和档位（学习资料制作第 1 步的产出，论文 5.3.1），
-    推荐新词时按档位轮流。批次的词和论文词库里的旧词一样处理：排名、档位是词表信息，不是学习内容。
-    不在四级词表里的词清空。返回改动的词数，重复运行是幂等的。"""
-    with open(tiers_path, encoding='utf-8', newline='') as f:
-        tiers = {r['word']: (int(r['rank']), r['tier']) for r in csv.DictReader(f)}
+def read_tiers(path, level):
+    """词表文件（rank,word,tier）→ {汉字: (排名, 档位, 等级)}。同一个词在表里有两个条目（三级的「只」「花」）时取排名靠前的"""
+    tiers = {}
+    if path is None or not Path(path).exists():
+        return tiers
+    with open(path, encoding='utf-8', newline='') as f:
+        for r in csv.DictReader(f):
+            tiers.setdefault(r['word'], (int(r['rank']), r['tier'], level))
+    return tiers
+
+
+def apply_frequency_tiers(db_path=DB_PATH, tiers_path=FREQUENCY_TIERS, hsk3_tiers_path=HSK3_FREQUENCY_TIERS):
+    """按汉字给词库里的新 HSK 四级、三级词写上加权词频排名、档位和等级（学习资料制作第 1 步的产出，论文 5.3.1），
+    推荐新词时只看学习者所选的等级，按档位轮流。批次的词和论文词库里的旧词一样处理：排名、档位、等级是词表信息，
+    不是学习内容。不在两张词表里的词清空。返回改动的词数，重复运行是幂等的。"""
+    tiers = read_tiers(hsk3_tiers_path, 3)
+    tiers.update(read_tiers(tiers_path, 4))  # 汉办三级、四级词表没有重复的词
     conn = sqlite3.connect(db_path, timeout=30)
     try:
         ensure_schema(conn)
-        current = {row[0]: tuple(row[1:]) for row in conn.execute('SELECT id, freq_rank, freq_tier FROM word')}
+        current = {row[0]: tuple(row[1:]) for row in conn.execute('SELECT id, freq_rank, freq_tier, hsk_level FROM word')}
         changes = []
         for hanzi, word_id in hanzi_map(conn).items():
-            wanted = tiers.get(hanzi, (None, None))
+            wanted = tiers.get(hanzi, (None, None, None))
             if current.get(word_id) != wanted:
                 changes.append((*wanted, word_id))
-        conn.executemany('UPDATE word SET freq_rank = ?, freq_tier = ? WHERE id = ?', changes)
+        conn.executemany('UPDATE word SET freq_rank = ?, freq_tier = ?, hsk_level = ? WHERE id = ?', changes)
         conn.commit()
         return len(changes)
     finally:
@@ -264,5 +285,6 @@ def apply_frequency_tiers(db_path=DB_PATH, tiers_path=FREQUENCY_TIERS):
 if __name__ == '__main__':
     args = sys.argv[1:]
     db = Path(args[args.index('--db') + 1]) if '--db' in args else DB_PATH
-    d = import_details(db, '--include-unreviewed' in args)
-    print('✅ HSK4 批次导入：' + '，'.join(f'{k} {v}' for k, v in d.items()))
+    level = int(args[args.index('--level') + 1]) if '--level' in args else 4
+    d = import_details(db, '--include-unreviewed' in args, level)
+    print(f'✅ HSK{level} 批次导入：' + '，'.join(f'{k} {v}' for k, v in d.items()))

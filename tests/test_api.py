@@ -30,6 +30,7 @@ def app(tmp_path_factory):
     os.environ['WORDS_DB_PATH'] = db_file
     # 启动时会导入 data/learning_materials 下作者审核过的批次和音频清单：测试库不要它们
     os.environ['HSK4_BATCH_DIR'] = str(tmp_path_factory.mktemp('hsk4-batches'))
+    os.environ['HSK3_BATCH_DIR'] = str(tmp_path_factory.mktemp('hsk3-batches'))
     os.environ['AUDIO_MANIFEST'] = str(tmp_path_factory.mktemp('audio') / '论文词库.json')
 
     # 导入即触发 initialize_database()：建表 + 种子词汇/易混淆词 + 测试数据
@@ -45,7 +46,7 @@ def app(tmp_path_factory):
     assert migrate_auth_system(db_file)
 
     yield mod.app
-    for key in ('WORDS_DB_PATH', 'HSK4_BATCH_DIR', 'AUDIO_MANIFEST'):
+    for key in ('WORDS_DB_PATH', 'HSK4_BATCH_DIR', 'HSK3_BATCH_DIR', 'AUDIO_MANIFEST'):
         del os.environ[key]
 
 
@@ -292,27 +293,38 @@ class TestAdaptiveEndpoints:
                                headers=guest_headers(learner)).get_json()['data']
         assert data['todayStats']['wordsReviewed'] == 1
 
-    def test_dashboard_counts_hsk4_words_for_the_home_page(self, app, anon_client):
-        """首页进度条：四级词（有词频档位）一共几个、这个学习者学过几个；一到三级的易混淆词不算"""
+    def test_dashboard_counts_words_per_level_for_the_home_page(self, app, anon_client):
+        """首页进度条和等级切换：三级、四级词各一共几个、这个学习者学过几个；一二级的易混淆词不算。
+        选等级只接受 3 或 4，只能改自己的；没选过按四级"""
         import app_phase as mod
-        learner = _learner('hsk4count')
+        learner = _learner('levelcount')
         with app.app_context():
-            hsk4 = mod.Word(pinyin='a', definition='d', freq_tier='high')
+            hsk4 = mod.Word(pinyin='a', definition='d', freq_tier='high', hsk_level=4)
+            hsk3 = mod.Word(pinyin='c', definition='d', freq_tier='high', hsk_level=3)
             other = mod.Word(pinyin='b', definition='d')
-            mod.db.session.add_all([hsk4, other])
+            mod.db.session.add_all([hsk4, hsk3, other])
             mod.db.session.flush()
-            mod.db.session.add_all([mod.UserProgress(user_id=learner, word_id=hsk4.id),
-                                    mod.UserProgress(user_id=learner, word_id=other.id)])
+            mod.db.session.add_all([mod.UserProgress(user_id=learner, word_id=w.id) for w in (hsk4, hsk3, other)])
             mod.db.session.commit()
-            ids = (hsk4.id, other.id)
-            total = mod.Word.query.filter(mod.Word.freq_tier.isnot(None)).count()
+            ids = (hsk4.id, hsk3.id, other.id)
+            totals = {str(level): mod.Word.query.filter_by(hsk_level=level).count() for level in (3, 4)}
+        url = f'/api/analytics/user/{learner}/dashboard'
         try:
-            data = anon_client.get(f'/api/analytics/user/{learner}/dashboard',
-                                   headers=guest_headers(learner)).get_json()['data']['overallProgress']
-            assert (data['hsk4Words'], data['hsk4Studied']) == (total, 1)
+            data = anon_client.get(url, headers=guest_headers(learner)).get_json()['data']['overallProgress']
+            assert data['hskLevel'] == 4
+            assert data['levels'] == {level: {'words': totals[level], 'studied': 1} for level in ('3', '4')}
+            put = lambda body, who=learner: anon_client.put(f'/api/users/{learner}/hsk-level', json=body,
+                                                           headers=guest_headers(who))
+            assert put({'level': 5}).status_code == 400
+            assert put({'level': '3'}).status_code == 400
+            assert put({'level': 3}, _learner('otherlevel')).status_code == 403
+            assert put({'level': 3}).get_json()['data'] == {'hskLevel': 3}
+            data = anon_client.get(url, headers=guest_headers(learner)).get_json()['data']['overallProgress']
+            assert data['hskLevel'] == 3
         finally:
             with app.app_context():
                 mod.UserProgress.query.filter_by(user_id=learner).delete()
+                mod.UserProfile.query.filter_by(user_id=learner).delete()
                 for word_id in ids:
                     mod.db.session.delete(mod.db.session.get(mod.Word, word_id))
                 mod.db.session.commit()
@@ -1487,22 +1499,56 @@ class TestHsk4BatchImport:
         data = app.test_client().get(f'/api/learning/word/{word_id}/exercises?limit=10').get_json()['data']
         assert data['source'] == 'authored' and [q['type'] for q in data['questions']] == ['definition']
 
+    def test_hsk3_batch_with_same_name_is_separate(self, app, tmp_path, monkeypatch):
+        """三级批次和四级批次同名（都叫「测试批」）：归属、练习题来源分开记，互不当成自己的词同步"""
+        import sqlite3
+        sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
+        import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        hsk4, hsk3 = tmp_path / 'hsk4', tmp_path / 'hsk3'
+        hsk4.mkdir()
+        hsk3.mkdir()
+        monkeypatch.setattr(imp, 'BATCH_DIR', hsk4)
+        monkeypatch.setattr(imp, 'HSK3_BATCH_DIR', hsk3)
+        self._write(hsk4 / '测试批.json', imp.APPROVED, [self._word('戊己', '戊己')])
+        self._write(hsk3 / '测试批.json', imp.APPROVED, [self._word('庚辛', '庚辛'), self._word('戊己', '戊己')])
+        assert imp.import_into(db) == (1, 0, 2, 0)
+        assert imp.import_into(db, level=3) == (1, 1, 2, 0), '四级批次的词，三级批次不动'
+        assert imp.import_into(db, level=3) == (0, 1, 0, 0), '重复导入不重复插入'
+        conn = sqlite3.connect(db)
+        try:
+            ids = imp.hanzi_map(conn)
+            assert imp.owners(conn, 'word')[ids['庚辛']] == 'HSK3 测试批'
+            assert imp.owners(conn, 'word')[ids['戊己']] == '测试批'
+            decks = {d for (d,) in conn.execute("SELECT DISTINCT source_deck FROM exercise_item WHERE source_deck LIKE '% 戊己' OR source_deck LIKE '% 庚辛'")}
+            assert decks == {'HSK4 测试批 戊己', 'HSK3 测试批 庚辛'}
+        finally:
+            conn.close()
+
     def test_frequency_tiers_follow_the_word_list(self, app, tmp_path):
-        """词频排名和档位按汉字写进词库（批次的词、论文词库的旧词都写），不在表里的词清空；重复运行不改动"""
+        """词频排名、档位和等级按汉字写进词库（批次的词、论文词库的旧词都写），三级、四级两张表都读，
+        不在表里的词清空；重复运行不改动"""
         import sqlite3
         sys.path.insert(0, str(PROJECT_ROOT / 'scripts'))
         import import_hsk4_batches as imp  # pyrefly: ignore  # 运行时动态路径
         db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
         tiers = tmp_path / 'tiers.csv'
         tiers.write_text('rank,word,tier\n7,发生,中频\n', encoding='utf-8')
+        conn = sqlite3.connect(db)
+        other = next(h for h in imp.hanzi_map(conn) if h != '发生')  # 随便一个词库里的词，当作三级词
+        conn.close()
+        hsk3 = tmp_path / 'hsk3.csv'
+        hsk3.write_text(f'rank,word,tier\n2,{other},高频\n', encoding='utf-8')
         try:
-            assert imp.apply_frequency_tiers(db, tiers) > 0
-            assert imp.apply_frequency_tiers(db, tiers) == 0
+            assert imp.apply_frequency_tiers(db, tiers, hsk3) > 0
+            assert imp.apply_frequency_tiers(db, tiers, hsk3) == 0
             conn = sqlite3.connect(db)
             try:
-                word_id = imp.hanzi_map(conn)['发生']
-                assert conn.execute('SELECT freq_rank, freq_tier FROM word WHERE id = ?', (word_id,)).fetchone() == (7, '中频')
-                assert conn.execute('SELECT COUNT(*) FROM word WHERE freq_tier IS NOT NULL').fetchone()[0] == 1
+                ids = imp.hanzi_map(conn)
+                row = 'SELECT freq_rank, freq_tier, hsk_level FROM word WHERE id = ?'
+                assert conn.execute(row, (ids['发生'],)).fetchone() == (7, '中频', 4)
+                assert conn.execute(row, (ids[other],)).fetchone() == (2, '高频', 3)
+                assert conn.execute('SELECT COUNT(*) FROM word WHERE freq_tier IS NOT NULL').fetchone()[0] == 2
             finally:
                 conn.close()
         finally:
@@ -1658,6 +1704,28 @@ class TestAudio:
         questions = client.get(url).get_json()['data']['questions']
         q = next(q for q in questions if q['options'] == options)
         assert q['optionAudio'] == {options[0]: self._url(7)}
+
+    def test_answer_option_uses_the_words_own_audio(self, app, client, tmp_path, monkeypatch):
+        """选项就是这个词本身时用词自己的发音：清单按选项原文配音，单个多音字只能按最常用的读音
+        （三级的「还」学的是 huán，清单里的「还」读 hái）"""
+        import json
+        import app_phase as mod
+        monkeypatch.setattr(mod, 'OPTION_AUDIO_MANIFEST', str(tmp_path / '选项.json'))
+        monkeypatch.setattr(mod, '_option_audio_cache', {'mtime': None, 'options': {}})
+        with app.app_context():
+            word = mod.db.session.get(mod.Word, 1)
+            hanzi, old_audio = mod.get_word_hanzi(1), word.audio
+            word.audio = self._url(9)
+            mod.db.session.commit()
+        try:
+            (tmp_path / '选项.json').write_text(json.dumps({'options': {hanzi: self._url(8)}}), encoding='utf-8')
+            questions = client.get('/api/learning/word/1/exercises?limit=10').get_json()['data']['questions']
+            with_answer = [q for q in questions if hanzi in q['options']]
+            assert with_answer and all(q['optionAudio'][hanzi] == self._url(9) for q in with_answer)
+        finally:
+            with app.app_context():
+                mod.db.session.get(mod.Word, 1).audio = old_audio
+                mod.db.session.commit()
 
     def test_collocation_questions_carry_the_meaning(self, app, client):
         """搭配题带上这条搭配的英文意思：「喜欢 ( )」后面卖、生病都接得上，有了「like science」才只有一个答案。

@@ -219,22 +219,33 @@ class AdaptiveRecommendationEngine:
 
     # 推荐新词时三档轮流的先后：学过的词数相同时先高频
     FREQ_TIERS = ('高频', '中频', '低频')
+    LEVELS = (3, 4)
+
+    @classmethod
+    def user_level(cls, cursor, user_id: str) -> int:
+        """学习者选的等级（三级或四级）；没选过、没有档案时按四级"""
+        cursor.execute("SELECT hsk_level FROM user_profile WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        return row[0] if row and row[0] in cls.LEVELS else 4
 
     def next_new_word(self, cursor, user_id: str) -> Optional[Tuple[int, str]]:
         """下一个要学的新词 (word_id, pinyin)，没有时返回 None。只选这个用户还没学过（没有进度）、
         出得了题（有单字和例句）的词；学过的词由复习日程安排，不再当新词推荐。顺序固定，刷新不会换词：
-        1. 一至三级易混淆词：它的四级目标词已经学过、且不是今天才学的（论文 2.2.4：先分开学，排在目标词之后）；
-        2. 四级词按高、中、低频轮流（论文 5.3.1：每次学习安排相当比例的三档词）：从学过的词最少的一档里
-           取词频排名最靠前的；
-        3. 不在四级词表里的其他词（论文词库里的低等级词），按 id；等目标词的易混淆词排在最后。"""
+        1. 易混淆词：它的目标词已经学过、且不是今天才学的（论文 2.2.4：先分开学，排在目标词之后）；
+           只带比目标词低级的（四级词对里的一至三级词、三级词对里的一二级词），同级的按下一条轮到；
+        2. 学习者所选等级（user_profile.hsk_level，三级或四级，没选过按四级）的词按高、中、低频轮流
+           （论文 5.3.1：每次学习安排相当比例的三档词）：从学过的词最少的一档里取词频排名最靠前的；
+        3. 不在三级、四级词表里的其他词（论文词库里的低等级词），按 id；等目标词的易混淆词排在最后。"""
+        level = self.user_level(cursor, user_id)
         unstudied = """NOT EXISTS (SELECT 1 FROM user_progress up WHERE up.word_id = w.id AND up.user_id = ?)
             AND EXISTS (SELECT 1 FROM example e WHERE e.word_id = w.id)
             AND EXISTS (SELECT 1 FROM character c WHERE c.word_id = w.id)"""
         cursor.execute(f"""
             SELECT w.id, w.pinyin FROM confusable_pairs p
             JOIN word w ON w.id = p.word2_id
+            JOIN word target ON target.id = p.word1_id
             JOIN user_progress t ON t.word_id = p.word1_id AND t.user_id = ?
-            WHERE p.word2_level < 4 AND date(t.first_studied) < date('now') AND {unstudied}
+            WHERE p.word2_level < COALESCE(target.hsk_level, 4) AND date(t.first_studied) < date('now') AND {unstudied}
             ORDER BY t.first_studied, p.id
             LIMIT 1
         """, (user_id, user_id))
@@ -245,18 +256,18 @@ class AdaptiveRecommendationEngine:
         cursor.execute("""
             SELECT w.freq_tier, COUNT(up.word_id) FROM word w
             LEFT JOIN user_progress up ON up.word_id = w.id AND up.user_id = ?
-            WHERE w.freq_tier IS NOT NULL
+            WHERE w.freq_tier IS NOT NULL AND w.hsk_level = ?
             GROUP BY w.freq_tier
-        """, (user_id,))
+        """, (user_id, level))
         studied = dict(cursor.fetchall())
         order = sorted(studied, key=lambda t: (studied[t], self.FREQ_TIERS.index(t) if t in self.FREQ_TIERS else 9))
         for tier in order:
             cursor.execute(f"""
                 SELECT w.id, w.pinyin FROM word w
-                WHERE w.freq_tier = ? AND {unstudied}
+                WHERE w.freq_tier = ? AND w.hsk_level = ? AND {unstudied}
                 ORDER BY w.freq_rank, w.id
                 LIMIT 1
-            """, (tier, user_id))
+            """, (tier, level, user_id))
             row = cursor.fetchone()
             if row:
                 return row

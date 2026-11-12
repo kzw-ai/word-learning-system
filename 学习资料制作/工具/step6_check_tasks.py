@@ -28,7 +28,7 @@ import step2_confusables
 import step4_semantic_tasks
 import step5_select
 
-INSTRUCTIONS = """你在为学习新 HSK 四级词汇的外国学习者（中级，学过一至三级词）检查学习资料。取舍已经按规则定好，不要改动选了哪些句子和搭配。
+INSTRUCTIONS = common.for_level("""你在为学习新 HSK 四级词汇的外国学习者（中级，学过一至三级词）检查学习资料。取舍已经按规则定好，不要改动选了哪些句子和搭配。
 
 1. word_pinyin：目标词的带声调拼音（轻声不标调，如 shōushi）。
 2. examples：每个例句给自然、准确的英文翻译；核对 pinyin_auto（逐词标注，自动生成，常把轻声标成本调、多音字读错），
@@ -39,7 +39,7 @@ INSTRUCTIONS = """你在为学习新 HSK 四级词汇的外国学习者（中级
    key 为题号（definition、collocation1、collocation2，以任务里有的为准），值为说得通的词的列表，没有就给空列表。
 5. fill_word：填字题挖掉的是目标词的一个字。other_fits 列出放进括号也能组成通顺句子的其他常用汉字（没有就空列表）；
    hint 是挖掉那个字的带声调拼音，只在 other_fits 不为空时给出，否则为 null。
-只按下面的 JSON 格式回答，不要输出别的内容。"""
+只按下面的 JSON 格式回答，不要输出别的内容。""")
 
 ANSWER_FORMAT = {
     'word_pinyin': 'kǎolǜ',
@@ -58,7 +58,7 @@ def auto_pinyin(sentence):
     return ' '.join(out)
 
 
-PAIR_INSTRUCTIONS = """学习者常把这两个词用混：HSK 动态作文语料库里，该用 word1 的地方，学习者常写成 word2
+PAIR_INSTRUCTIONS = common.for_level("""学习者常把这两个词用混：HSK 动态作文语料库里，该用 word1 的地方，学习者常写成 word2
 （corpus：该用 word1 的偏误共 word1_errors 处，其中 wrote_word2 处写成了 word2）。辨析要对准学习者实际的混淆点。
 请为易混淆词辨析编写内容，读者是母语不是中文的中级学习者（学过一至三级词），系统界面是英文：
 **讲解一律用简单、清楚的英文**（避免语法术语，非用不可时简单解释），中文只出现在例句、搭配和词本身里；
@@ -80,7 +80,7 @@ PAIR_INSTRUCTIONS = """学习者常把这两个词用混：HSK 动态作文语�
    other_fits——把另一个词放进括号，句子是否仍然正确通顺（是则这题有两个答案，不能用）；
    usable——句子是否完整、易懂、适合作辨析题；
    explanation——一句简单的英文，说明为什么这里用 answer、另一个词为什么不行（学习者答完题后看）。
-只按下面的 JSON 格式回答，不要输出别的内容。"""
+只按下面的 JSON 格式回答，不要输出别的内容。""")
 
 PAIR_FORMAT = {
     'reason': 'Both mean "suddenly", and both can come before a verb.',
@@ -245,10 +245,43 @@ def restore_collocation_spaces(answer, task):
             c['collocation'] = by_bare.get(c['collocation'].replace(' ', ''), c['collocation'])
 
 
+def restore_punctuation(answer, task):
+    """例句拼音里只有标点和原句不一样（「！」写成「。」、漏了句末标点）时，按原句改回来；字不一样的不动，照样判不合格"""
+    sentences = {e['sentence'] for e in task['examples']}
+    for a in answer.get('examples', []):
+        if not isinstance(a, dict) or a.get('sentence') not in sentences or not isinstance(a.get('pinyin'), str):
+            continue
+        s = a['sentence'].replace(' ', '')
+        if hanzi_of(a['pinyin']) == s:
+            continue
+        out, i = [], 0
+        for t in a['pinyin'].split():
+            if '/' in t:
+                h = t.split('/')[0]
+                if s[i:i + len(h)] != h:
+                    break
+                out.append(t)
+                i += len(h)
+            else:
+                j = i
+                while j < len(s) and not (s[j].isalnum()):
+                    j += 1
+                if j > i:
+                    out.append(s[i:j])
+                    i = j
+        else:
+            if s[i:] and not any(ch.isalnum() for ch in s[i:]):
+                out.append(s[i:])
+                i = len(s)
+            if i == len(s) and hanzi_of(' '.join(out)) == s:
+                a['pinyin'] = ' '.join(out)
+
+
 def tidy_check(answer, task):
     join_split_pinyin(answer)
     drop_stray_conflicts(answer, task)
     restore_collocation_spaces(answer, task)
+    restore_punctuation(answer, task)
 
 
 def hanzi_of(pinyin_line):
@@ -287,14 +320,14 @@ def validate(answer, task):
     return problems
 
 
-TRIM_INSTRUCTIONS = """下面的句子是教材原句，要给学习新 HSK 四级词汇的外国学习者（中级）当例句，但太长了。
+TRIM_INSTRUCTIONS = common.for_level("""下面的句子是教材原句，要给学习新 HSK 四级词汇的外国学习者（中级）当例句，但太长了。
 请从每句里截出包含目标词 word 的一段，要求：
 1. 是原句里连续的一段，只能去掉开头或结尾的分句：不能改字、不能加字、不能删掉中间的字；断开的地方必须是原句里的逗号、分号、冒号等标点；
 2. 这一段本身意思完整、语法通顺，离开上下文也看得懂（不能以「所以」「但是」「而且」这类承接上文的词开头，除非意思仍然完整）；
 3. 目标词在这一段里的意思和用法与原句相同；
 4. 尽量短，最好在 30 字以内，但完整、自然更重要。
 截出的一段末尾如果是逗号、分号，改成句号。截不出满足条件的一段就填 null，并在 notes 里简述原因。
-只按下面的 JSON 格式回答，不要输出别的内容。"""
+只按下面的 JSON 格式回答，不要输出别的内容。""")
 
 TRIM_FORMAT = {'trims': {'1': '工资三千来块，试用期一个月。', '2': None}, 'notes': {'2': '去掉前半句后意思不完整'}}
 CLAUSE_BREAK = '，；：。！？…—,;:'

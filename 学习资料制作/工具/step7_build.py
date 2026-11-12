@@ -122,8 +122,8 @@ def build(word, sel, check):
     coll_tr = {c['collocation']: c['translation'] for c in check['collocations']}
     notes, exercises = [], []
     ex = sel['exercises'] or {}
-    notes += [f"例句由大模型编写（教材里没有可用句子），请重点审：{s['example']['sentence']}"
-              for s in sel['senses'] if s['example'] and s['example'].get('book') == draft_examples.SOURCE]
+    notes += [f"例句由{s['example']['book']}，请重点审：{s['example']['sentence']}"
+              for s in sel['senses'] if s['example'] and s['example'].get('book') in draft_examples.SOURCES]
     # 第 6 步截短过的句子：审核时对照原句看截得对不对
     notes += [f"例句截自原句：{s['example']['original']}" for s in sel['senses'] if s['example'] and s['example'].get('original')]
     if (ex.get('fill_word') or {}).get('original') and ex['fill_word']['original'] not in \

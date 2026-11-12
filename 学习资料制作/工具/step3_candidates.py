@@ -22,7 +22,7 @@ import step2_confusables
 import step4_semantic_tasks
 
 TOP = 20
-# 只学四级义项的「得」「等」（step4_semantic_tasks.HSK4_ENTRY）：教材里多是低级义项，前 20 句可能一句四级义项都没有
+# 只学四级义项的「得」「等」（step4_semantic_tasks.ENTRY）：教材里多是低级义项，前 20 句可能一句四级义项都没有
 # （「等」105 句候选，前 20 句全是 wait），放宽到 60 句
 TOP_HSK4_ENTRY = 60
 
@@ -123,7 +123,7 @@ def sentences_with(word, sentences, complexity, levels, speakers=frozenset()):
             tokens = common.tokenize(s)
             if split:
                 tokens = split_glued(tokens, word)
-            if book == draft_examples.SOURCE:
+            if book in draft_examples.SOURCES:
                 tokens = force_token(tokens, word)
             if word not in tokens:
                 continue
@@ -160,10 +160,13 @@ def main(batch):
     for word in words:
         # 教材里没有可用例句、由大模型起草的（draft_examples.py，作者审核）：和教材句子一起作为候选
         supplement = common.OUT / '补充例句' / f'{word}.json'
-        extra = [(draft_examples.SOURCE, x) for x in json.loads(supplement.read_text(encoding='utf-8'))['sentences']] \
-            if supplement.exists() else []
+        extra = []
+        if supplement.exists():
+            drafted = json.loads(supplement.read_text(encoding='utf-8'))
+            book = draft_examples.CLAUDE_SOURCE if drafted.get('source') == 'claude' else draft_examples.SOURCE
+            extra = [(book, x) for x in drafted['sentences']]
         found, note = sentences_with(word, sentences + extra, complexity, levels, speakers)
-        top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.HSK4_ENTRY else TOP
+        top = TOP_HSK4_ENTRY if word in step4_semantic_tasks.ENTRY else TOP
         data = {
             'word': word,
             'hsk_level': levels.get(word),

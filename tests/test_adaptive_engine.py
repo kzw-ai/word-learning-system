@@ -35,8 +35,10 @@ def db_path(tmp_path):
             pinyin VARCHAR(80) NOT NULL,
             definition VARCHAR(200) NOT NULL,
             freq_rank INTEGER,
-            freq_tier VARCHAR(10)
+            freq_tier VARCHAR(10),
+            hsk_level INTEGER
         );
+        CREATE TABLE user_profile (id INTEGER PRIMARY KEY, user_id VARCHAR(50), hsk_level INTEGER);
         CREATE TABLE user_progress (
             id INTEGER NOT NULL PRIMARY KEY,
             user_id VARCHAR(50) NOT NULL,
@@ -99,12 +101,12 @@ def spaced(db_path):
     return SpacedRepetitionAlgorithm(db_path)
 
 
-def add_words(db_path, words):
-    """加几个出得了题的词（有单字、有例句）：[(word_id, 词频档位, 排名)]"""
+def add_words(db_path, words, level=4):
+    """加几个出得了题的词（有单字、有例句）：[(word_id, 词频档位, 排名)]；有档位的词记为 level 级"""
     conn = sqlite3.connect(db_path)
     for word_id, tier, rank in words:
-        conn.execute("INSERT INTO word (id, pinyin, definition, freq_tier, freq_rank) VALUES (?, ?, '', ?, ?)",
-                     (word_id, f'w{word_id}', tier, rank))
+        conn.execute("INSERT INTO word (id, pinyin, definition, freq_tier, freq_rank, hsk_level) VALUES (?, ?, '', ?, ?, ?)",
+                     (word_id, f'w{word_id}', tier, rank, level if tier else None))
         conn.execute("INSERT INTO character (character, word_id) VALUES ('字', ?)", (word_id,))
         conn.execute("INSERT INTO example (word_id, sentence) VALUES (?, '例句')", (word_id,))
     conn.commit()
@@ -506,6 +508,28 @@ class TestNewWordOrder:
         conn.commit()
         conn.close()
         assert self.next_word(engine) == 20
+
+    def test_only_the_chosen_level_is_recommended(self, engine, db_path):
+        """学习者选了三级就只推荐三级词（同样按档位轮流），没选过按四级；三级词对的一二级易混淆词照样排在目标词之后，
+        和目标词同级的易混淆词按档位轮到"""
+        add_words(db_path, [(10, '高频', 1), (12, '中频', 3)])
+        add_words(db_path, [(30, '高频', 1), (31, '中频', 2), (32, '低频', 3)], level=3)
+        add_words(db_path, [(40, None, None)])
+        conn = sqlite3.connect(db_path)
+        conn.executemany("INSERT INTO confusable_pairs (word1_id, word2_id, word2_level) VALUES (?, ?, ?)",
+                         [(30, 40, 1), (30, 32, 3)])
+        conn.commit()
+        conn.close()
+        assert self.next_word(engine) == 10, '没选过按四级'
+        conn = sqlite3.connect(db_path)
+        conn.execute("INSERT INTO user_profile (user_id, hsk_level) VALUES ('u1', 3)")
+        conn.commit()
+        conn.close()
+        assert self.next_word(engine) == 30
+        self.study(db_path, 30, first_studied=datetime.utcnow() - timedelta(days=1))
+        assert self.next_word(engine) == 40, '一级的易混淆词在目标词学过后带出'
+        self.study(db_path, 40)
+        assert self.next_word(engine) == 31, '同级的易混淆词（32）不提前，按档位轮流'
 
     def test_untiered_words_come_after_the_hsk4_words(self, engine, db_path):
         add_words(db_path, [(3, None, None), (14, '低频', 5)])

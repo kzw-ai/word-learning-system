@@ -64,14 +64,21 @@ def error_sentences(word, other, limit=15):
 
 
 def mixed_senses(word, levels):
-    """四级词另有一至三级条目（hsk_levels 取最低等级）：语料统计混着低级义项"""
-    return levels.get(word, 4) < 4
+    """目标等级的词另有更低的条目（hsk_levels 取最低等级）：语料统计混着低级义项"""
+    return levels.get(word, common.TARGET_LEVEL) < common.TARGET_LEVEL
+
+
+# 统计上入选、但看原句不是词义混淆的（Claude 预审 2026-11-12，三级）：
+# 记得 → 的：多是把「记得」写成「记的」，是错别字；拿 → 对：都在「拿／对……来说」句式里，和「拿」的本义（拿东西）无关
+REJECTED_PAIRS = {('记得', '的'), ('拿', '对')} if common.TARGET_LEVEL == 3 else set()
 
 
 def qualifies(word, other, total, n, levels):
-    """目标词是四级词（且没有更低的条目），偏误 ≥ 10、占比 > 20%，易混淆词是一至四级的另一个词"""
+    """目标词是目标等级的词（且没有更低的条目），偏误 ≥ 10、占比 > 20%，易混淆词是学过的词或另一个同级词
+    （四级词：一至四级；三级词：一至三级）"""
     lv = levels.get(other)
-    return (levels.get(word) == 4 and total >= 10 and n / total > 0.2 and lv is not None and lv <= 4 and other != word
+    return (levels.get(word) == common.TARGET_LEVEL and total >= 10 and n / total > 0.2 and lv is not None
+            and lv <= common.TARGET_LEVEL and other != word and (word, other) not in REJECTED_PAIRS
             and not mixed_senses(word, levels))
 
 
@@ -97,7 +104,7 @@ def write_report(word, n_sentences, found, counts, levels):
     total = sum(counts.values())
     md = [f'# {word}　易混淆词', '',
           f'语料 {n_sentences} 句，其中「{word}{{CC…}}」{total} 处：该用「{word}」的地方，学习者写成了花括号里的词（原句是改正后的句子）。',
-          '入选标准：偏误 ≥ 10 处、占比 > 20%、一至四级词。下面每节是「学习者写成的词」，列出原句。', '']
+          f'入选标准：偏误 ≥ 10 处、占比 > 20%、一至{common.LEVEL_CN}级词。下面每节是「学习者写成的词」，列出原句。', '']
     if mixed_senses(word, levels):
         md += [f'⚠️ 「{word}」在词表里另有{levels[word]}级条目，语料不分义项，下面的偏误多半属于低级义项，'
                '所以不入选（作者确定这类词不做辨析）。', '']
