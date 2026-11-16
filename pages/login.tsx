@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { authenticatedFetch } from "@/src/lib/authClient";
+import { persistAuthKey } from "@/src/lib/appStorage";
 import { useLearningContext } from '@/src/context/LearningContext';
+import { ensureGuestId } from '@/src/lib/guestIdentity';
 
 const Login = () => {
   const router = useRouter();
@@ -17,6 +19,9 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,10 +37,13 @@ const Login = () => {
       const result = await response.json();
 
       if (result.success) {
-        // 保存session token到localStorage
+        // 保存session token到localStorage，并备份到 Preferences（App 里防 iOS 清 localStorage）
         localStorage.setItem('session_token', result.data.session_token);
         localStorage.setItem('user_id', result.data.user_id);
         localStorage.setItem('username', result.data.username);
+        persistAuthKey('session_token', result.data.session_token);
+        persistAuthKey('user_id', result.data.user_id);
+        persistAuthKey('username', result.data.username);
         // 学习系统随即改用账号身份；此前只存了 user_id，学习页仍用旧身份，
         // 请求里的用户与登录凭证对不上而被拒绝
         setUserId(result.data.user_id);
@@ -49,6 +57,36 @@ const Login = () => {
       setError('Network error. Please try again later.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const response = await authenticatedFetch('/api/auth/account/delete', { method: 'POST' });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        // 清除本地登录态和 Preferences 备份，退回访客身份
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('user_id');
+        localStorage.removeItem('username');
+        persistAuthKey('session_token', null);
+        persistAuthKey('user_id', null);
+        persistAuthKey('username', null);
+        setUserId(ensureGuestId());
+        router.push('/');
+      } else {
+        setDeleteError(
+          response.status === 401
+            ? 'Sign in first to delete your account.'
+            : (result.error || 'Could not delete the account.')
+        );
+      }
+    } catch {
+      setDeleteError('Network error. Please try again later.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -165,6 +203,48 @@ const Login = () => {
               </div>
             )}
           </form>
+
+          {/* 删除账号（上架要求：App 内可删除账号） */}
+          <div className="pt-6">
+            {deleteError && (
+              <p className="text-sm text-rose-700 mb-2 text-center" role="alert">{deleteError}</p>
+            )}
+            {deleteOpen ? (
+              <div className="glass-panel rounded-2xl p-4 border border-rose-200 bg-rose-50/70 space-y-3 text-center">
+                <p className="text-sm font-semibold text-rose-800">Delete your account permanently?</p>
+                <p className="text-sm text-slate-600">
+                  This deletes your account and all learning records. This cannot be undone.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDeleteOpen(false)}
+                    disabled={deleting}
+                    className="flex-1 h-10 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
+                    className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold disabled:opacity-60"
+                  >
+                    {deleting ? 'Deleting…' : 'Delete permanently'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => { setDeleteOpen(true); setDeleteError(null); }}
+                  className="inline-block py-2 text-sm text-rose-700 hover:text-rose-800 font-semibold transition-colors"
+                >
+                  Delete my account
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Bottom Action */}
           <div className="mt-auto pt-6">
