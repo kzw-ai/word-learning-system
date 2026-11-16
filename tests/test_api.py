@@ -513,6 +513,8 @@ class TestDeleteAccount:
         resp = client.post('/api/auth/account/delete', headers=headers)
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
+        # 像退出登录一样清掉 session_token cookie
+        assert 'session_token=' in resp.headers.get('Set-Cookie', '')
 
         conn = sqlite3.connect(db)
         try:
