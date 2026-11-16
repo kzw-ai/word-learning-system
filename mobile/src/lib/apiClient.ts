@@ -9,10 +9,20 @@ import type {
 } from './types';
 import { getAuthHeaders } from './authHeaders';
 
-// 开发期默认连本地后端（iOS 模拟器 127.0.0.1；安卓模拟器先 adb reverse tcp:5014 tcp:5014）。
+// 开发期（__DEV__）默认连本地后端（iOS 模拟器 127.0.0.1；安卓模拟器先 adb reverse tcp:5014 tcp:5014）；
+// 正式包默认连线上，避免忘了设 EXPO_PUBLIC_API_BASE_URL 时连到用户手机的本机地址。
 // 真机通过 EXPO_PUBLIC_API_BASE_URL 环境变量指到 Mac 的局域网地址。
+const LOCAL_BASE = 'http://127.0.0.1:5014';
+const PROD_BASE = 'https://learnchinese.kzwbelieve.top';
+
+/** 计算默认后端地址：环境变量优先；否则开发包用本地后端、正式包用线上。 */
+export const resolveDefaultBase = (dev: boolean, envBase?: string): string => {
+  if (envBase && envBase !== '') return envBase.replace(/\/$/, '');
+  return dev ? LOCAL_BASE : PROD_BASE;
+};
+
 const envBase = process.env.EXPO_PUBLIC_API_BASE_URL;
-const DEFAULT_BASE = (envBase && envBase !== '' ? envBase : 'http://127.0.0.1:5014').replace(/\/$/, '');
+const DEFAULT_BASE = resolveDefaultBase(typeof __DEV__ === 'undefined' || __DEV__, envBase);
 
 let baseUrl = DEFAULT_BASE;
 
