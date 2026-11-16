@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, VolumeX, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { buildApiUrl } from '@/src/lib/apiClient';
 
 interface AudioPlayerProps {
   text: string;
@@ -134,7 +135,7 @@ export default function AudioPlayer({
 
     const attempt = attemptRef.current;
     if (!audioRef.current) {
-      audioRef.current = new Audio(audioUrl);
+      audioRef.current = new Audio(buildApiUrl(audioUrl));
       
       audioRef.current.oncanplay = () => {
         setIsLoading(false);

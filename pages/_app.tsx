@@ -8,13 +8,15 @@ import { LearningProvider } from '@/src/context/LearningContext';
 import { LearningSessionProvider } from '@/src/context/LearningSessionContext';
 import { registerServiceWorker } from '@/src/lib/serviceWorker';
 import { useViewportHeight } from '@/src/hooks/useMobileOptimization';
+import { Capacitor } from '@capacitor/core';
 
 function MyApp({ Component, pageProps }: AppProps) {
   // 修复移动端视口高度问题
   useViewportHeight();
 
   useEffect(() => {
-    // 注册 Service Worker
+    // App（Capacitor）里不需要 Service Worker：页面由 WebView 本地加载，SW 会与原生壳抢缓存
+    if (Capacitor.isNativePlatform()) return;
     registerServiceWorker({
       onSuccess: () => {
         console.log('✅ PWA 已就绪，支持离线访问');

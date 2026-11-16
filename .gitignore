@@ -15,6 +15,7 @@ instance/
 *.egg-info
 dist/
 build/
+out/
 .gemini/
 教程/
 代码整理完成报告.md
