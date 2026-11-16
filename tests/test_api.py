@@ -459,6 +459,90 @@ class TestGuestIdentity:
             conn.close()
 
 
+class TestDeleteAccount:
+    """删除账号：账号与全部学习记录一并删除，会话随之失效。"""
+
+    def test_delete_account_removes_everything(self, app, client):
+        import sqlite3
+        import app_phase as mod
+
+        reg = client.post('/api/auth/register', json={
+            'username': 'doomed_user', 'password': 'secret123',
+        }).get_json()
+        assert reg['success'], reg
+        user_id = reg['data']['user_id']
+
+        login = client.post('/api/auth/login', json={
+            'username': 'doomed_user', 'password': 'secret123',
+        }).get_json()
+        assert login['success'], login
+        token = login['data']['session_token']
+        headers = {'X-Session-Token': token}
+
+        # 产生学习数据：会话 + 作答 + 事件 + 进度 + 推荐
+        session_id = f's-{user_id}-1'
+        client.post('/api/learning/session/start', json={
+            'sessionId': session_id, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=headers)
+        client.post('/api/learning/exercise/record', json={
+            'sessionId': session_id, 'questionId': 'q1', 'questionType': 'definition',
+            'userAnswer': 'a', 'correctAnswer': 'b', 'isCorrect': False,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+        }, headers=headers)
+        client.post('/api/learning/events/batch', json={
+            'sessionId': session_id, 'events': [{'type': 'click'}]}, headers=headers)
+
+        with app.app_context():
+            # 进度与推荐直接造一行（word_id 2 与上面会话的 1 错开，避免唯一约束冲突）
+            mod.db.session.add(mod.UserProgress(user_id=user_id, word_id=2))
+            mod.db.session.add(mod.AdaptiveRecommendation(
+                user_id=user_id, recommendation_type='next_word', target_word_id=1))
+            mod.db.session.commit()
+
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db)
+        try:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM learning_session WHERE user_id=?", (user_id,)
+            ).fetchone()[0] == 1
+        finally:
+            conn.close()
+
+        resp = client.post('/api/auth/account/delete', headers=headers)
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
+
+        conn = sqlite3.connect(db)
+        try:
+            for table in ('user_profile', 'user_session', 'learning_session',
+                          'user_progress', 'adaptive_recommendation',
+                          'confusable_exercise_records'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (user_id,)
+                ).fetchone()[0] == 0, table
+            # 挂在会话上的子表也一并清空
+            assert conn.execute(
+                "SELECT COUNT(*) FROM exercise_record WHERE session_id IN "
+                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM learning_event WHERE session_id IN "
+                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
+            ).fetchone()[0] == 0
+        finally:
+            conn.close()
+
+        # 删除后会话失效
+        assert client.get(
+            '/api/auth/validate', headers={'X-Session-Token': token},
+        ).get_json()['valid'] is False
+
+    def test_delete_account_requires_login(self, anon_client):
+        assert anon_client.post('/api/auth/account/delete').status_code == 401
+
+
 class TestSessionBoundWrites:
     """事件与作答必须写进「自己的、真实存在的」会话"""
 
