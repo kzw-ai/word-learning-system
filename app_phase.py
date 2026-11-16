@@ -57,7 +57,22 @@ except ImportError:
     register_confusable_apis = None
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # pyrefly: ignore  # 支持credentials以便使用cookies
+# 收紧为白名单来源：supports_credentials=True 时不能写 '*'，必须列出确切来源。
+# App 的页面来源是 capacitor://localhost（iOS）/ https://localhost（安卓），与后端不同源，
+# 带身份的请求都会带上 X-Session-Token / X-Guest-Id 请求头，跨域时先发一次 OPTIONS 预检。
+# max_age 让预检结果缓存一天，省掉 App 里每个请求多一次往返；allow_headers 用 flask-cors 默认的 '*'，不写死。
+CORS(  # pyrefly: ignore
+    app,
+    supports_credentials=True,
+    resources={r"/*": {"origins": [
+        "https://learnchinese.kzwbelieve.top",   # 线上网站
+        "capacitor://localhost",                  # iOS App
+        "https://localhost",                      # 安卓 App
+        "http://localhost:3100",                  # 本地调试（网页版）
+        "http://127.0.0.1:3100",                  # 本地调试（网页版）
+    ]}},
+    max_age=86400,
+)
 
 # 配置Session
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
