@@ -3,8 +3,7 @@ import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { buildApiUrl } from "@/src/lib/apiClient";
-import { sendRecommendationFeedback } from "@/src/lib/authClient";
+import { authenticatedFetch, sendRecommendationFeedback } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { useLearningSession } from '@/src/context/LearningSessionContext';
 import { formatReviewTime } from '@/src/lib/reviewTime';
@@ -67,7 +66,7 @@ const LearningDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/api/analytics/user/${userId}/dashboard`));
+      const response = await authenticatedFetch(`/api/analytics/user/${userId}/dashboard`);
       const result = await response.json();
 
       if (response.ok && result.success) {
@@ -81,7 +80,7 @@ const LearningDashboard = () => {
   const fetchRecommendation = async () => {
     try {
       setLoading(true);
-      const response = await fetch(buildApiUrl(`/api/adaptive/recommendation/${userId}`));
+      const response = await authenticatedFetch(`/api/adaptive/recommendation/${userId}`);
       const result = await response.json();
 
       if (response.ok && result.success) {

@@ -4,6 +4,7 @@
  */
 import { getApiBaseUrl } from '@/src/lib/apiClient';
 import { authenticatedFetch } from '@/src/lib/authClient';
+import { getAuthHeaders } from '@/src/lib/authHeaders';
 import { DEFAULT_IDLE_CAP_SECONDS, splitGap } from '@/utils/activeTime';
 
 export interface TimeTrackingConfig {
@@ -403,7 +404,7 @@ export class TimeTracker {
       
       const response = await fetch(`${this.apiBaseUrl}/api/learning/events/batch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           sessionId: this.sessionId,
           userId: this.config.userId,

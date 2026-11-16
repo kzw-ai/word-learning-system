@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { buildApiUrl } from "@/src/lib/apiClient";
+import { authenticatedFetch } from "@/src/lib/authClient";
 
 const LearningStats = () => {
   const router = useRouter();
@@ -17,7 +17,7 @@ const LearningStats = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(buildApiUrl('/api/stats'));
+      const response = await authenticatedFetch('/api/stats');
       const result = await response.json();
       
       if (response.ok) {
