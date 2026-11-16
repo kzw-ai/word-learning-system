@@ -2444,6 +2444,54 @@ def logout():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/auth/account/delete', methods=['POST'])
+def delete_account():
+    """删除账号：删除该账号及其全部学习记录。仅登录用户可调用（访客没有账号）。"""
+    try:
+        if not AuthManager:
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
+
+        auth_manager = AuthManager()
+        session_token = request.headers.get('X-Session-Token') or request.cookies.get('session_token')
+        if not session_token:
+            return jsonify({'success': False, 'error': 'Sign in required', 'code': 'SESSION_REQUIRED'}), 401
+
+        validation = auth_manager.validate_session(session_token)
+        if not validation['valid']:
+            return jsonify({'success': False, 'error': 'Sign in required', 'code': 'INVALID_SESSION'}), 401
+
+        user_id = validation['user_id']
+
+        # 删除顺序：先删挂在会话上的子表（exercise_record / learning_event 按 session_id 归属），
+        # 再删会话和其余以 user_id 归属的表，最后删登录态与账号档案。
+        conn = sqlite3.connect(_db_path, timeout=30)
+        try:
+            conn.execute("""
+                DELETE FROM exercise_record WHERE session_id IN
+                (SELECT session_id FROM learning_session WHERE user_id = ?)
+            """, (user_id,))
+            conn.execute("""
+                DELETE FROM learning_event WHERE session_id IN
+                (SELECT session_id FROM learning_session WHERE user_id = ?)
+            """, (user_id,))
+            conn.execute("DELETE FROM learning_session WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_progress WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM adaptive_recommendation WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM confusable_exercise_records WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_session WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            return jsonify({'success': False, 'error': 'Could not delete the account'}), 500
+        finally:
+            conn.close()
+
+        return jsonify({'success': True, 'message': 'Account deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/auth/me', methods=['GET'])
 def get_current_user():
     """获取当前登录用户信息"""
