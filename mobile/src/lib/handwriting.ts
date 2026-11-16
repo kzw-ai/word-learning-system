@@ -1,10 +1,7 @@
 // 源文件：src/lib/handwriting.ts（网页版）。纯逻辑，改动需与网页版同步。
 // 填字题的手写判分。学习者写下的每一笔和答案字的标准笔画（hanzi-writer-data 的 medians）
 // 逐一配对，不看先后、不看正反，大小位置按外框归一。
-//
-// M3/M4 注意：loadCharacterData 在网页版用 fetch('/hanzi-data/<字>.json')（Next.js 静态文件），
-// App 里要改成「打包子集 → 本地缓存 → 网站 https://learnchinese.kzwbelieve.top/hanzi-data/<字>.json 下载并缓存」，
-// 下载失败抛错，调用方回退打字作答。
+// 笔画数据加载（打包子集 / 本地缓存 / 网站下载）见 strokeData.ts 的 loadCharacterData。
 
 export type Point = [number, number];
 export type Stroke = Point[];
@@ -127,22 +124,4 @@ export const gradeHandwriting = (drawn: Stroke[], data: CharacterData): Handwrit
   const allowed = expected >= 11 ? 2 : expected >= 6 ? 1 : 0;
   const correct = (expected - matched) + extra <= allowed && meanCost <= MEAN_COST;
   return { correct, expected, matched, extra, meanCost };
-};
-
-const cache = new Map<string, Promise<CharacterData>>();
-
-/**
- * 按字取笔画数据。网页版构建时复制到 public/hanzi-data/。
- * M3/M4 改为：打包子集 → 本地缓存 → 网站下载并缓存，失败抛错。
- */
-export const loadCharacterData = (char: string): Promise<CharacterData> => {
-  if (!cache.has(char)) {
-    const request = fetch(`/hanzi-data/${encodeURIComponent(char)}.json`).then(resp => {
-      if (!resp.ok) throw new Error(`no stroke data for ${char}`);
-      return resp.json() as Promise<CharacterData>;
-    });
-    request.catch(() => cache.delete(char));
-    cache.set(char, request);
-  }
-  return cache.get(char)!;
 };
