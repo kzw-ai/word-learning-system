@@ -10,6 +10,10 @@ import { colors, fontSize, radius } from '@/theme';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const COORD = 1024;
+// hanzi-writer-data 的 medians 和 strokes 都是 y 轴朝上（基线 900），SVG 是 y 轴朝下。
+// 不要单独翻转 medians（那样会和 strokes 对不上、字形颠倒），而是把两者放进同一个
+// transform 里统一翻转：scale(1,-1) 翻 y，translate(0,900) 把翻转后坐标平移回 0–1024。
+const FLIP = 'translate(0, 900) scale(1, -1)';
 // 中线宽度：遮罩可见区域的粗细（够宽才能遮住字形轮廓的笔划）
 const STROKE_WIDTH = 130;
 
@@ -73,8 +77,8 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
     );
   }
 
-  // medians 的 y 轴翻转（900 - y），与判分 targetStrokes 一致，坐标系 1024 见方
-  const medians = data.medians.map(m => m.map(([x, y]) => [x, 900 - y] as Point));
+  // medians 与 strokes 共用同一套 y 轴朝上的坐标，统一由 FLIP transform 翻转
+  const medians = data.medians;
 
   return (
     <View style={styles.wrap}>
@@ -82,7 +86,8 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
         <Svg width={size} height={size} viewBox={`0 0 ${COORD} ${COORD}`}>
           <Defs>
             <Mask id={`mask-${character}`}>
-              {medians.map((points, i) => {
+              <G transform={FLIP}>
+                {medians.map((points, i) => {
                 const len = polylineLen(points) || 1;
                 const progress = progressRef.current[i];
                 const dashOffset = progress
@@ -101,14 +106,17 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
                     strokeDashoffset={dashOffset}
                   />
                 );
-              })}
+                })}
+              </G>
             </Mask>
           </Defs>
-          {/* 字形轮廓（实心），被中线 mask 遮罩，逐笔显露 */}
+          {/* 字形轮廓（实心），被中线 mask 遮罩，逐笔显露；轮廓与中线用同一个 transform 翻转 */}
           <G mask={`url(#mask-${character})`}>
-            {data.strokes.map((d, i) => (
-              <Path key={i} d={d} fill="#1f2937" />
-            ))}
+            <G transform={FLIP}>
+              {data.strokes.map((d, i) => (
+                <Path key={i} d={d} fill="#1f2937" />
+              ))}
+            </G>
           </G>
         </Svg>
       </View>
