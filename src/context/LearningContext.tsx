@@ -8,7 +8,7 @@ import {
 import type { UserProfileSummary } from '@/src/lib/types';
 import { ensureGuestId, hasStoredGuestId, safeGetItem, safeRemoveItem, safeSetItem } from '@/src/lib/guestIdentity';
 import { authenticatedFetch } from '@/src/lib/authClient';
-import { restoreAuthFromPreferences } from '@/src/lib/appStorage';
+import { persistAuthKey, restoreAuthFromPreferences } from '@/src/lib/appStorage';
 
 // 开发期才允许用 UserSwitcher 切换到任意测试用户（后端也须设 ALLOW_USER_ID_PARAM=1）
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -171,7 +171,11 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
             // 响应较慢时用户可能已重新登录：只处理被校验的那个凭证，
             // 否则旧凭证的「失效」会把刚登录的新账号清掉
             if (result && result.valid === false && safeGetItem('session_token') === token) {
-              LOGIN_KEYS.forEach(safeRemoveItem);
+              LOGIN_KEYS.forEach(key => {
+                safeRemoveItem(key);
+                // Preferences 里的备份也要一起清掉，否则下次启动会把过期凭证恢复回来
+                persistAuthKey(key, null);
+              });
               document.cookie = 'session_token=; Path=/; Max-Age=0';
               setUserIdState(ensureGuestId());
             }
