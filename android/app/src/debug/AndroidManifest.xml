@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 仅在 debug 构建放开明文 HTTP：本地联调走 http://127.0.0.1:5004（adb reverse tcp:5004 tcp:5004）。
+         正式包不含此配置，明文请求仍会被 Android 拦下。 -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>
