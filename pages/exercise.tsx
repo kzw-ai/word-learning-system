@@ -17,6 +17,8 @@ import { completeSentence, parseFillHint } from '@/src/lib/fillHint';
 import { gradeHandwriting, loadCharacterData, type Stroke } from '@/src/lib/handwriting';
 import HandwritingPad, { HandwritingThumb } from '@/components/learning/HandwritingPad';
 import StrokeOrderAnimation from '@/components/learning/StrokeOrderAnimation';
+import { Capacitor } from '@capacitor/core';
+import { Keyboard } from '@capacitor/keyboard';
 
 const DEFAULT_WORD_ID = 1;
 const DEFAULT_WORD_NAME = '发生';
@@ -69,6 +71,24 @@ const Exercise = () => {
     } catch {
       /* 读不了就用默认的手写 */
     }
+  }, []);
+
+  // 键盘弹出时把正在输入的框滚到可视区中央，避免被软键盘遮住（Capacitor App 内）
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let showHandle: { remove: () => Promise<void> } | null = null;
+    const scrollActiveIntoView = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    };
+    Keyboard.addListener('keyboardWillShow', scrollActiveIntoView)
+      .then((h) => { showHandle = h; })
+      .catch(() => undefined);
+    return () => {
+      showHandle?.remove().catch(() => undefined);
+    };
   }, []);
   // 填字题一出来就预先取答案字的笔画数据，点 CHECK 时不用等
   useEffect(() => {
