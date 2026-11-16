@@ -2487,7 +2487,10 @@ def delete_account():
         finally:
             conn.close()
 
-        return jsonify({'success': True, 'message': 'Account deleted'})
+        # 账号已删除：像退出登录一样清掉 session_token cookie，避免浏览器还带着已失效的会话
+        response = make_response(jsonify({'success': True, 'message': 'Account deleted'}))
+        response.set_cookie('session_token', '', max_age=0)
+        return response
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
