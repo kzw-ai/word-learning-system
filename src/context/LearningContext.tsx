@@ -8,6 +8,7 @@ import {
 import type { UserProfileSummary } from '@/src/lib/types';
 import { ensureGuestId, hasStoredGuestId, safeGetItem, safeRemoveItem, safeSetItem } from '@/src/lib/guestIdentity';
 import { authenticatedFetch } from '@/src/lib/authClient';
+import { restoreAuthFromPreferences } from '@/src/lib/appStorage';
 
 // 开发期才允许用 UserSwitcher 切换到任意测试用户（后端也须设 ALLOW_USER_ID_PARAM=1）
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -156,41 +157,45 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
   const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
-    setUserIdState(readInitialUserId());
+    // App 里 localStorage 可能被 iOS 在存储紧张时清掉：先从 Preferences 回填关键身份键，
+    // 再确定身份（登录账号 / 开发期测试用户 / 访客 ID）。
+    restoreAuthFromPreferences().then(() => {
+      setUserIdState(readInitialUserId());
 
-    const token = safeGetItem('session_token');
-    if (token) {
-      // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
-      authenticatedFetch('/api/auth/validate')
-        .then(r => r.json())
-        .then(result => {
-          // 响应较慢时用户可能已重新登录：只处理被校验的那个凭证，
-          // 否则旧凭证的「失效」会把刚登录的新账号清掉
-          if (result && result.valid === false && safeGetItem('session_token') === token) {
-            LOGIN_KEYS.forEach(safeRemoveItem);
-            document.cookie = 'session_token=; Path=/; Max-Age=0';
-            setUserIdState(ensureGuestId());
-          }
-        })
-        .catch(() => {
-          // 网络失败时保持现状，不因为一次失败就登出
-        });
-    } else {
-      // 本地没有凭证，但服务器下发的 HttpOnly 登录 cookie 可能还有效（JS 读不到它）。
-      // 后端会按这个 cookie 认人，前端若仍当自己是访客，请求就会对不上而被拒
-      authenticatedFetch('/api/auth/validate')
-        .then(r => r.json())
-        .then(result => {
-          if (result && result.valid && result.user_id && !safeGetItem('session_token')) {
-            setUserIdState(result.user_id);
-          }
-        })
-        .catch(() => {
-          // 拿不到就按访客继续
-        });
-    }
-    setAvailableUsers(readInitialUsers());
-    setApiBaseUrlState(getApiBaseUrl());
+      const token = safeGetItem('session_token');
+      if (token) {
+        // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
+        authenticatedFetch('/api/auth/validate')
+          .then(r => r.json())
+          .then(result => {
+            // 响应较慢时用户可能已重新登录：只处理被校验的那个凭证，
+            // 否则旧凭证的「失效」会把刚登录的新账号清掉
+            if (result && result.valid === false && safeGetItem('session_token') === token) {
+              LOGIN_KEYS.forEach(safeRemoveItem);
+              document.cookie = 'session_token=; Path=/; Max-Age=0';
+              setUserIdState(ensureGuestId());
+            }
+          })
+          .catch(() => {
+            // 网络失败时保持现状，不因为一次失败就登出
+          });
+      } else {
+        // 本地没有凭证，但服务器下发的 HttpOnly 登录 cookie 可能还有效（JS 读不到它）。
+        // 后端会按这个 cookie 认人，前端若仍当自己是访客，请求就会对不上而被拒
+        authenticatedFetch('/api/auth/validate')
+          .then(r => r.json())
+          .then(result => {
+            if (result && result.valid && result.user_id && !safeGetItem('session_token')) {
+              setUserIdState(result.user_id);
+            }
+          })
+          .catch(() => {
+            // 拿不到就按访客继续
+          });
+      }
+      setAvailableUsers(readInitialUsers());
+      setApiBaseUrlState(getApiBaseUrl());
+    });
   }, []);
 
   useEffect(() => {

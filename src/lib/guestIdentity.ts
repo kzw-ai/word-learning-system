@@ -1,3 +1,5 @@
+import { persistAuthKey } from './appStorage';
+
 /**
  * 未登录访客的身份。
  *
@@ -73,6 +75,8 @@ export const ensureGuestId = (): string => {
   if (!isGuestId(id)) {
     id = isGuestId(cachedGuestId) ? cachedGuestId : generateGuestId();
     safeSetItem(GUEST_STORAGE_KEY, id);
+    // App 里再备份一份到 Preferences（fire-and-forget，不阻塞首次渲染）
+    persistAuthKey(GUEST_STORAGE_KEY, id);
   }
   cachedGuestId = id;
   writeGuestCookie(id);
