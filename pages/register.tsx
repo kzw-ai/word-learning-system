@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, UserPlus } from 'lucide-react';
-import { buildApiUrl } from "@/src/lib/apiClient";
+import { authenticatedFetch } from "@/src/lib/authClient";
 
 const Register = () => {
   const router = useRouter();
@@ -42,11 +42,8 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(buildApiUrl('/api/auth/register'), {
+      const response = await authenticatedFetch('/api/auth/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           username: formData.username,
           password: formData.password,

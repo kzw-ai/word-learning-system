@@ -7,7 +7,7 @@ import {
 } from '@/src/lib/apiClient';
 import type { UserProfileSummary } from '@/src/lib/types';
 import { ensureGuestId, hasStoredGuestId, safeGetItem, safeRemoveItem, safeSetItem } from '@/src/lib/guestIdentity';
-import { buildApiUrl } from '@/src/lib/apiClient';
+import { authenticatedFetch } from '@/src/lib/authClient';
 
 // 开发期才允许用 UserSwitcher 切换到任意测试用户（后端也须设 ALLOW_USER_ID_PARAM=1）
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -161,7 +161,7 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     const token = safeGetItem('session_token');
     if (token) {
       // 本地存着的登录凭证可能已过期：校验一次，失效就清掉，退回访客身份
-      fetch(buildApiUrl('/api/auth/validate'), { headers: { 'X-Session-Token': token } })
+      authenticatedFetch('/api/auth/validate')
         .then(r => r.json())
         .then(result => {
           // 响应较慢时用户可能已重新登录：只处理被校验的那个凭证，
@@ -178,7 +178,7 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     } else {
       // 本地没有凭证，但服务器下发的 HttpOnly 登录 cookie 可能还有效（JS 读不到它）。
       // 后端会按这个 cookie 认人，前端若仍当自己是访客，请求就会对不上而被拒
-      fetch(buildApiUrl('/api/auth/validate'))
+      authenticatedFetch('/api/auth/validate')
         .then(r => r.json())
         .then(result => {
           if (result && result.valid && result.user_id && !safeGetItem('session_token')) {

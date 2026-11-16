@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, LogIn } from 'lucide-react';
-import { buildApiUrl } from "@/src/lib/apiClient";
+import { authenticatedFetch } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 
 const Login = () => {
@@ -24,12 +24,8 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(buildApiUrl('/api/auth/login'), {
+      const response = await authenticatedFetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',  // 允许cookie
         body: JSON.stringify(formData)
       });
 
