@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchWordExercises } from '@/lib/apiClient';
 import { parseFillHint, completeSentence } from '@/lib/fillHint';
@@ -12,6 +12,7 @@ import StrokeOrderAnimation from '@/components/StrokeOrderAnimation';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
+import { useWordData } from '@/hooks/useWordData';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
 
 const DEFAULT_WORD_ID = 1;
@@ -47,6 +48,16 @@ export default function Exercise() {
   const { session, hydrated, restored, updateSession } = useLearningSession();
   const wordId = session.wordId ?? DEFAULT_WORD_ID;
   const wordLabel = session.word ?? DEFAULT_WORD_NAME;
+  const { word } = useWordData({ initialWordId: wordId });
+
+  // 安卓返回键回首页（同 LearningScreen）
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/');
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   const [questions, setQuestions] = useState<ExerciseQuestion[]>([]);
   const [index, setIndex] = useState(0);
@@ -340,6 +351,15 @@ export default function Exercise() {
             {isFill && fillHint && (
               <Text style={styles.feedbackSentence}>{completeSentence(fillHint.stem, current.correctAnswer)}</Text>
             )}
+            {/* 字 + 拼音 + 释义（网页版反馈卡同款；释义题的题干就是这句释义，不重复） */}
+            {word && (
+              <Text style={styles.feedbackWordInfo}>
+                <Text style={styles.feedbackWordLabel}>{wordLabel}</Text> {word.pinyin}
+                {current.type !== 'definition' && (
+                  <Text style={styles.feedbackWordDef}> · {word.definition}</Text>
+                )}
+              </Text>
+            )}
             {/* 填字题：自己写的字和标准写法（笔顺动画）并排对照 */}
             {isFill && (
               <View style={styles.compareRow}>
@@ -469,6 +489,9 @@ const styles = StyleSheet.create({
   textWrong: { color: colors.dangerText },
   feedbackAnswer: { fontSize: fontSize.base, fontWeight: '700', color: colors.dangerText },
   feedbackSentence: { fontSize: fontSize.base, fontWeight: '600', color: colors.textStrong },
+  feedbackWordInfo: { fontSize: fontSize.base, fontWeight: '500', color: colors.textStrong },
+  feedbackWordLabel: { fontWeight: '700', color: colors.primaryDark },
+  feedbackWordDef: { color: colors.textMuted },
   compareRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg, marginTop: spacing.sm },
   compareItem: { alignItems: 'center', gap: spacing.xs },
   compareLabel: { fontSize: fontSize.body, fontWeight: '500', color: colors.textStrong },

@@ -1,5 +1,6 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import StepProgress from './StepProgress';
 import { colors, fontSize, buttonHeight, radius, spacing } from '@/theme';
@@ -32,6 +33,15 @@ export default function LearningScreen({
   children,
   footer,
 }: LearningScreenProps) {
+  // 安卓返回键回首页：学习步骤之间用 replace，栈里只有「首页 → 当前步骤」，返回即退出学习流程。
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/');
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>

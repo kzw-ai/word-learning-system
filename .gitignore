@@ -47,3 +47,6 @@ docs/安全审计报告.md
 
 # 手写笔画数据：构建时从 hanzi-writer-data 复制（scripts/copy_hanzi_data.js）
 /public/hanzi-data/
+
+# 验收截图（.review/），只给人看，不提交进 git
+.review/

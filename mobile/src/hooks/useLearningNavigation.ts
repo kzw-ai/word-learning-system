@@ -82,7 +82,9 @@ export const useLearningNavigation = (currentModule: string, { skipCharacter = f
     updateSession({ module: targetKey });
     const path = moduleRouteMap[targetKey];
     if (path) {
-      router.push(path as any);
+      // 学习步骤之间用 replace，栈里只保留「首页 → 当前步骤」，
+      // 避免来回切把旧页面一层层压在栈里（旧页面的计时/事件 hook 还会跑）。
+      router.replace(path as any);
     }
   }, [router, updateSession]);
 

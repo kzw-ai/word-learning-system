@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authenticatedFetch, sendRecommendationFeedback } from '@/lib/authClient';
@@ -26,6 +26,14 @@ export default function WordLearningEntrance() {
   const [settled, setSettled] = useState(false);
   const [selected, setSelected] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // 页面重新获得焦点时复位「提交中」状态：防止上一轮 setSubmitting(true) 后跳转未完成，
+  // 回来时按钮一直转圈、发不出请求（网页版换页整页重载，RN 不会）。
+  useFocusEffect(
+    useCallback(() => {
+      setSubmitting(false);
+    }, [])
+  );
 
   const askedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
 
@@ -98,7 +106,9 @@ export default function WordLearningEntrance() {
     });
 
     await tracking.endSession(true);
-    router.push(resolvedPath as any);
+    // replace 而不是 push：自评页是学习流程的入口，选完就替换成学习步骤，
+    // 返回时回首页而不是卡在自评页（旧页面若留在栈里，提交中状态不会复位）。
+    router.replace(resolvedPath as any);
   };
 
   const displayWord = targetWord?.word ?? DEFAULT_WORD_NAME;
