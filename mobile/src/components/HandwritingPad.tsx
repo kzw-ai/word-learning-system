@@ -34,6 +34,8 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
   }, []);
 
   const toPoint = useCallback((x: number, y: number): Point => {
+    // locationX/Y 是 dp（相对手写格 View）。Svg 加了 pointerEvents="none"，
+    // 触摸不会落到格线/笔画上，locationX/Y 一定相对手写格 View，按实际宽度缩放到 240 逻辑坐标。
     return [(x / sizeRef.current) * SIZE, (y / sizeRef.current) * SIZE];
   }, []);
 
@@ -83,7 +85,7 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
       {...panResponder.panHandlers}
       accessibilityLabel="Handwriting area: write the missing character here"
     >
-      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`} pointerEvents="none">
         <Line x1={SIZE / 2} y1={0} x2={SIZE / 2} y2={SIZE} stroke="#e0e7ff" strokeWidth={1.5} strokeDasharray="6 6" />
         <Line x1={0} y1={SIZE / 2} x2={SIZE} y2={SIZE / 2} stroke="#e0e7ff" strokeWidth={1.5} strokeDasharray="6 6" />
         {allStrokes.map((stroke, i) =>

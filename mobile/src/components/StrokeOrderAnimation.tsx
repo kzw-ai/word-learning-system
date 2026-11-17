@@ -3,7 +3,7 @@
 // strokeDashoffset 动画从全长到 0），字形轮廓只在已画出的中线覆盖区域可见 → 逐笔显露。
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Defs, G, Mask, Path } from 'react-native-svg';
+import Svg, { ClipPath, Defs, G, Path } from 'react-native-svg';
 import { loadCharacterData } from '@/lib/strokeData';
 import type { CharacterData, Point } from '@/lib/handwriting';
 import { colors, fontSize, radius } from '@/theme';
@@ -11,8 +11,7 @@ import { colors, fontSize, radius } from '@/theme';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const COORD = 1024;
 // hanzi-writer-data 的 medians 和 strokes 都是 y 轴朝上（基线 900），SVG 是 y 轴朝下。
-// 不要单独翻转 medians（那样会和 strokes 对不上、字形颠倒），而是把两者放进同一个
-// transform 里统一翻转：scale(1,-1) 翻 y，translate(0,900) 把翻转后坐标平移回 0–1024。
+// 不要单独翻转 medians，而是把两者放进同一个 transform 里统一翻转。
 const FLIP = 'translate(0, 900) scale(1, -1)';
 // 中线宽度：遮罩可见区域的粗细（够宽才能遮住字形轮廓的笔划）
 const STROKE_WIDTH = 130;
@@ -33,14 +32,22 @@ interface StrokeOrderAnimationProps {
 
 export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOrderAnimationProps) {
   const [data, setData] = useState<CharacterData | null>(null);
-  const progressRef = useRef<Animated.Value[]>([]);
+  // 每笔一个 Animated.Value。用 state 存（不用 ref），确保 data 设置后触发 re-render，
+  // render 时 progress[i] 已就绪，AnimatedPath 的 strokeDashoffset 绑定的是 Animated 插值而非静态值。
+  const [progress, setProgress] = useState<Animated.Value[]>([]);
+  const playedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
+    setProgress([]);
+    playedRef.current = false;
     loadCharacterData(character)
       .then(d => {
-        if (!cancelled) setData(d);
+        if (!cancelled) {
+          setData(d);
+          setProgress(d.medians.map(() => new Animated.Value(0)));
+        }
       })
       .catch(() => {
         if (!cancelled) setData(null);
@@ -51,20 +58,21 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
   }, [character]);
 
   const play = useCallback(() => {
-    if (!data) return;
-    progressRef.current.forEach(p => p.setValue(0));
-    const anims = progressRef.current.map(p =>
+    if (progress.length === 0) return;
+    progress.forEach(p => p.setValue(0));
+    const anims = progress.map(p =>
       Animated.timing(p, { toValue: 1, duration: 700, useNativeDriver: false })
     );
     Animated.stagger(220, anims).start();
-  }, [data]);
+  }, [progress]);
 
+  // data + progress 都就绪后自动播放一次；Replay 点击直接调用 play()。
   useEffect(() => {
-    if (data) {
-      progressRef.current = data.medians.map(() => new Animated.Value(0));
+    if (data && progress.length === data.medians.length && !playedRef.current) {
+      playedRef.current = true;
       play();
     }
-  }, [data, play]);
+  }, [data, progress, play]);
 
   if (!data) {
     return (
@@ -77,7 +85,6 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
     );
   }
 
-  // medians 与 strokes 共用同一套 y 轴朝上的坐标，统一由 FLIP transform 翻转
   const medians = data.medians;
 
   return (
@@ -85,38 +92,39 @@ export default function StrokeOrderAnimation({ character, size = 110 }: StrokeOr
       <View style={[styles.frame, { width: size, height: size }]}>
         <Svg width={size} height={size} viewBox={`0 0 ${COORD} ${COORD}`}>
           <Defs>
-            <Mask id={`mask-${character}`}>
-              <G transform={FLIP}>
-                {medians.map((points, i) => {
-                const len = polylineLen(points) || 1;
-                const progress = progressRef.current[i];
-                const dashOffset = progress
-                  ? progress.interpolate({ inputRange: [0, 1], outputRange: [len, 0] })
-                  : len;
-                return (
-                  <AnimatedPath
-                    key={i}
-                    d={toPolyline(points)}
-                    stroke="white"
-                    strokeWidth={STROKE_WIDTH}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                    strokeDasharray={[len, len]}
-                    strokeDashoffset={dashOffset}
-                  />
-                );
-                })}
-              </G>
-            </Mask>
+            {data.strokes.map((d, i) => (
+              <ClipPath key={i} id={`clip-${character}-${i}`}>
+                <Path d={d} fill="#fff" />
+              </ClipPath>
+            ))}
           </Defs>
-          {/* 字形轮廓（实心），被中线 mask 遮罩，逐笔显露；轮廓与中线用同一个 transform 翻转 */}
-          <G mask={`url(#mask-${character})`}>
-            <G transform={FLIP}>
-              {data.strokes.map((d, i) => (
-                <Path key={i} d={d} fill="#1f2937" />
-              ))}
-            </G>
+          {/* ClipPath 复刻 hanzi-writer：浅灰字形轮廓做背景，每笔中线用 strokeDashoffset 动画，
+              再裁到该笔的字形轮廓内，逐笔填满字形、不溢出轮廓 */}
+          <G transform={FLIP}>
+            {data.strokes.map((d, i) => (
+              <Path key={`outline-${i}`} d={d} fill="#e2e8f0" />
+            ))}
+            {medians.map((points, i) => {
+              const len = polylineLen(points) || 1;
+              const p = progress[i];
+              const dashOffset = p
+                ? p.interpolate({ inputRange: [0, 1], outputRange: [len, 0] })
+                : len;
+              return (
+                <AnimatedPath
+                  key={`stroke-${i}`}
+                  d={toPolyline(points)}
+                  stroke="#1f2937"
+                  strokeWidth={STROKE_WIDTH}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  strokeDasharray={[len, len]}
+                  strokeDashoffset={dashOffset}
+                  clipPath={`url(#clip-${character}-${i})`}
+                />
+              );
+            })}
           </G>
         </Svg>
       </View>
