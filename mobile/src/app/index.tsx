@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bgStart },
   container: { flex: 1, paddingHorizontal: 20, paddingVertical: spacing.lg, gap: spacing.lg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginRight: -spacing.sm },
   headerBtn: { minHeight: buttonHeight.min, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   headerLink: { fontSize: fontSize.body, fontWeight: '600', color: colors.primaryDark },
   appName: { fontSize: fontSize.base, fontWeight: '800', color: colors.text },

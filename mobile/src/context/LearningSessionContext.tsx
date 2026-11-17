@@ -121,13 +121,6 @@ export const LearningSessionProvider: React.FC<React.PropsWithChildren<{}>> = ({
       };
       const restoreTimer = setTimeout(finishRestore, 3000);
 
-      // 访客（guest_）的学习位置只在本地，后端不存；不拉服务器，避免 401 警告
-      if (userId.startsWith('guest_')) {
-        clearTimeout(restoreTimer);
-        finishRestore();
-        return;
-      }
-
       try {
         const serverState = await fetchLearningState(userId);
         if (cancelled || userIdRef.current !== userId) return;

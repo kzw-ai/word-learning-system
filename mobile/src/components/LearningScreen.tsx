@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import StepProgress from './StepProgress';
+import { useSwipeNavigation } from '@/hooks/useSwipeNavigation';
 import { colors, fontSize, buttonHeight, radius, spacing } from '@/theme';
 
 interface LearningScreenProps {
@@ -42,8 +44,14 @@ export default function LearningScreen({
     return () => sub.remove();
   }, []);
 
+  const swipe = useSwipeNavigation(direction => {
+    if (direction === 'next') onNext?.();
+    else onPrevious?.();
+  });
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <GestureDetector gesture={swipe}>
+      <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Pressable
           style={[styles.navBtn, !previous && styles.navBtnDisabled]}
@@ -71,7 +79,8 @@ export default function LearningScreen({
       </ScrollView>
 
       <View style={styles.footer}>{footer}</View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </GestureDetector>
   );
 }
 
