@@ -16,18 +16,22 @@ interface HandwritingPadProps {
   disabled?: boolean;
   /** 答完后边框颜色：对 / 错 */
   result?: 'correct' | 'wrong' | null;
+  /** 手指在手写格上 / 离开（用于外层 ScrollView 关滚动，避免 iOS 回弹抢手势） */
+  onWritingChange?: (writing: boolean) => void;
 }
 
 const strokePath = (stroke: Stroke) =>
   stroke.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
 
-export default function HandwritingPad({ strokes, onChange, disabled = false, result = null }: HandwritingPadProps) {
+export default function HandwritingPad({ strokes, onChange, disabled = false, result = null, onWritingChange }: HandwritingPadProps) {
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
   const currentStrokeRef = useRef<Stroke | null>(null);
   currentStrokeRef.current = currentStroke;
   const sizeRef = useRef(SIZE);
+  const onWritingChangeRef = useRef(onWritingChange);
+  onWritingChangeRef.current = onWritingChange;
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     sizeRef.current = e.nativeEvent.layout.width || SIZE;
@@ -51,7 +55,11 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
     PanResponder.create({
       onStartShouldSetPanResponder: () => !disabled,
       onMoveShouldSetPanResponder: () => !disabled,
+      // iOS 的 ScrollView 默认回弹，竖向拖动会被它抢走、终止我们的手势（竖笔画丢失）。
+      // 不让出手势；外层 ScrollView 也会在写字时 scrollEnabled=false 双保险。
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: evt => {
+        onWritingChangeRef.current?.(true);
         const { locationX, locationY } = evt.nativeEvent;
         setCurrentStroke([toPoint(locationX, locationY)]);
       },
@@ -67,9 +75,11 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
         });
       },
       onPanResponderRelease: () => {
+        onWritingChangeRef.current?.(false);
         finishStroke(currentStrokeRef.current);
       },
       onPanResponderTerminate: () => {
+        onWritingChangeRef.current?.(false);
         finishStroke(currentStrokeRef.current);
       },
     })
@@ -112,8 +122,9 @@ export default function HandwritingPad({ strokes, onChange, disabled = false, re
 export function HandwritingThumb({ strokes, size, result }: { strokes: Stroke[]; size: number; result: 'correct' | 'wrong' }) {
   const borderColor = result === 'correct' ? colors.success : colors.danger;
   return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size} viewBox={`0 0 ${SIZE} ${SIZE}`} style={[styles.thumb, { borderColor }]}>
+    // 边框/背景放在外层 View 上（style 放 <Svg> 上在 iOS 会导致尺寸为 0，缩略图一片空白）
+    <View style={[styles.thumb, { width: size, height: size, borderColor }]}>
+      <Svg width={size} height={size} viewBox={`0 0 ${SIZE} ${SIZE}`}>
         <Line x1={SIZE / 2} y1={0} x2={SIZE / 2} y2={SIZE} stroke="#e0e7ff" strokeWidth={2} strokeDasharray="8 8" />
         <Line x1={0} y1={SIZE / 2} x2={SIZE} y2={SIZE / 2} stroke="#e0e7ff" strokeWidth={2} strokeDasharray="8 8" />
         {strokes.map((stroke, i) =>
@@ -149,5 +160,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 2,
     backgroundColor: colors.white,
+    overflow: 'hidden',
   },
 });

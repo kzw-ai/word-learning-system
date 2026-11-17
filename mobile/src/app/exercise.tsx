@@ -65,6 +65,7 @@ export default function Exercise() {
   const [fillAnswer, setFillAnswer] = useState('');
   const [fillMode, setFillMode] = useState<'write' | 'type'>('write');
   const [handStrokes, setHandStrokes] = useState<Stroke[]>([]);
+  const [writing, setWriting] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -247,7 +248,7 @@ export default function Exercise() {
         </Text>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentInner} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentInner} keyboardShouldPersistTaps="handled" scrollEnabled={!writing}>
         <View style={styles.card}>
           <Text style={styles.questionTitle}>{getQuestionTitle(current)}</Text>
           <Text style={styles.questionStem}>{fillHint ? fillHint.stem : current.question}</Text>
@@ -271,6 +272,7 @@ export default function Exercise() {
                   onChange={setHandStrokes}
                   disabled={showFeedback}
                   result={showFeedback ? (isCorrect ? 'correct' : 'wrong') : null}
+                  onWritingChange={setWriting}
                 />
                 <View style={styles.writeTools}>
                   <Pressable style={styles.toolBtn} onPress={() => setHandStrokes(handStrokes.slice(0, -1))} disabled={handStrokes.length === 0}>
