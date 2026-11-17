@@ -10,6 +10,7 @@ import { loadCharacterData } from '@/lib/strokeData';
 import type { ExerciseQuestionPayload } from '@/lib/types';
 import HandwritingPad, { HandwritingThumb } from '@/components/HandwritingPad';
 import StrokeOrderAnimation from '@/components/StrokeOrderAnimation';
+import AudioPlayer from '@/components/AudioPlayer';
 import { useLearningContext } from '@/context/LearningContext';
 import { afterWordRoute, reviewedToday, todayReviewKey, useLearningSession } from '@/context/LearningSessionContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
@@ -358,6 +359,14 @@ export default function Exercise() {
                   <Text style={[styles.optionText, showCorrect && styles.optionTextLight]}>{option}</Text>
                   {showCorrect && <Text style={styles.optionTextLight}>✓</Text>}
                   {showWrong && <Text style={styles.optionTextLight}>✗</Text>}
+                  {/* 答完才给发音（正确项和自己选的那项）：先凭字形作答，答完再把音和形连起来 */}
+                  {showFeedback && (showCorrect || isSelected) && (
+                    <AudioPlayer
+                      text={option.replace(/（[^）]*）/g, '')}
+                      audioUrl={current.optionAudio?.[option]}
+                      language="zh-CN"
+                    />
+                  )}
                 </Pressable>
               );
             })}

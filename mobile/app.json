@@ -36,7 +36,8 @@
         }
       ],
       "expo-secure-store",
-      "./plugins/withAndroidBuildProps"
+      "./plugins/withAndroidBuildProps",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
