@@ -1,7 +1,7 @@
 // 源文件：pages/register.tsx（网页版）。RN 版：跳转用 router.replace。
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authenticatedFetch } from '@/lib/authClient';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
@@ -84,7 +84,7 @@ export default function Register() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <ScrollView style={styles.flex} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.subtitle}>Create an account to keep your progress on any device</Text>
 

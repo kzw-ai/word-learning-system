@@ -346,7 +346,8 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: fontSize['2xl'], fontWeight: '800', color: colors.text },
   statLabel: { fontSize: fontSize.body, color: colors.textMuted },
-  progressBlock: { gap: spacing.sm },
+  // 卡片是 alignItems: 'center'（标题居中）；进度行要撑满卡片，文字靠左、数字靠右
+  progressBlock: { gap: spacing.sm, alignSelf: 'stretch' },
   progressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   progressLabel: { fontSize: fontSize.base, color: colors.textMuted },
   progressValue: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },

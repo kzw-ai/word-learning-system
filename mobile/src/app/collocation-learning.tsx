@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LearningScreen from '@/components/LearningScreen';
 import AudioPlayer from '@/components/AudioPlayer';
+import CollocationText from '@/components/CollocationText';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
@@ -50,7 +51,7 @@ export default function CollocationLearning() {
         {word.collocations.map((c, i) => (
           <View key={i} style={styles.card}>
             <View style={styles.collocationRow}>
-              <Text style={styles.collocation}>{c.collocation}</Text>
+              <CollocationText text={c.collocation} target={word.hanzi || word.pinyin} style={styles.collocation} />
               <AudioPlayer text={c.collocation.replace(/（[^）]*）/g, '')} audioUrl={c.audio || undefined} language="zh-CN" />
             </View>
             <Text style={styles.translation}>{c.translation}</Text>

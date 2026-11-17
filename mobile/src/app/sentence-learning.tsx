@@ -53,7 +53,8 @@ export default function SentenceLearning() {
               <Text style={styles.sentence}>{e.sentence}</Text>
               <AudioPlayer text={e.sentence} audioUrl={e.audio || undefined} language="zh-CN" />
             </View>
-            {e.pinyin ? <Text style={styles.pinyin}>{e.pinyin}</Text> : null}
+            {/* 素材里的拼音是「对/duì 我/wǒ」，汉字上一行已经有了，只留拼音；词之间的空格保留分词（同网页版 WordBlocks） */}
+            {e.pinyin ? <Text style={styles.pinyin}>{e.pinyin.replace(/[\u4e00-\u9fff]+\//g, '')}</Text> : null}
             {e.translation ? <Text style={styles.translation}>{e.translation}</Text> : null}
           </View>
         ))}

@@ -7,9 +7,9 @@ import { LearningProvider } from '@/context/LearningContext';
 import { LearningSessionProvider } from '@/context/LearningSessionContext';
 
 export default function RootLayout() {
-  // 音频会话：iOS 静音键打开时也要出声（全局设置一次，不在每个发音按钮里重复设置）
+  // 音频会话（全局设置一次）：iOS 静音键打开时也要出声；用户在听音乐时，发音只把音乐压低，不打断（方案第 3 节 duckOthers）
   useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'duckOthers' }).catch(() => {});
   }, []);
 
   return (
