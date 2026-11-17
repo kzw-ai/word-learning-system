@@ -13,6 +13,8 @@ interface LearningContextValue {
   apiBaseUrl: string;
   setApiBaseUrl: (url: string) => void;
   resetApiBaseUrl: () => void;
+  /** 退出登录 / 删除账号后清空本地凭证并退回访客身份 */
+  clearAuth: () => Promise<void>;
 }
 
 const LearningContext = createContext<LearningContextValue | undefined>(undefined);
@@ -68,13 +70,20 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     setApiBaseUrlOverride(null);
   }, []);
 
+  const clearAuth = useCallback(async () => {
+    // 清掉 SecureStore 里的凭证，退回访客身份。访客 id 在 AsyncStorage 里，不受影响。
+    for (const key of AUTH_KEYS) await removeSecure(key);
+    setUserIdState(await ensureGuestId());
+  }, []);
+
   const value = useMemo<LearningContextValue>(() => ({
     userId,
     setUserId,
     apiBaseUrl,
     setApiBaseUrl,
     resetApiBaseUrl,
-  }), [userId, setUserId, apiBaseUrl, setApiBaseUrl, resetApiBaseUrl]);
+    clearAuth,
+  }), [userId, setUserId, apiBaseUrl, setApiBaseUrl, resetApiBaseUrl, clearAuth]);
 
   return <LearningContext.Provider value={value}>{children}</LearningContext.Provider>;
 };

@@ -15,7 +15,7 @@ const LEVELS: { level: Level; words: number; example: { chars: string; pinyin: s
 ];
 
 export default function HomeScreen() {
-  const { userId } = useLearningContext();
+  const { userId, clearAuth } = useLearningContext();
   const { hydrated, session } = useLearningSession();
   const [level, setLevel] = useState<Level>(4);
   const [saving, setSaving] = useState(false);
@@ -23,6 +23,11 @@ export default function HomeScreen() {
 
   const levelInfo = LEVELS.find(l => l.level === level)!;
   const returning = Boolean(session.wordId);
+  const isGuest = userId.startsWith('guest_');
+
+  const handleSignOut = async () => {
+    await clearAuth();
+  };
 
   const chooseLevel = (next: Level) => {
     setLevel(next);
@@ -48,6 +53,20 @@ export default function HomeScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.appName}>Word Learning</Text>
+          <View style={styles.headerActions}>
+            <Pressable onPress={() => router.replace('/privacy')}>
+              <Text style={styles.headerLink}>Privacy</Text>
+            </Pressable>
+            {isGuest ? (
+              <Pressable onPress={() => router.replace('/login')}>
+                <Text style={styles.headerLink}>Sign in</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={handleSignOut}>
+                <Text style={styles.headerLink}>Sign out</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.hero}>
@@ -107,7 +126,9 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bgStart },
   container: { flex: 1, paddingHorizontal: 20, paddingVertical: spacing.lg, gap: spacing.lg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  headerLink: { fontSize: fontSize.body, fontWeight: '600', color: colors.primaryDark },
   appName: { fontSize: fontSize.base, fontWeight: '800', color: colors.text },
   hero: { gap: spacing.xs },
   title: { fontSize: fontSize['2xl'], fontWeight: '800', color: colors.text, lineHeight: 32 },
