@@ -1,6 +1,7 @@
 // 源文件：src/lib/guestIdentity.ts（网页版）。RN 版：随机源用 expo-crypto，
 // 存储用 AsyncStorage（卸载即清，重装即新访客）。
 import * as Crypto from 'expo-crypto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocal, setLocal } from './storage';
 
 /**
@@ -36,11 +37,17 @@ export const hasStoredGuestId = async (): Promise<boolean> => {
 
 /** 取本设备的访客 ID，没有就生成并持久保存 */
 export const ensureGuestId = async (): Promise<string> => {
-  let id = await getLocal(GUEST_STORAGE_KEY);
-  if (!isGuestId(id)) {
-    id = generateGuestId();
-    await setLocal(GUEST_STORAGE_KEY, id);
+  let stored: string | null;
+  try {
+    stored = await AsyncStorage.getItem(GUEST_STORAGE_KEY);
+  } catch {
+    // 读失败不等于没有：不能生成新 ID 把原来的覆盖掉（覆盖后原访客的学习记录就再也找不回来）。
+    // 这次先用一个临时 ID、不写入；下次启动读成功，还是原来的身份。
+    return generateGuestId();
   }
+  if (isGuestId(stored)) return stored;
+  const id = generateGuestId();
+  await setLocal(GUEST_STORAGE_KEY, id);
   return id;
 };
 

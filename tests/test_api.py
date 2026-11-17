@@ -481,18 +481,21 @@ class TestDeleteAccount:
 
         # 产生学习数据：会话 + 作答 + 事件 + 进度 + 推荐
         session_id = f's-{user_id}-1'
-        client.post('/api/learning/session/start', json={
+        r = client.post('/api/learning/session/start', json={
             'sessionId': session_id, 'wordId': 1,
             'sessionType': 'learning', 'moduleType': 'word',
             'startTime': '2026-01-01T10:00:00',
         }, headers=headers)
-        client.post('/api/learning/exercise/record', json={
+        assert r.status_code == 200, r.get_json()
+        r = client.post('/api/learning/exercise/record', json={
             'sessionId': session_id, 'questionId': 'q1', 'questionType': 'definition',
             'userAnswer': 'a', 'correctAnswer': 'b', 'isCorrect': False,
             'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
         }, headers=headers)
-        client.post('/api/learning/events/batch', json={
+        assert r.status_code == 200, r.get_json()
+        r = client.post('/api/learning/events/batch', json={
             'sessionId': session_id, 'events': [{'type': 'click'}]}, headers=headers)
+        assert r.status_code == 200, r.get_json()
 
         with app.app_context():
             # 进度与推荐直接造一行（word_id 2 与上面会话的 1 错开，避免唯一约束冲突）
@@ -507,8 +510,19 @@ class TestDeleteAccount:
             assert conn.execute(
                 "SELECT COUNT(*) FROM learning_session WHERE user_id=?", (user_id,)
             ).fetchone()[0] == 1
+            # 挂在会话上的子表删前确实有数据，删后按这个 session_id 直接查（不能经 learning_session 子查询：
+            # 父表删掉以后子查询为空，子表漏删也查不出来）
+            for table in ('exercise_record', 'learning_event'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id=?", (session_id,)
+                ).fetchone()[0] >= 1, table
         finally:
             conn.close()
+
+        # 只带 cookie、不带 X-Session-Token 头的删号请求不算数（防别的网站用表单借 cookie 删号）
+        client.set_cookie('session_token', token)
+        assert client.post('/api/auth/account/delete').status_code == 401
+        client.delete_cookie('session_token')
 
         resp = client.post('/api/auth/account/delete', headers=headers)
         assert resp.status_code == 200
@@ -525,14 +539,10 @@ class TestDeleteAccount:
                     f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (user_id,)
                 ).fetchone()[0] == 0, table
             # 挂在会话上的子表也一并清空
-            assert conn.execute(
-                "SELECT COUNT(*) FROM exercise_record WHERE session_id IN "
-                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
-            ).fetchone()[0] == 0
-            assert conn.execute(
-                "SELECT COUNT(*) FROM learning_event WHERE session_id IN "
-                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
-            ).fetchone()[0] == 0
+            for table in ('exercise_record', 'learning_event'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id=?", (session_id,)
+                ).fetchone()[0] == 0, table
         finally:
             conn.close()
 

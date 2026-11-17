@@ -34,7 +34,9 @@ export const LearningProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
         try {
           const resp = await authenticatedFetch('/api/auth/validate');
           const result = await resp.json();
-          if (result && result.valid === false) {
+          // 响应较慢时用户可能已重新登录：只清被校验的那个凭证，
+          // 否则旧凭证的「失效」会把刚登录的新账号清掉（同网页版 src/context/LearningContext.tsx）
+          if (result && result.valid === false && (await getSecure('session_token')) === token) {
             for (const key of AUTH_KEYS) await removeSecure(key);
             setUserIdState(await ensureGuestId());
           }
