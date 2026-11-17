@@ -89,3 +89,54 @@ export interface RecentSessionSummary {
   endTime?: string | null;
   durationSeconds?: number | null;
 }
+
+// —— 今日复习 / 学习看板 ——
+export interface ReviewItem {
+  word_id: number;
+  word: string;
+  pinyin?: string;
+  mastery_level: number;
+  days_overdue: number;
+  review_count: number;
+  priority_score: number;
+  recommended_module: string;
+  /** 还要复习几次（各题型中最多的那个），0 表示已达标、进入长期巩固 */
+  reviews_remaining?: number;
+  /** 还需复习的题型 */
+  review_types?: string[];
+}
+
+export interface Recommendation {
+  type: string;
+  priority: string;
+  /** 暂时没有任务（all_caught_up）时为空 */
+  word_id: number | null;
+  word?: string;
+  reason: string;
+  recommended_module: string | null;
+  confidence: number;
+  estimated_time: number;
+  recommendationId?: number | null;
+  next_review_at?: string | null;
+}
+
+export interface DashboardData {
+  overallProgress: {
+    totalWords: number;
+    hskLevel?: 3 | 4;
+    levels?: Record<string, { words: number; studied: number }>;
+    studiedWords: number;
+    masteredWords: number;
+    averageMastery: number;
+  };
+  todayStats: {
+    studyTimeMinutes: number;
+    wordsReviewed: number;
+    exercisesCompleted: number;
+    averageAccuracy: number;
+  };
+  recommendations: Recommendation[];
+  dueReviews: number;
+  strengths: string[];
+  weaknesses: string[];
+}

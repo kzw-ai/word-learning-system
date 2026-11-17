@@ -21,7 +21,7 @@ const learningOptions = [
 
 export default function WordLearningEntrance() {
   const { userId } = useLearningContext();
-  const { session, updateSession } = useLearningSession();
+  const { session, hydrated, updateSession } = useLearningSession();
   const [targetWord, setTargetWord] = useState<{ id: number; word: string; recommendationId?: number } | null>(null);
   const [settled, setSettled] = useState(false);
   const [selected, setSelected] = useState('');
@@ -38,7 +38,18 @@ export default function WordLearningEntrance() {
   const askedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !hydrated) return;
+    // 已有目标词（首页「继续学习」或看板带词进来）：直接用，不重新请求推荐
+    if (session.wordId) {
+      setTargetWord({
+        id: session.wordId,
+        word: session.word ?? DEFAULT_WORD_NAME,
+        recommendationId: session.recommendationId ?? undefined,
+      });
+      setSettled(true);
+      return;
+    }
+    // 否则请求推荐引擎（新词）
     let cancelled = false;
     const context = encodeURIComponent(JSON.stringify({ new_only: true }));
     authenticatedFetch(`/api/adaptive/recommendation/${userId}?context=${context}`, { cache: 'no-cache' })
@@ -57,7 +68,7 @@ export default function WordLearningEntrance() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, hydrated]);
 
   useEffect(() => {
     setSelected(session.wordId === askedWordId ? session.vksLevel ?? '' : '');

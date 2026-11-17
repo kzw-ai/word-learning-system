@@ -10,7 +10,7 @@ import type { ExerciseQuestionPayload } from '@/lib/types';
 import HandwritingPad, { HandwritingThumb } from '@/components/HandwritingPad';
 import StrokeOrderAnimation from '@/components/StrokeOrderAnimation';
 import { useLearningContext } from '@/context/LearningContext';
-import { useLearningSession } from '@/context/LearningSessionContext';
+import { afterWordRoute, useLearningSession } from '@/context/LearningSessionContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { useWordData } from '@/hooks/useWordData';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
@@ -70,7 +70,6 @@ export default function Exercise() {
   const [isCorrect, setIsCorrect] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [finished, setFinished] = useState(false);
 
   const current = questions[index] ?? null;
   const fillHint = current?.type === 'fill_word' ? parseFillHint(current.question) : null;
@@ -188,12 +187,13 @@ export default function Exercise() {
       setIndex(index + 1);
     } else {
       await tracking.endSession(true);
-      setFinished(true);
+      // 学完去学习看板；复习模式回今日复习
+      router.replace(afterWordRoute(session) as any);
     }
   };
 
   const handleDone = () => {
-    router.replace('/');
+    router.replace(afterWordRoute(session) as any);
   };
 
   if (loading) {
@@ -211,18 +211,6 @@ export default function Exercise() {
         <Text style={styles.error}>❌ {error}</Text>
         <Pressable style={styles.primaryBtn} onPress={() => router.back()}>
           <Text style={styles.primaryBtnText}>Back</Text>
-        </Pressable>
-      </SafeAreaView>
-    );
-  }
-
-  if (finished) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text style={styles.finishedTitle}>Practice complete</Text>
-        <Text style={styles.muted}>You practiced “{wordLabel}”.</Text>
-        <Pressable style={styles.primaryBtn} onPress={handleDone}>
-          <Text style={styles.primaryBtnText}>Back to home</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -515,5 +503,4 @@ const styles = StyleSheet.create({
   primaryBtnText: { fontSize: fontSize.base, fontWeight: '700', color: colors.white, letterSpacing: 1 },
   muted: { fontSize: fontSize.body, color: colors.textFaint },
   error: { fontSize: fontSize.body, color: colors.dangerText, textAlign: 'center' },
-  finishedTitle: { fontSize: fontSize['2xl'], fontWeight: '800', color: colors.text },
 });
