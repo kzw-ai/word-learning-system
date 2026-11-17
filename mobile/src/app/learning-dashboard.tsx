@@ -106,7 +106,7 @@ export default function LearningDashboard() {
         reviewMode: null,
         lastUpdated: new Date().toISOString(),
       });
-      router.replace('/word-learning-entrance');
+      router.replace({ pathname: '/word-learning-entrance', params: { wordId: String(recommendation.word_id) } });
       return;
     }
 

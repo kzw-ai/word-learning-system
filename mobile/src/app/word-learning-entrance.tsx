@@ -1,8 +1,9 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authenticatedFetch, sendRecommendationFeedback } from '@/lib/authClient';
+import { formatReviewTime } from '@/lib/reviewTime';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
@@ -26,6 +27,7 @@ export default function WordLearningEntrance() {
   const [settled, setSettled] = useState(false);
   const [selected, setSelected] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [caughtUp, setCaughtUp] = useState<{ nextReviewAt: string | null } | null>(null);
 
   // 页面重新获得焦点时复位「提交中」状态：防止上一轮 setSubmitting(true) 后跳转未完成，
   // 回来时按钮一直转圈、发不出请求（网页版换页整页重载，RN 不会）。
@@ -35,29 +37,37 @@ export default function WordLearningEntrance() {
     }, [])
   );
 
+  const { wordId: paramWordId } = useLocalSearchParams<{ wordId?: string }>();
+  const passedWordId = Number(paramWordId) || null;
+
   const askedWordId = targetWord?.id ?? DEFAULT_WORD_ID;
 
   useEffect(() => {
     if (!userId || !hydrated) return;
-    // 已有目标词（首页「继续学习」或看板带词进来）：直接用，不重新请求推荐
-    if (session.wordId) {
+    // 只有调用方明确把词传过来（地址带 wordId 且和会话一致）才复用，否则一律请求新词。
+    // 不能「会话里有 wordId 就直接用」：学完一个词后会话里一直留着它，会把刚学完的词再问一遍。
+    if (passedWordId && session.wordId === passedWordId && session.word) {
       setTargetWord({
-        id: session.wordId,
-        word: session.word ?? DEFAULT_WORD_NAME,
+        id: passedWordId,
+        word: session.word,
         recommendationId: session.recommendationId ?? undefined,
       });
       setSettled(true);
       return;
     }
-    // 否则请求推荐引擎（新词）
+    // 请求推荐引擎（新词）；处理「全部学完」（all_caught_up）
     let cancelled = false;
     const context = encodeURIComponent(JSON.stringify({ new_only: true }));
     authenticatedFetch(`/api/adaptive/recommendation/${userId}?context=${context}`, { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !result.data) return;
-        const { word_id, word, recommendationId } = result.data;
-        if (word_id && word) setTargetWord({ id: word_id, word, recommendationId });
+        const { word_id, word, recommendationId, type, next_review_at } = result.data;
+        if (word_id && word) {
+          setTargetWord({ id: word_id, word, recommendationId });
+        } else if (type === 'all_caught_up') {
+          setCaughtUp({ nextReviewAt: next_review_at ?? null });
+        }
       })
       .catch(() => {
         /* 拉取失败保持默认词，不阻塞流程 */
@@ -68,7 +78,7 @@ export default function WordLearningEntrance() {
     return () => {
       cancelled = true;
     };
-  }, [userId, hydrated]);
+  }, [userId, hydrated, passedWordId]);
 
   useEffect(() => {
     setSelected(session.wordId === askedWordId ? session.vksLevel ?? '' : '');
@@ -128,48 +138,67 @@ export default function WordLearningEntrance() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.header}>
+          <Pressable style={styles.headerBtn} onPress={() => router.replace('/learning-dashboard')}>
+            <Text style={styles.headerBtnText}>← Dashboard</Text>
+          </Pressable>
           <Text style={styles.headerTitle}>Self-check</Text>
+          <Pressable style={styles.headerBtn} onPress={() => router.replace('/today-review')}>
+            <Text style={styles.headerBtnText}>Review →</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>New word</Text>
-          <View style={styles.wordBox}>
-            <Text style={styles.wordText}>{displayWord}</Text>
+        {caughtUp ? (
+          <View style={styles.caughtUpCard}>
+            <Text style={styles.caughtUpTitle}>You’re all caught up</Text>
+            <Text style={styles.caughtUpText}>
+              {caughtUp.nextReviewAt
+                ? `Your next review is ${formatReviewTime(caughtUp.nextReviewAt)}.`
+                : 'There are no new words to learn right now.'}
+            </Text>
           </View>
-          <Text style={styles.question}>How well do you know this word?</Text>
-        </View>
+        ) : (
+          <>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>New word</Text>
+              <View style={styles.wordBox}>
+                <Text style={styles.wordText}>{displayWord}</Text>
+              </View>
+              <Text style={styles.question}>How well do you know this word?</Text>
+            </View>
 
-        <View style={styles.options}>
-          {learningOptions.map((option, index) => {
-            const active = selected === option.value;
-            return (
-              <Pressable
-                key={option.value}
-                style={[styles.option, active && styles.optionActive]}
-                onPress={() => setSelected(option.value)}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: active }}
-              >
-                <View style={[styles.optionBadge, active && styles.optionBadgeActive]}>
-                  <Text style={[styles.optionBadgeText, active && styles.optionBadgeTextActive]}>{index + 1}</Text>
-                </View>
-                <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.text}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+            <View style={styles.options}>
+              {learningOptions.map((option, index) => {
+                const active = selected === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    style={[styles.option, active && styles.optionActive]}
+                    onPress={() => setSelected(option.value)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <View style={[styles.optionBadge, active && styles.optionBadgeActive]}>
+                      <Text style={[styles.optionBadgeText, active && styles.optionBadgeTextActive]}>{index + 1}</Text>
+                    </View>
+                    <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.text}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-        <Pressable
-          style={[styles.continueBtn, (!selected || submitting) && styles.continueBtnDisabled]}
-          onPress={handleContinue}
-          disabled={!selected || submitting}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.continueText}>CONTINUE</Text>
-          )}
-        </Pressable>
+            <Pressable
+              style={[styles.continueBtn, (!selected || submitting) && styles.continueBtnDisabled]}
+              onPress={handleContinue}
+              disabled={!selected || submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.continueText}>CONTINUE</Text>
+              )}
+            </Pressable>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -178,7 +207,13 @@ export default function WordLearningEntrance() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bgStart },
   container: { flex: 1, paddingHorizontal: 20, paddingVertical: spacing.lg, gap: spacing.lg },
-  header: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerBtn: {
+    minHeight: buttonHeight.min, paddingHorizontal: spacing.md, borderRadius: radius.lg,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerBtnText: { fontSize: fontSize.body, fontWeight: '600', color: colors.primaryDark },
   headerTitle: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text },
   card: {
     backgroundColor: colors.white,
@@ -190,6 +225,12 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   cardLabel: { fontSize: fontSize.body, fontWeight: '600', color: colors.primary },
+  caughtUpCard: {
+    backgroundColor: colors.white, borderRadius: radius['3xl'], borderWidth: 1, borderColor: colors.primaryBorder,
+    padding: spacing.xl, gap: spacing.sm, alignItems: 'center',
+  },
+  caughtUpTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  caughtUpText: { fontSize: fontSize.base, color: colors.textMuted, textAlign: 'center' },
   wordBox: {
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm,

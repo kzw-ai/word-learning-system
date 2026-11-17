@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, BackHandler, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchWordExercises } from '@/lib/apiClient';
 import { parseFillHint, completeSentence } from '@/lib/fillHint';
@@ -368,21 +368,23 @@ export default function Exercise() {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
-        {!showFeedback ? (
-          <Pressable
-            style={[styles.primaryBtn, !hasAnswer && styles.primaryBtnDisabled]}
-            onPress={handleSubmit}
-            disabled={!hasAnswer}
-          >
-            <Text style={styles.primaryBtnText}>CHECK</Text>
-          </Pressable>
-        ) : (
-          <Pressable style={styles.primaryBtn} onPress={handleContinue}>
-            <Text style={styles.primaryBtnText}>CONTINUE</Text>
-          </Pressable>
-        )}
-      </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.footer}>
+          {!showFeedback ? (
+            <Pressable
+              style={[styles.primaryBtn, !hasAnswer && styles.primaryBtnDisabled]}
+              onPress={handleSubmit}
+              disabled={!hasAnswer}
+            >
+              <Text style={styles.primaryBtnText}>CHECK</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.primaryBtn} onPress={handleContinue}>
+              <Text style={styles.primaryBtnText}>CONTINUE</Text>
+            </Pressable>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
