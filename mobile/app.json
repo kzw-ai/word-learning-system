@@ -37,7 +37,14 @@
       ],
       "expo-secure-store",
       "./plugins/withAndroidBuildProps",
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

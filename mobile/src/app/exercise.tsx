@@ -354,6 +354,7 @@ export default function Exercise() {
                   ]}
                   onPress={() => !showFeedback && setSelected(option)}
                   disabled={showFeedback}
+                  accessible={!showFeedback}
                 >
                   <Text style={[styles.optionLetter, showCorrect && styles.optionTextLight]}>{letter}.</Text>
                   <Text style={[styles.optionText, showCorrect && styles.optionTextLight]}>{option}</Text>

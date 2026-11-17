@@ -1,10 +1,17 @@
 import { Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { setAudioModeAsync } from 'expo-audio';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { LearningProvider } from '@/context/LearningContext';
 import { LearningSessionProvider } from '@/context/LearningSessionContext';
 
 export default function RootLayout() {
+  // 音频会话：iOS 静音键打开时也要出声（全局设置一次，不在每个发音按钮里重复设置）
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <LearningProvider>

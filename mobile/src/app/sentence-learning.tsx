@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LearningScreen from '@/components/LearningScreen';
+import AudioPlayer from '@/components/AudioPlayer';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
@@ -48,7 +49,10 @@ export default function SentenceLearning() {
         <Text style={styles.intro}>See this word in sentences.</Text>
         {word.examples.map((e, i) => (
           <View key={i} style={styles.card}>
-            <Text style={styles.sentence}>{e.sentence}</Text>
+            <View style={styles.sentenceRow}>
+              <Text style={styles.sentence}>{e.sentence}</Text>
+              <AudioPlayer text={e.sentence} audioUrl={e.audio || undefined} language="zh-CN" />
+            </View>
             {e.pinyin ? <Text style={styles.pinyin}>{e.pinyin}</Text> : null}
             {e.translation ? <Text style={styles.translation}>{e.translation}</Text> : null}
           </View>
@@ -95,7 +99,8 @@ const styles = StyleSheet.create({
   intro: { fontSize: fontSize.base, fontWeight: '600', color: colors.textStrong },
   muted: { fontSize: fontSize.body, color: colors.textFaint, textAlign: 'center', marginTop: spacing['2xl'] },
   error: { fontSize: fontSize.body, color: colors.dangerText, textAlign: 'center', marginTop: spacing['2xl'] },
-  sentence: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, lineHeight: 26 },
+  sentence: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, lineHeight: 26, flex: 1 },
+  sentenceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   pinyin: { fontSize: fontSize.body, color: colors.primaryDark, lineHeight: 20 },
   translation: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 22 },
   continueBtn: {

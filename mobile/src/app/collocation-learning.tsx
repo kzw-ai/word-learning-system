@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LearningScreen from '@/components/LearningScreen';
+import AudioPlayer from '@/components/AudioPlayer';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
@@ -48,7 +49,10 @@ export default function CollocationLearning() {
         <Text style={styles.intro}>Which words go with this word?</Text>
         {word.collocations.map((c, i) => (
           <View key={i} style={styles.card}>
-            <Text style={styles.collocation}>{c.collocation}</Text>
+            <View style={styles.collocationRow}>
+              <Text style={styles.collocation}>{c.collocation}</Text>
+              <AudioPlayer text={c.collocation.replace(/（[^）]*）/g, '')} audioUrl={c.audio || undefined} language="zh-CN" />
+            </View>
             <Text style={styles.translation}>{c.translation}</Text>
           </View>
         ))}
@@ -94,7 +98,8 @@ const styles = StyleSheet.create({
   intro: { fontSize: fontSize.base, fontWeight: '600', color: colors.textStrong },
   muted: { fontSize: fontSize.body, color: colors.textFaint, textAlign: 'center', marginTop: spacing['2xl'] },
   error: { fontSize: fontSize.body, color: colors.dangerText, textAlign: 'center', marginTop: spacing['2xl'] },
-  collocation: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  collocation: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, flex: 1 },
+  collocationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   translation: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 22 },
   continueBtn: {
     minHeight: buttonHeight.xl,

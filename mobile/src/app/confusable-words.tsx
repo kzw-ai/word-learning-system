@@ -9,6 +9,7 @@ import type { ConfusablePair, ContrastQuestion } from '@/lib/types';
 import { afterWordRoute, useLearningSession } from '@/context/LearningSessionContext';
 import { useLearningContext } from '@/context/LearningContext';
 import { useTimeTracking } from '@/hooks/useTimeTracking';
+import AudioPlayer from '@/components/AudioPlayer';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
 
 // 辨析页的英文讲解比学习页长，两次操作之间最多算 180 秒有效时长
@@ -298,12 +299,18 @@ export default function ConfusableWordsPage() {
         {/* 词对比较 */}
         <View style={styles.compareRow}>
           <View style={[styles.wordCard, styles.wordCardLeft]}>
-            <Text style={styles.wordHanziLeft}>{currentPair.word1.hanzi ?? currentPair.word1.pinyin}</Text>
+            <View style={styles.wordHanziRow}>
+              <Text style={styles.wordHanziLeft}>{currentPair.word1.hanzi ?? currentPair.word1.pinyin}</Text>
+              <AudioPlayer text={currentPair.word1.hanzi ?? currentPair.word1.pinyin} audioUrl={currentPair.word1.audio || undefined} language="zh-CN" />
+            </View>
             {currentPair.word1.hanzi && <Text style={styles.wordPinyin}>{currentPair.word1.pinyin}</Text>}
             <Text style={styles.wordDef}>{currentPair.word1.definition}</Text>
           </View>
           <View style={[styles.wordCard, styles.wordCardRight]}>
-            <Text style={styles.wordHanziRight}>{currentPair.word2.hanzi ?? currentPair.word2.pinyin}</Text>
+            <View style={styles.wordHanziRow}>
+              <Text style={styles.wordHanziRight}>{currentPair.word2.hanzi ?? currentPair.word2.pinyin}</Text>
+              <AudioPlayer text={currentPair.word2.hanzi ?? currentPair.word2.pinyin} audioUrl={currentPair.word2.audio || undefined} language="zh-CN" />
+            </View>
             {currentPair.word2.hanzi && <Text style={styles.wordPinyin}>{currentPair.word2.pinyin}</Text>}
             <Text style={styles.wordDef}>{currentPair.word2.definition}</Text>
           </View>
@@ -404,6 +411,7 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   contentInner: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg, gap: spacing.md },
   compareRow: { flexDirection: 'row', gap: spacing.md },
+  wordHanziRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   wordCard: { flex: 1, padding: spacing.lg, borderRadius: radius.xl, borderWidth: 1, gap: spacing.xs },
   wordCardLeft: { backgroundColor: colors.white, borderLeftWidth: 4, borderLeftColor: colors.primary, borderColor: colors.border },
   wordCardRight: { backgroundColor: colors.white, borderLeftWidth: 4, borderLeftColor: '#34d399', borderColor: colors.border },

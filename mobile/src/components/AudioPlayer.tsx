@@ -1,7 +1,7 @@
 // 源文件：components/AudioPlayer.tsx（网页版）。RN 版：expo-audio 放音频文件，expo-speech 朗读。
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
-import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import { buildApiUrl } from '@/lib/apiClient';
 import { colors, radius } from '@/theme';
@@ -21,28 +21,29 @@ const FILE_LOAD_TIMEOUT_MS = 3000;
 /**
  * 发音按钮：先放后端音频文件；文件取不到（404/格式不支持）才用系统朗读（expo-speech，
  * zh-CN、rate 0.9）。一次播放最多回退一次；旧播放晚到的错误不打断新播放（attemptRef/fellBackRef）。
+ * 文件播放的状态由 status.playing / didJustFinish / error 驱动。
  */
 export default function AudioPlayer({ text, audioUrl, language = 'zh-CN', onPlay, onEnd, onError }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [speechMode, setSpeechMode] = useState(false);
-  // 每点一次播放记一个编号：文件加载失败和 play() 的失败可能先后到达，同一次播放只回退一次；
-  // 旧编号的迟到回调、组件卸载后的回调都不再起作用
   const attemptRef = useRef(0);
   const fellBackRef = useRef(-1);
   const mountedRef = useRef(true);
+  const onPlayFiredRef = useRef(false);
+  const onPlayRef = useRef(onPlay);
+  onPlayRef.current = onPlay;
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const fileSource = audioUrl ? buildApiUrl(audioUrl) : null;
   const player = useAudioPlayer();
   const status = useAudioPlayerStatus(player);
   const statusRef = useRef(status);
   statusRef.current = status;
-
-  // 音频会话：iOS 静音键打开时也要出声（playsInSilentMode）
-  useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
-  }, []);
 
   // 卸载后：迟到的媒体事件不能再朗读（会读出上一页内容）；停掉文件和朗读
   useEffect(() => {
@@ -59,54 +60,83 @@ export default function AudioPlayer({ text, audioUrl, language = 'zh-CN', onPlay
     };
   }, [player]);
 
-  // 文件播放自然结束
+  const speak = useCallback(
+    (attempt: number) => {
+      Speech.stop();
+      Speech.speak(text, {
+        language,
+        rate: 0.9,
+        onStart: () => {
+          if (!mountedRef.current || attempt !== attemptRef.current) return;
+          setIsPlaying(true);
+          setIsLoading(false);
+          setSpeechMode(true);
+          onPlayRef.current?.();
+        },
+        onDone: () => {
+          if (!mountedRef.current || attempt !== attemptRef.current) return;
+          setIsPlaying(false);
+          setSpeechMode(false);
+          onEndRef.current?.();
+        },
+        onStopped: () => {
+          if (!mountedRef.current || attempt !== attemptRef.current) return;
+          setIsPlaying(false);
+          setSpeechMode(false);
+        },
+        onError: () => {
+          if (!mountedRef.current || attempt !== attemptRef.current) return;
+          setIsPlaying(false);
+          setIsLoading(false);
+          setSpeechMode(false);
+          setHasError(true);
+          onErrorRef.current?.(new Error('Speech synthesis failed'));
+        },
+      });
+    },
+    [text, language]
+  );
+
+  const fallBackToSpeech = useCallback(
+    (attempt: number, cause: unknown) => {
+      if (!mountedRef.current || attempt !== attemptRef.current || fellBackRef.current === attempt) return;
+      fellBackRef.current = attempt;
+      console.warn('Audio file unavailable, using speech synthesis instead:', cause);
+      speak(attempt);
+    },
+    [speak]
+  );
+
+  // 文件播放状态驱动：开始播放时收起 loading、置播放中并 onPlay；自然播完复位
   useEffect(() => {
-    if (status.didJustFinish && !speechMode && mountedRef.current) {
+    if (!mountedRef.current || speechMode) return;
+    if (status.playing) {
+      setIsLoading(false);
+      setIsPlaying(true);
+      if (!onPlayFiredRef.current) {
+        onPlayFiredRef.current = true;
+        onPlayRef.current?.();
+      }
+    } else if (status.didJustFinish) {
       setIsPlaying(false);
-      onEnd?.();
+      setIsLoading(false);
+      onPlayFiredRef.current = false;
+      onEndRef.current?.();
     }
-  }, [status.didJustFinish, speechMode, onEnd]);
+  }, [status.playing, status.didJustFinish, speechMode]);
 
-  const speak = (attempt: number) => {
-    Speech.stop();
-    Speech.speak(text, {
-      language,
-      rate: 0.9,
-      onStart: () => {
-        if (!mountedRef.current || attempt !== attemptRef.current) return;
-        setIsPlaying(true);
-        setIsLoading(false);
-        setSpeechMode(true);
-        onPlay?.();
-      },
-      onDone: () => {
-        if (!mountedRef.current) return;
-        setIsPlaying(false);
-        setSpeechMode(false);
-        onEnd?.();
-      },
-      onStopped: () => {
-        if (!mountedRef.current) return;
-        setIsPlaying(false);
-        setSpeechMode(false);
-      },
-      onError: () => {
-        if (!mountedRef.current) return;
-        setIsPlaying(false);
-        setIsLoading(false);
-        setSpeechMode(false);
-        setHasError(true);
-        onError?.(new Error('Speech synthesis failed'));
-      },
-    });
-  };
-
-  const fallBackToSpeech = (attempt: number, cause: unknown) => {
-    if (!mountedRef.current || attempt !== attemptRef.current || fellBackRef.current === attempt) return;
-    fellBackRef.current = attempt;
-    console.warn('Audio file unavailable, using speech synthesis instead:', cause);
-    speak(attempt);
-  };
+  // 文件加载失败（status.error 有值）→ 停掉文件、回退朗读
+  useEffect(() => {
+    if (!mountedRef.current || speechMode) return;
+    if (status.error && !status.playing && !status.didJustFinish) {
+      try {
+        player.pause();
+      } catch {
+        /* 没在放文件 */
+      }
+      fallBackToSpeech(attemptRef.current, new Error(status.error));
+    }
+  }, [status.error, speechMode, fallBackToSpeech, player]);
 
   const handlePlay = () => {
     if (isPlaying) {
@@ -119,6 +149,7 @@ export default function AudioPlayer({ text, audioUrl, language = 'zh-CN', onPlay
       Speech.stop();
       setIsPlaying(false);
       setSpeechMode(false);
+      onPlayFiredRef.current = false;
       return;
     }
 
@@ -127,15 +158,21 @@ export default function AudioPlayer({ text, audioUrl, language = 'zh-CN', onPlay
     setIsLoading(true);
     setHasError(false);
     setSpeechMode(false);
+    onPlayFiredRef.current = false;
 
     if (fileSource) {
       try {
         player.replace(fileSource);
         player.play();
-        // 文件取不到（还没部署、404、格式不支持）：超时没加载出来就回退朗读
+        // 兜底超时：status.error 可能不触发（网络慢等），超时还没加载出来就回退
         setTimeout(() => {
           const s = statusRef.current;
-          if (mountedRef.current && attempt === attemptRef.current && !s.isLoaded && !s.playing) {
+          if (mountedRef.current && attempt === attemptRef.current && !s.playing && !s.isLoaded && !s.error) {
+            try {
+              player.pause();
+            } catch {
+              /* ignore */
+            }
             fallBackToSpeech(attempt, new Error('Audio file failed to load'));
           }
         }, FILE_LOAD_TIMEOUT_MS);
@@ -149,13 +186,14 @@ export default function AudioPlayer({ text, audioUrl, language = 'zh-CN', onPlay
 
   return (
     <Pressable
-      style={styles.btn}
+      style={[styles.btn, isLoading && styles.btnLoading]}
       onPress={handlePlay}
       hitSlop={6}
       accessibilityLabel={isPlaying ? 'Stop audio' : 'Play audio'}
+      accessibilityRole="button"
     >
       {isLoading ? (
-        <ActivityIndicator size="small" color={colors.textFaint} />
+        <ActivityIndicator size="small" color={colors.white} />
       ) : (
         <Text style={[styles.icon, isPlaying && styles.iconPlaying, hasError && styles.iconError]}>
           {isPlaying ? '■' : hasError ? '✕' : '🔊'}
@@ -173,6 +211,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 加载中转圈用白底深色圆点，绿底上也看得见
+  btnLoading: { backgroundColor: 'rgba(0,0,0,0.18)' },
   icon: { fontSize: 18, color: colors.textFaint },
   iconPlaying: { color: colors.primary },
   iconError: { color: colors.dangerText },

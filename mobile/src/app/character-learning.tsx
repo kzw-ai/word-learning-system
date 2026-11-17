@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LearningScreen from '@/components/LearningScreen';
 import StrokeOrderAnimation from '@/components/StrokeOrderAnimation';
+import AudioPlayer from '@/components/AudioPlayer';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
@@ -48,7 +49,10 @@ export default function CharacterLearning() {
         {word.characters.map((c, i) => (
           <View key={i} style={styles.card}>
             <StrokeOrderAnimation character={c.character} size={150} />
-            <Text style={styles.charHanzi}>{c.character}</Text>
+            <View style={styles.charHanziRow}>
+              <Text style={styles.charHanzi}>{c.character}</Text>
+              <AudioPlayer text={c.character} audioUrl={c.audio || undefined} language="zh-CN" />
+            </View>
             <Text style={styles.charPinyin}>{c.pinyin}</Text>
             <Text style={styles.charDef}>{c.definition}</Text>
           </View>
@@ -97,6 +101,7 @@ const styles = StyleSheet.create({
   muted: { fontSize: fontSize.body, color: colors.textFaint, textAlign: 'center', marginTop: spacing['2xl'] },
   error: { fontSize: fontSize.body, color: colors.dangerText, textAlign: 'center', marginTop: spacing['2xl'] },
   charHanzi: { fontSize: fontSize['2xl'], fontWeight: '800', color: colors.text },
+  charHanziRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   charPinyin: { fontSize: fontSize.base, fontWeight: '600', color: colors.primary },
   charDef: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 22, textAlign: 'center' },
   continueBtn: {

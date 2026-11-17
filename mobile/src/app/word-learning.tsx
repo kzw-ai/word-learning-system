@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LearningScreen from '@/components/LearningScreen';
+import AudioPlayer from '@/components/AudioPlayer';
 import { useWordData } from '@/hooks/useWordData';
 import { useLearningContext } from '@/context/LearningContext';
 import { useLearningSession } from '@/context/LearningSessionContext';
@@ -49,7 +50,10 @@ export default function WordLearning() {
       <>
         <View style={styles.card}>
           <Text style={styles.wordHanzi}>{word.hanzi}</Text>
-          <Text style={styles.wordPinyin}>{word.pinyin}</Text>
+          <View style={styles.pinyinRow}>
+            <Text style={styles.wordPinyin}>{word.pinyin}</Text>
+            <AudioPlayer text={word.hanzi} audioUrl={word.audio || undefined} language="zh-CN" />
+          </View>
           <Text style={styles.wordDef}>{word.definition}</Text>
         </View>
         {!singleChar && word.characters.length > 0 && (
@@ -62,6 +66,7 @@ export default function WordLearning() {
                   <Text style={styles.charPinyin}>{c.pinyin}</Text>
                   <Text style={styles.charDef}>{c.definition}</Text>
                 </View>
+                <AudioPlayer text={c.character} audioUrl={c.audio || undefined} language="zh-CN" />
               </View>
             ))}
           </View>
@@ -109,6 +114,7 @@ const styles = StyleSheet.create({
   error: { fontSize: fontSize.body, color: colors.dangerText, textAlign: 'center', marginTop: spacing['2xl'] },
   wordHanzi: { fontSize: fontSize['2xl'], fontWeight: '800', color: colors.text },
   wordPinyin: { fontSize: fontSize.lg, fontWeight: '600', color: colors.primary },
+  pinyinRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   wordDef: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 22 },
   cardTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textStrong, marginBottom: spacing.sm },
   charRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, paddingVertical: spacing.sm },
