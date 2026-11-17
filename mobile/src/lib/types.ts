@@ -140,3 +140,37 @@ export interface DashboardData {
   strengths: string[];
   weaknesses: string[];
 }
+
+// —— 易混淆词辨析 ——
+export interface ConfusableWord {
+  id: number;
+  /** 后端从 character 表拼出；拼不出时为 null，此时只能显示拼音 */
+  hanzi: string | null;
+  pinyin: string;
+  definition: string;
+  /** 整词发音地址；没有时用 TTS 朗读 */
+  audio?: string | null;
+}
+
+export interface ConfusablePair {
+  id: number;
+  word1: ConfusableWord;
+  word2: ConfusableWord;
+  reason: string;
+  difference: string;
+  examples: string;
+  tips: string;
+  difficulty_level: number;
+  /** 辨析题：句子来自学习材料里的例句，两个选项是这两个词 */
+  questions?: ContrastQuestion[];
+}
+
+export interface ContrastQuestion {
+  stem: string;
+  options: string[];
+  correct_answer: string;
+  /** 英文讲解：为什么这句用这个词，答完显示 */
+  explanation?: string;
+  /** 后端按题干、选项、答案算出的版本号；作答时带回去，题目改过时后端返回 409 */
+  version: string;
+}

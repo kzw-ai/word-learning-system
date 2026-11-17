@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchWordExercises } from '@/lib/apiClient';
+import { authenticatedGet } from '@/lib/authClient';
 import { parseFillHint, completeSentence } from '@/lib/fillHint';
 import { gradeHandwriting, type Stroke } from '@/lib/handwriting';
 import { loadCharacterData } from '@/lib/strokeData';
@@ -10,7 +11,7 @@ import type { ExerciseQuestionPayload } from '@/lib/types';
 import HandwritingPad, { HandwritingThumb } from '@/components/HandwritingPad';
 import StrokeOrderAnimation from '@/components/StrokeOrderAnimation';
 import { useLearningContext } from '@/context/LearningContext';
-import { afterWordRoute, useLearningSession } from '@/context/LearningSessionContext';
+import { afterWordRoute, reviewedToday, todayReviewKey, useLearningSession } from '@/context/LearningSessionContext';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
 import { useWordData } from '@/hooks/useWordData';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
@@ -186,7 +187,42 @@ export default function Exercise() {
     if (index < questions.length - 1) {
       setIndex(index + 1);
     } else {
+      // 主线收尾环节：若本词存在易混淆词，先进入辨析再看学习分析。
+      // 必须在 endSession 之前查询并埋点：endSession 会发出最后一批事件并把追踪器标记为已结束。
+      let confusablePairId: number | null = null;
+      let confusableAttempted = false;
+      try {
+        // 带上身份：后端只在两个词分别掌握到一定程度、这一对还没练过关时才带出
+        const resp = await authenticatedGet(`/api/confusable/for-word/${wordId}`);
+        const result = await resp.json();
+        if (result.success && result.pair_id) {
+          confusablePairId = result.pair_id;
+          confusableAttempted = result.attempted === true;
+          tracking.trackEvent('confusable_step', 'exercise-end', { wordId, pairId: result.pair_id });
+        }
+      } catch {
+        // 查询失败不阻塞主流程
+      }
+
       await tracking.endSession(true);
+
+      // 复习模式下这个词的练习做完了：今天的复习列表不再显示它（作答万一没记下，也不会一直重复同一个词）
+      if (session.reviewMode) {
+        updateSession({
+          reviewedWordIds: [...reviewedToday(session).filter(id => id !== wordId), wordId],
+          reviewDate: todayReviewKey(),
+        });
+      }
+
+      if (confusablePairId) {
+        // 以前做过这一对的辨析题、没全对才再带出：辨析页直接展开讲解
+        router.replace({
+          pathname: '/confusable-words',
+          params: { pair: String(confusablePairId), from: 'exercise', ...(confusableAttempted ? { revisit: '1' } : {}) },
+        });
+        return;
+      }
+
       // 学完去学习看板；复习模式回今日复习
       router.replace(afterWordRoute(session) as any);
     }
