@@ -23,10 +23,17 @@ const generateGuestId = (): string => {
   return 'guest_' + Array.from(bytes, b => ALPHABET[b % ALPHABET.length]).join('');
 };
 
-/** 本设备已有的访客 ID，没有返回 null（不生成） */
+/**
+ * 本次启动在用的访客 ID（ensureGuestId 定下的）。正常情况下和存储里的一样；
+ * 存储读不出来时，ensureGuestId 给的是只在内存里的临时 ID，发请求也要用它，
+ * 否则界面以为是访客、请求里却不带 X-Guest-Id，后端一律返回 401。
+ */
+let currentGuestId: string | null = null;
+
+/** 本设备已有的访客 ID，没有返回 null（不生成）；存储读不出来时退回本次启动在用的 ID */
 export const storedGuestId = async (): Promise<string | null> => {
   const id = await getLocal(GUEST_STORAGE_KEY);
-  return isGuestId(id) ? id : null;
+  return isGuestId(id) ? id : currentGuestId;
 };
 
 /** 本设备此前是否已有访客 ID */
@@ -42,12 +49,17 @@ export const ensureGuestId = async (): Promise<string> => {
     stored = await AsyncStorage.getItem(GUEST_STORAGE_KEY);
   } catch {
     // 读失败不等于没有：不能生成新 ID 把原来的覆盖掉（覆盖后原访客的学习记录就再也找不回来）。
-    // 这次先用一个临时 ID、不写入；下次启动读成功，还是原来的身份。
-    return generateGuestId();
+    // 这次先用一个只在内存里的临时 ID、不写入；下次启动读成功，还是原来的身份。
+    currentGuestId = currentGuestId ?? generateGuestId();
+    return currentGuestId;
   }
-  if (isGuestId(stored)) return stored;
+  if (isGuestId(stored)) {
+    currentGuestId = stored;
+    return stored;
+  }
   const id = generateGuestId();
   await setLocal(GUEST_STORAGE_KEY, id);
+  currentGuestId = id;
   return id;
 };
 

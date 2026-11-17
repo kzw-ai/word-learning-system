@@ -17,7 +17,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isGuestId, guestDisplayName, ensureGuestId } from '../guestIdentity';
+import { isGuestId, guestDisplayName, ensureGuestId, storedGuestId } from '../guestIdentity';
 
 describe('isGuestId', () => {
   it('接受合法格式', () => {
@@ -60,5 +60,16 @@ describe('ensureGuestId', () => {
     const id = await ensureGuestId();
     expect(id).toBe('guest_existingabcdefgh');
     expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('存储读不出来时不覆盖原 ID，请求头仍能拿到同一个临时 ID', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockRejectedValue(new Error('storage unavailable'));
+    const id = await ensureGuestId();
+    expect(isGuestId(id)).toBe(true);
+    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    // authHeaders 经 storedGuestId 取 ID：存储照样读不出来，要退回同一个临时 ID，而不是 null
+    expect(await storedGuestId()).toBe(id);
+    // 同一次启动里再要一次，还是它
+    expect(await ensureGuestId()).toBe(id);
   });
 });
