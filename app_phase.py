@@ -2452,7 +2452,10 @@ def delete_account():
             return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
 
         auth_manager = AuthManager()
-        session_token = request.headers.get('X-Session-Token') or request.cookies.get('session_token')
+        # 只认请求头里的 token，不认 cookie：别的网站（包括同一主域下的其他子域）用表单发来的 POST
+        # 会自动带上 cookie（SameSite=Lax 挡不住同站请求），却加不了自定义请求头；跨站 fetch 加了
+        # 自定义头又会被 CORS 预检挡住。网页版和 App 都经 authenticatedFetch 带着这个头调用。
+        session_token = request.headers.get('X-Session-Token')
         if not session_token:
             return jsonify({'success': False, 'error': 'Sign in required', 'code': 'SESSION_REQUIRED'}), 401
 

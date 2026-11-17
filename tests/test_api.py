@@ -459,6 +459,48 @@ class TestGuestIdentity:
             conn.close()
 
 
+class TestLogoutAndLogin:
+    """退出登录让旧 token 失效；登录（不同于注册）不把访客记录并进账号。"""
+
+    def test_logout_revokes_the_token(self, app):
+        c = app.test_client()
+        assert c.post('/api/auth/register', json={'username': 'leaving_user', 'password': 'secret123'}).get_json()['success']
+        token = c.post('/api/auth/login', json={'username': 'leaving_user', 'password': 'secret123'}).get_json()['data']['session_token']
+        headers = {'X-Session-Token': token}
+        assert c.get('/api/auth/validate', headers=headers).get_json()['valid'] is True
+
+        assert c.post('/api/auth/logout', headers=headers).get_json()['success'] is True
+
+        fresh = app.test_client()  # 不带 logout 留下的 cookie，只凭旧 token
+        assert fresh.get('/api/auth/validate', headers=headers).get_json()['valid'] is False
+        assert fresh.post('/api/learning/session/start', json={
+            'sessionId': 's-after-logout', 'wordId': 1, 'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=headers).status_code == 401
+
+    def test_login_does_not_merge_guest_data(self, app):
+        import sqlite3
+        guest = 'guest_' + 'l0g1nl0g1nl0g1nl0g1n'
+        c = app.test_client()
+        assert c.post('/api/auth/register', json={'username': 'existing_user', 'password': 'secret123'}).get_json()['success']
+        assert c.post('/api/learning/session/start', json={
+            'sessionId': 's-guest-login', 'wordId': 1, 'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers(guest)).status_code == 200
+
+        login = c.post('/api/auth/login', json={'username': 'existing_user', 'password': 'secret123'},
+                       headers=guest_headers(guest)).get_json()
+        assert login['success'], login
+
+        db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db)
+        try:
+            owner = conn.execute("SELECT user_id FROM learning_session WHERE session_id='s-guest-login'").fetchone()[0]
+            assert owner == guest
+        finally:
+            conn.close()
+
+
 class TestDeleteAccount:
     """删除账号：账号与全部学习记录一并删除，会话随之失效。"""
 
@@ -481,24 +523,48 @@ class TestDeleteAccount:
 
         # 产生学习数据：会话 + 作答 + 事件 + 进度 + 推荐
         session_id = f's-{user_id}-1'
-        client.post('/api/learning/session/start', json={
+        r = client.post('/api/learning/session/start', json={
             'sessionId': session_id, 'wordId': 1,
             'sessionType': 'learning', 'moduleType': 'word',
             'startTime': '2026-01-01T10:00:00',
         }, headers=headers)
-        client.post('/api/learning/exercise/record', json={
+        assert r.status_code == 200, r.get_json()
+        r = client.post('/api/learning/exercise/record', json={
             'sessionId': session_id, 'questionId': 'q1', 'questionType': 'definition',
             'userAnswer': 'a', 'correctAnswer': 'b', 'isCorrect': False,
             'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
         }, headers=headers)
-        client.post('/api/learning/events/batch', json={
+        assert r.status_code == 200, r.get_json()
+        r = client.post('/api/learning/events/batch', json={
             'sessionId': session_id, 'events': [{'type': 'click'}]}, headers=headers)
+        assert r.status_code == 200, r.get_json()
 
         with app.app_context():
-            # 进度与推荐直接造一行（word_id 2 与上面会话的 1 错开，避免唯一约束冲突）
+            # 进度、推荐、辨析作答直接造一行（word_id 2 与上面会话的 1 错开，避免唯一约束冲突）
             mod.db.session.add(mod.UserProgress(user_id=user_id, word_id=2))
             mod.db.session.add(mod.AdaptiveRecommendation(
                 user_id=user_id, recommendation_type='next_word', target_word_id=1))
+            mod.db.session.add(mod.ConfusableExerciseRecord(user_id=user_id, pair_id=1, is_correct=True))
+            mod.db.session.commit()
+
+        # 旁观者：另一个人的会话、作答、辨析记录，删号后必须原样还在。
+        # 用干净的客户端：client 登录时被写了 session_token cookie，用它发请求会被认成被删的账号
+        bystander, bystander_session = 'guest_' + 'byst4nderbyst4nder00', 's-bystander-1'
+        other = app.test_client()
+        r = other.post('/api/learning/session/start', json={
+            'sessionId': bystander_session, 'wordId': 1,
+            'sessionType': 'learning', 'moduleType': 'word',
+            'startTime': '2026-01-01T10:00:00',
+        }, headers=guest_headers(bystander))
+        assert r.status_code == 200, r.get_json()
+        r = other.post('/api/learning/exercise/record', json={
+            'sessionId': bystander_session, 'questionId': 'q1', 'questionType': 'definition',
+            'userAnswer': 'a', 'correctAnswer': 'a', 'isCorrect': True,
+            'startTime': '2026-01-01T10:00:00', 'endTime': '2026-01-01T10:00:05',
+        }, headers=guest_headers(bystander))
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            mod.db.session.add(mod.ConfusableExerciseRecord(user_id=bystander, pair_id=1, is_correct=False))
             mod.db.session.commit()
 
         db = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
@@ -507,8 +573,23 @@ class TestDeleteAccount:
             assert conn.execute(
                 "SELECT COUNT(*) FROM learning_session WHERE user_id=?", (user_id,)
             ).fetchone()[0] == 1
+            # 挂在会话上的子表删前确实有数据，删后按这个 session_id 直接查（不能经 learning_session 子查询：
+            # 父表删掉以后子查询为空，子表漏删也查不出来）
+            for table in ('exercise_record', 'learning_event'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id=?", (session_id,)
+                ).fetchone()[0] >= 1, table
+            for table in ('user_progress', 'adaptive_recommendation', 'confusable_exercise_records'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (user_id,)
+                ).fetchone()[0] >= 1, table
         finally:
             conn.close()
+
+        # 只带 cookie、不带 X-Session-Token 头的删号请求不算数（防别的网站用表单借 cookie 删号）
+        client.set_cookie('session_token', token)
+        assert client.post('/api/auth/account/delete').status_code == 401
+        client.delete_cookie('session_token')
 
         resp = client.post('/api/auth/account/delete', headers=headers)
         assert resp.status_code == 200
@@ -525,14 +606,18 @@ class TestDeleteAccount:
                     f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (user_id,)
                 ).fetchone()[0] == 0, table
             # 挂在会话上的子表也一并清空
+            for table in ('exercise_record', 'learning_event'):
+                assert conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id=?", (session_id,)
+                ).fetchone()[0] == 0, table
+            # 别人的数据一条不少
             assert conn.execute(
-                "SELECT COUNT(*) FROM exercise_record WHERE session_id IN "
-                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
-            ).fetchone()[0] == 0
+                "SELECT COUNT(*) FROM learning_session WHERE session_id=? AND user_id=?",
+                (bystander_session, bystander)).fetchone()[0] == 1
             assert conn.execute(
-                "SELECT COUNT(*) FROM learning_event WHERE session_id IN "
-                "(SELECT session_id FROM learning_session WHERE user_id=?)", (user_id,)
-            ).fetchone()[0] == 0
+                "SELECT COUNT(*) FROM exercise_record WHERE session_id=?", (bystander_session,)).fetchone()[0] == 1
+            assert conn.execute(
+                "SELECT COUNT(*) FROM confusable_exercise_records WHERE user_id=?", (bystander,)).fetchone()[0] == 1
         finally:
             conn.close()
 
