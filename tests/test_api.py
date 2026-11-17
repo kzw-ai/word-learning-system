@@ -754,7 +754,9 @@ class TestSessionReviewScheduling:
         from datetime import datetime
         with app.app_context():
             row = mod.UserProgress.query.filter_by(user_id=learner, word_id=self.WORD).one()
-            days = (row.next_review_suggested - datetime.now()).total_seconds() / 86400
+            # 后端存的是 UTC（datetime.utcnow()），这里也用 UTC：用本地时间时，服务器在纽约时区会多出 5 小时，
+            # 「一天后」算成 1.21 天，测试只在 UTC 或东八区的机器上碰巧通过
+            days = (row.next_review_suggested - datetime.utcnow()).total_seconds() / 86400
             return {'count': row.review_count, 'days': days, 'attempts': row.total_attempts,
                     'correct': row.correct_attempts, 'mastery': row.mastery_level,
                     'next': row.next_review_suggested}

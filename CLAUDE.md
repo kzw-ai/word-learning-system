@@ -12,7 +12,12 @@
 | 服务 | PM2 名称 | 端口 | 启动命令 | 说明 |
 |------|----------|------|----------|------|
 | 前端 | `learn-frontend` | 3002 (内部) | `npm start -- -p 3002` | Next.js 生产模式 |
-| 后端 | `learn-backend` | 5004 | `python3 app_phase.py` | Flask API 服务 |
+| 后端 | `learn-backend` | 5004 | `/home/coder/venvs/learn-backend/bin/python app_phase.py` | Flask API 服务（Python 3.12 虚拟环境，见下） |
+
+### 后端的 Python
+- 后端用 `/home/coder/venvs/learn-backend` 里的 Python 3.12（uv 装的，不碰系统自带的 3.9）。依赖变了要装进这个环境：
+  `/root/.local/bin/uv pip install --python /home/coder/venvs/learn-backend/bin/python -r requirements.txt`
+- 退回系统 Python：`pm2 delete learn-backend && pm2 start /usr/bin/bash --name learn-backend --cwd "/home/coder/word learning system" -- -c "python3 app_phase.py" && pm2 save`
 
 ### 常用操作
 ```bash

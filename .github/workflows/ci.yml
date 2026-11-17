@@ -17,8 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.9 与生产服务器一致；3.11 是本地开发版本
-        python-version: ['3.9', '3.11']
+        # 3.12 与生产服务器一致（后端跑在 /home/coder/venvs/learn-backend，2026-11 从系统自带的 3.9 换过来）；
+        # 3.11 是本地开发版本
+        python-version: ['3.12', '3.11']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
