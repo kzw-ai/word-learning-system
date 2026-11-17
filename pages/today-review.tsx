@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { buildApiUrl } from "@/src/lib/apiClient";
+import { authenticatedFetch } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { reviewedToday, useLearningSession } from '@/src/context/LearningSessionContext';
 import { Clock, BookOpen, CheckCircle2 } from 'lucide-react';
@@ -59,7 +59,7 @@ const TodayReview = () => {
       setReviews([]);
       // limit 取足：前端还要再滤掉今天复习过的词，后端只给前 N 个的话，
       // 排在后面的到期词会被这批挡住、永远轮不到（词库目前约 70 个词）
-      const response = await fetch(buildApiUrl(`/api/review/user/${requestUser}/due?limit=200`));
+      const response = await authenticatedFetch(`/api/review/user/${requestUser}/due?limit=200`);
       const result = await response.json();
       if (currentUserRef.current !== requestUser) return;
 

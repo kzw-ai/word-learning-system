@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Battery, Signal, Wifi } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useComprehensiveTracking } from '@/hooks/useTimeTracking';
-import { buildApiUrl } from '@/src/lib/apiClient';
-import { sendRecommendationFeedback } from '@/src/lib/authClient';
+import { authenticatedFetch, sendRecommendationFeedback } from '@/src/lib/authClient';
 import { useLearningContext } from '@/src/context/LearningContext';
 import { guestDisplayName, isGuestId, safeGetItem } from '@/src/lib/guestIdentity';
 import { reviewedToday, todayReviewKey, useLearningSession } from '@/src/context/LearningSessionContext';
@@ -128,7 +127,7 @@ export default function Component() {
     let cancelled = false;
     // 这一页只问新词：有到期复习时推荐引擎默认先推复习，那是学过的词，不能当新词再自评一次
     const context = encodeURIComponent(JSON.stringify({ new_only: true }));
-    fetch(buildApiUrl(`/api/adaptive/recommendation/${userId}?context=${context}`), { cache: 'no-cache' })
+    authenticatedFetch(`/api/adaptive/recommendation/${userId}?context=${context}`, { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !result.data) return;
@@ -155,7 +154,7 @@ export default function Component() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(buildApiUrl(`/api/analytics/user/${userId}/dashboard`), { cache: 'no-cache' })
+    authenticatedFetch(`/api/analytics/user/${userId}/dashboard`, { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         const studied = result?.data?.overallProgress?.studiedWords;
@@ -172,7 +171,7 @@ export default function Component() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(buildApiUrl(`/api/review/user/${userId}/due?limit=200`), { cache: 'no-cache' })
+    authenticatedFetch(`/api/review/user/${userId}/due?limit=200`, { cache: 'no-cache' })
       .then(resp => resp.json())
       .then(result => {
         if (cancelled || !result.success || !Array.isArray(result.data)) return;

@@ -3,8 +3,7 @@ import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, BookOpen, Lightbulb, PenLine, Search, Star } from 'lucide-react';
 import AudioPlayer from '@/components/AudioPlayer';
-import { buildApiUrl } from '@/src/lib/apiClient';
-import { authenticatedPost } from '@/src/lib/authClient';
+import { authenticatedFetch, authenticatedPost } from '@/src/lib/authClient';
 import { afterWordRoute, useLearningSession } from '@/src/context/LearningSessionContext';
 import { useLearningContext } from '@/src/context/LearningContext';
 import useTimeTracking from '@/hooks/useTimeTracking';
@@ -225,7 +224,7 @@ export default function ConfusableWordsPage() {
     const stale = () => seq !== loadSeq.current;
     try {
       setLoading(true);
-      const response = await fetch(buildApiUrl('/api/confusable/pairs?limit=20'));
+      const response = await authenticatedFetch('/api/confusable/pairs?limit=20');
       const data = await response.json();
       if (stale()) return;
 
@@ -234,7 +233,7 @@ export default function ConfusableWordsPage() {
         const pairId = Number(router.query.pair);
         let list: ConfusablePair[] = data.pairs;
         if (pairId && !list.some(p => p.id === pairId)) {
-          const resp = await fetch(buildApiUrl(`/api/confusable/pair/${pairId}`));
+          const resp = await authenticatedFetch(`/api/confusable/pair/${pairId}`);
           const single = await resp.json().catch(() => null);
           if (stale()) return;
           if (!resp.ok || !single?.success) {

@@ -1,5 +1,5 @@
 import type { ExerciseSetResponse, RecentSessionSummary, UserProfileSummary, WordResponse, WordSummary } from './types';
-import { storedGuestId } from './guestIdentity';
+import { getAuthHeaders } from './authHeaders';
 
 const getDefaultBase = () => {
   const envBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL;
@@ -66,7 +66,13 @@ export const buildApiUrl = (path: string) => {
 };
 
 export const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(buildApiUrl(path), init);
+  const response = await fetch(buildApiUrl(path), {
+    ...init,
+    headers: {
+      ...getAuthHeaders(),
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}`);
   }
@@ -91,24 +97,12 @@ export const fetchWordExercises = async (
 
   const query = searchParams.toString();
   const suffix = query ? `?${query}` : '';
-  // 带上身份：学习期的复习只出还需复习的题型，后端要认得出是谁。登录用户带 token，
-  // 访客带 X-Guest-Id（前后端不在同一主机时访客 cookie 不会跟着请求走）。
-  // 不走 authenticatedFetch 是因为 authClient 依赖本文件，反过来引用会形成循环依赖
-  const headers: Record<string, string> = {};
-  if (typeof window !== 'undefined') {
-    let token: string | null = null;
-    try {
-      token = window.localStorage.getItem('session_token');
-    } catch {
-      token = null;
-    }
-    if (token) headers['X-Session-Token'] = token;
-    const guestId = storedGuestId();
-    if (guestId) headers['X-Guest-Id'] = guestId;
-  }
+  // 带上身份：学习期的复习只出还需复习的题型，后端要认得出是谁。
+  // fetchJson 已统一附带 getAuthHeaders()（登录用户 X-Session-Token、访客 X-Guest-Id），
+  // 无需在此手写；此前因 authClient↔apiClient 循环依赖才手写，现已抽到 authHeaders。
   const result = await fetchJson<{ success: boolean; data: ExerciseSetResponse; error?: string }>(
     `/api/learning/word/${wordId}/exercises${suffix}`,
-    { credentials: 'include', headers }
+    { credentials: 'include' }
   );
 
   if (!result.success || !result.data) {

@@ -3,8 +3,9 @@ import { useRouter } from 'next/router';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, LogIn } from 'lucide-react';
-import { buildApiUrl } from "@/src/lib/apiClient";
+import { authenticatedFetch } from "@/src/lib/authClient";
 import { useLearningContext } from '@/src/context/LearningContext';
+import { ensureGuestId } from '@/src/lib/guestIdentity';
 
 const Login = () => {
   const router = useRouter();
@@ -17,6 +18,9 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,12 +28,8 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(buildApiUrl('/api/auth/login'), {
+      const response = await authenticatedFetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',  // 允许cookie
         body: JSON.stringify(formData)
       });
 
@@ -53,6 +53,33 @@ const Login = () => {
       setError('Network error. Please try again later.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const response = await authenticatedFetch('/api/auth/account/delete', { method: 'POST' });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        // 清除本地登录态，退回访客身份
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('user_id');
+        localStorage.removeItem('username');
+        setUserId(ensureGuestId());
+        router.push('/');
+      } else {
+        setDeleteError(
+          response.status === 401
+            ? 'Sign in first to delete your account.'
+            : (result.error || 'Could not delete the account.')
+        );
+      }
+    } catch {
+      setDeleteError('Network error. Please try again later.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -169,6 +196,48 @@ const Login = () => {
               </div>
             )}
           </form>
+
+          {/* 删除账号（上架要求：App 内可删除账号） */}
+          <div className="pt-6">
+            {deleteError && (
+              <p className="text-sm text-rose-700 mb-2 text-center" role="alert">{deleteError}</p>
+            )}
+            {deleteOpen ? (
+              <div className="glass-panel rounded-2xl p-4 border border-rose-200 bg-rose-50/70 space-y-3 text-center">
+                <p className="text-sm font-semibold text-rose-800">Delete your account permanently?</p>
+                <p className="text-sm text-slate-600">
+                  This deletes your account and all learning records. This cannot be undone.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDeleteOpen(false)}
+                    disabled={deleting}
+                    className="flex-1 h-10 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
+                    className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold disabled:opacity-60"
+                  >
+                    {deleting ? 'Deleting…' : 'Delete permanently'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => { setDeleteOpen(true); setDeleteError(null); }}
+                  className="inline-block py-2 text-sm text-rose-700 hover:text-rose-800 font-semibold transition-colors"
+                >
+                  Delete my account
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Bottom Action */}
           <div className="mt-auto pt-6">

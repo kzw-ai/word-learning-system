@@ -57,7 +57,22 @@ except ImportError:
     register_confusable_apis = None
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # pyrefly: ignore  # 支持credentials以便使用cookies
+# 跨域白名单。原来是 CORS(app, supports_credentials=True)：来源默认 '*'，带凭证时 flask-cors 会把任何来源原样
+# 回写为允许，等于任何网站都能带凭证调本站接口。现在只列确切来源：
+# - 网页版经 Next 的 rewrites 代理到后端，是同源请求，本来就用不到 CORS；
+# - React Native App 是原生网络请求，不受浏览器跨域规则约束，也用不到；
+# - Capacitor 版 App（已存档，分支 feat/mobile-app）的页面来源是 capacitor://localhost / https://localhost，
+#   重新启用它时经 CORS_EXTRA_ORIGINS 加上，本地调试要跨域时同样用它（逗号分隔），生产环境不要设置。
+# max_age 让预检结果缓存一天。
+CORS_ORIGINS = ['https://learnchinese.kzwbelieve.top'] + [
+    o.strip() for o in os.environ.get('CORS_EXTRA_ORIGINS', '').split(',') if o.strip()
+]
+CORS(  # pyrefly: ignore
+    app,
+    supports_credentials=True,
+    resources={r"/*": {"origins": CORS_ORIGINS}},
+    max_age=86400,
+)
 
 # 配置Session
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -2425,6 +2440,60 @@ def logout():
         else:
             return jsonify({'success': False, 'error': result['message']}), 400
             
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/account/delete', methods=['POST'])
+def delete_account():
+    """删除账号：删除该账号及其全部学习记录。仅登录用户可调用（访客没有账号）。"""
+    try:
+        if not AuthManager:
+            return jsonify({'success': False, 'error': 'Accounts are not available'}), 503
+
+        auth_manager = AuthManager()
+        # 只认请求头里的 token，不认 cookie：别的网站（包括同一主域下的其他子域）用表单发来的 POST
+        # 会自动带上 cookie（SameSite=Lax 挡不住同站请求），却加不了自定义请求头；跨站 fetch 加了
+        # 自定义头又会被 CORS 预检挡住。网页版和 App 都经 authenticatedFetch 带着这个头调用。
+        session_token = request.headers.get('X-Session-Token')
+        if not session_token:
+            return jsonify({'success': False, 'error': 'Sign in required', 'code': 'SESSION_REQUIRED'}), 401
+
+        validation = auth_manager.validate_session(session_token)
+        if not validation['valid']:
+            return jsonify({'success': False, 'error': 'Sign in required', 'code': 'INVALID_SESSION'}), 401
+
+        user_id = validation['user_id']
+
+        # 删除顺序：先删挂在会话上的子表（exercise_record / learning_event 按 session_id 归属），
+        # 再删会话和其余以 user_id 归属的表，最后删登录态与账号档案。
+        conn = sqlite3.connect(_db_path, timeout=30)
+        try:
+            conn.execute("""
+                DELETE FROM exercise_record WHERE session_id IN
+                (SELECT session_id FROM learning_session WHERE user_id = ?)
+            """, (user_id,))
+            conn.execute("""
+                DELETE FROM learning_event WHERE session_id IN
+                (SELECT session_id FROM learning_session WHERE user_id = ?)
+            """, (user_id,))
+            conn.execute("DELETE FROM learning_session WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_progress WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM adaptive_recommendation WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM confusable_exercise_records WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_session WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            return jsonify({'success': False, 'error': 'Could not delete the account'}), 500
+        finally:
+            conn.close()
+
+        # 账号已删除：像退出登录一样清掉 session_token cookie，避免浏览器还带着已失效的会话
+        response = make_response(jsonify({'success': True, 'message': 'Account deleted'}))
+        response.set_cookie('session_token', '', max_age=0)
+        return response
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
