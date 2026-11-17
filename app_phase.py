@@ -57,20 +57,20 @@ except ImportError:
     register_confusable_apis = None
 
 app = Flask(__name__)
-# 收紧为白名单来源：supports_credentials=True 时不能写 '*'，必须列出确切来源。
-# App 的页面来源是 capacitor://localhost（iOS）/ https://localhost（安卓），与后端不同源，
-# 带身份的请求都会带上 X-Session-Token / X-Guest-Id 请求头，跨域时先发一次 OPTIONS 预检。
-# max_age 让预检结果缓存一天，省掉 App 里每个请求多一次往返；allow_headers 用 flask-cors 默认的 '*'，不写死。
+# 跨域白名单。原来是 CORS(app, supports_credentials=True)：来源默认 '*'，带凭证时 flask-cors 会把任何来源原样
+# 回写为允许，等于任何网站都能带凭证调本站接口。现在只列确切来源：
+# - 网页版经 Next 的 rewrites 代理到后端，是同源请求，本来就用不到 CORS；
+# - React Native App 是原生网络请求，不受浏览器跨域规则约束，也用不到；
+# - Capacitor 版 App（已存档，分支 feat/mobile-app）的页面来源是 capacitor://localhost / https://localhost，
+#   重新启用它时经 CORS_EXTRA_ORIGINS 加上，本地调试要跨域时同样用它（逗号分隔），生产环境不要设置。
+# max_age 让预检结果缓存一天。
+CORS_ORIGINS = ['https://learnchinese.kzwbelieve.top'] + [
+    o.strip() for o in os.environ.get('CORS_EXTRA_ORIGINS', '').split(',') if o.strip()
+]
 CORS(  # pyrefly: ignore
     app,
     supports_credentials=True,
-    resources={r"/*": {"origins": [
-        "https://learnchinese.kzwbelieve.top",   # 线上网站
-        "capacitor://localhost",                  # iOS App
-        "https://localhost",                      # 安卓 App
-        "http://localhost:3100",                  # 本地调试（网页版）
-        "http://127.0.0.1:3100",                  # 本地调试（网页版）
-    ]}},
+    resources={r"/*": {"origins": CORS_ORIGINS}},
     max_age=86400,
 )
 

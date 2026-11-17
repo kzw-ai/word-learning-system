@@ -20,8 +20,8 @@ export const getGuestId = (): string | null => {
 
 /**
  * 身份请求头：登录用户带 X-Session-Token，访客带 X-Guest-Id，都没有则为空对象。
- * 前后端不同源（App 里页面来源是 capacitor://localhost / https://localhost）时，
- * cookie 不会跟着请求走，必须靠这两个头让后端认身份。
+ * 网页版同源也带上它们：身份不只靠 cookie，删除账号这类操作只认请求头
+ * （别的网站用表单发来的请求会带上 cookie，却加不了自定义请求头）。
  * 抽成独立模块，避免 authClient 与 apiClient 互相引用形成循环依赖。
  */
 export const getAuthHeaders = (): Record<string, string> => {

@@ -459,6 +459,30 @@ class TestGuestIdentity:
             conn.close()
 
 
+class TestCors:
+    """跨域只放行线上网站；别的网站（包括已存档的 Capacitor App 来源）默认不放行。"""
+
+    def _preflight(self, client, origin):
+        return client.options('/api/auth/validate', headers={
+            'Origin': origin,
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'X-Session-Token',
+        })
+
+    def test_site_origin_allowed(self, anon_client):
+        r = self._preflight(anon_client, 'https://learnchinese.kzwbelieve.top')
+        assert r.headers.get('Access-Control-Allow-Origin') == 'https://learnchinese.kzwbelieve.top'
+        assert r.headers.get('Access-Control-Allow-Credentials') == 'true'
+
+    def test_other_origins_not_allowed(self, anon_client):
+        for origin in ('https://evil.example', 'https://localhost', 'capacitor://localhost',
+                       'http://localhost:3100', 'https://learnchinese.kzwbelieve.top.evil.example'):
+            r = self._preflight(anon_client, origin)
+            assert r.headers.get('Access-Control-Allow-Origin') is None, origin
+            r = anon_client.get('/api/auth/validate', headers={'Origin': origin})
+            assert r.headers.get('Access-Control-Allow-Origin') is None, origin
+
+
 class TestLogoutAndLogin:
     """退出登录让旧 token 失效；登录（不同于注册）不把访客记录并进账号。"""
 

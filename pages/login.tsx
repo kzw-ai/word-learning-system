@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { authenticatedFetch } from "@/src/lib/authClient";
-import { persistAuthKey } from "@/src/lib/appStorage";
 import { useLearningContext } from '@/src/context/LearningContext';
 import { ensureGuestId } from '@/src/lib/guestIdentity';
 
@@ -37,13 +36,10 @@ const Login = () => {
       const result = await response.json();
 
       if (result.success) {
-        // 保存session token到localStorage，并备份到 Preferences（App 里防 iOS 清 localStorage）
+        // 保存session token到localStorage
         localStorage.setItem('session_token', result.data.session_token);
         localStorage.setItem('user_id', result.data.user_id);
         localStorage.setItem('username', result.data.username);
-        persistAuthKey('session_token', result.data.session_token);
-        persistAuthKey('user_id', result.data.user_id);
-        persistAuthKey('username', result.data.username);
         // 学习系统随即改用账号身份；此前只存了 user_id，学习页仍用旧身份，
         // 请求里的用户与登录凭证对不上而被拒绝
         setUserId(result.data.user_id);
@@ -67,13 +63,10 @@ const Login = () => {
       const response = await authenticatedFetch('/api/auth/account/delete', { method: 'POST' });
       const result = await response.json();
       if (response.ok && result.success) {
-        // 清除本地登录态和 Preferences 备份，退回访客身份
+        // 清除本地登录态，退回访客身份
         localStorage.removeItem('session_token');
         localStorage.removeItem('user_id');
         localStorage.removeItem('username');
-        persistAuthKey('session_token', null);
-        persistAuthKey('user_id', null);
-        persistAuthKey('username', null);
         setUserId(ensureGuestId());
         router.push('/');
       } else {
