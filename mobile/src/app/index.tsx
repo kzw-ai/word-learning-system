@@ -15,7 +15,7 @@ const LEVELS: { level: Level; words: number; example: { chars: string; pinyin: s
 ];
 
 export default function HomeScreen() {
-  const { userId, clearAuth } = useLearningContext();
+  const { userId } = useLearningContext();
   const { hydrated, session } = useLearningSession();
   const [level, setLevel] = useState<Level>(4);
   const [saving, setSaving] = useState(false);
@@ -24,10 +24,6 @@ export default function HomeScreen() {
   const levelInfo = LEVELS.find(l => l.level === level)!;
   const returning = Boolean(session.wordId);
   const isGuest = userId.startsWith('guest_');
-
-  const handleSignOut = async () => {
-    await clearAuth();
-  };
 
   const chooseLevel = (next: Level) => {
     setLevel(next);
@@ -62,8 +58,8 @@ export default function HomeScreen() {
                 <Text style={styles.headerLink}>Sign in</Text>
               </Pressable>
             ) : (
-              <Pressable onPress={handleSignOut}>
-                <Text style={styles.headerLink}>Sign out</Text>
+              <Pressable onPress={() => router.replace('/account')}>
+                <Text style={styles.headerLink}>Account</Text>
               </Pressable>
             )}
           </View>

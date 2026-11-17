@@ -9,16 +9,13 @@ import { useLearningContext } from '@/context/LearningContext';
 import { colors, fontSize, radius, buttonHeight, spacing } from '@/theme';
 
 export default function Login() {
-  const { setUserId, clearAuth } = useLearningContext();
+  const { setUserId } = useLearningContext();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     setError(null);
@@ -28,7 +25,7 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      // 还没登录：请求头只有 X-Guest-Id，后端据此把访客期间的学习记录并入账号
+      // 登录不并库（后端 login 不读 X-Guest-Id）；只有注册才把访客记录并入账号
       const response = await authenticatedFetch('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username: username.trim(), password, remember_me: rememberMe }),
@@ -47,30 +44,6 @@ export default function Login() {
       setError('Network error. Please try again later.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDeleteAccount = async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      const response = await authenticatedFetch('/api/auth/account/delete', { method: 'POST' });
-      const result = await response.json();
-      if (response.ok && result.success) {
-        // 清除本地凭证，退回访客身份（SecureStore 里的凭证一并清掉，重启也不会恢复）
-        await clearAuth();
-        router.replace('/');
-      } else {
-        setDeleteError(
-          response.status === 401
-            ? 'Sign in first to delete your account.'
-            : (result.error || 'Could not delete the account.')
-        );
-      }
-    } catch {
-      setDeleteError('Network error. Please try again later.');
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -138,29 +111,6 @@ export default function Login() {
           <Pressable style={styles.linkBtn} onPress={() => router.replace('/register')}>
             <Text style={styles.linkText}>No account yet? Sign up</Text>
           </Pressable>
-
-          {/* 删除账号（上架要求：App 内可删除账号） */}
-          <View style={styles.deleteSection}>
-            {deleteError && <Text style={styles.deleteError}>{deleteError}</Text>}
-            {deleteOpen ? (
-              <View style={styles.deleteCard}>
-                <Text style={styles.deleteTitle}>Delete your account permanently?</Text>
-                <Text style={styles.deleteHint}>This deletes your account and all learning records. This cannot be undone.</Text>
-                <View style={styles.deleteRow}>
-                  <Pressable style={styles.cancelBtn} onPress={() => setDeleteOpen(false)} disabled={deleting}>
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
-                  </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={handleDeleteAccount} disabled={deleting}>
-                    <Text style={styles.deleteBtnText}>{deleting ? 'Deleting…' : 'Delete permanently'}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : (
-              <Pressable style={styles.linkBtn} onPress={() => { setDeleteOpen(true); setDeleteError(null); }}>
-                <Text style={styles.deleteLinkText}>Delete my account</Text>
-              </Pressable>
-            )}
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
