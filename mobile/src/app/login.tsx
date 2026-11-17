@@ -76,6 +76,8 @@ export default function Login() {
               placeholder="Username or email"
               autoCapitalize="none"
               autoCorrect={false}
+              textContentType="username"
+              autoComplete="username"
               placeholderTextColor={colors.textFaint}
             />
 
@@ -89,6 +91,8 @@ export default function Login() {
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
+                textContentType="password"
+                autoComplete="current-password"
                 placeholderTextColor={colors.textFaint}
               />
               <Pressable style={styles.showBtn} onPress={() => setShowPassword(!showPassword)}>

@@ -50,15 +50,15 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <Text style={styles.appName}>Word Learning</Text>
           <View style={styles.headerActions}>
-            <Pressable onPress={() => router.replace('/privacy')}>
+            <Pressable style={styles.headerBtn} hitSlop={8} onPress={() => router.replace('/privacy')}>
               <Text style={styles.headerLink}>Privacy</Text>
             </Pressable>
             {isGuest ? (
-              <Pressable onPress={() => router.replace('/login')}>
+              <Pressable style={styles.headerBtn} hitSlop={8} onPress={() => router.replace('/login')}>
                 <Text style={styles.headerLink}>Sign in</Text>
               </Pressable>
             ) : (
-              <Pressable onPress={() => router.replace('/account')}>
+              <Pressable style={styles.headerBtn} hitSlop={8} onPress={() => router.replace('/account')}>
                 <Text style={styles.headerLink}>Account</Text>
               </Pressable>
             )}
@@ -123,7 +123,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bgStart },
   container: { flex: 1, paddingHorizontal: 20, paddingVertical: spacing.lg, gap: spacing.lg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerBtn: { minHeight: buttonHeight.min, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   headerLink: { fontSize: fontSize.body, fontWeight: '600', color: colors.primaryDark },
   appName: { fontSize: fontSize.base, fontWeight: '800', color: colors.text },
   hero: { gap: spacing.xs },
